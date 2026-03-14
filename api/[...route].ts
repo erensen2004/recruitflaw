@@ -15,10 +15,7 @@ function loadApp() {
   return appLoader;
 }
 
-export default async function handler(
-  req: any,
-  res: any,
-): Promise<void> {
+export default async function handler(req: any, res: any): Promise<void> {
   const { handle } = await loadApp();
   await handle(req, res);
 }
