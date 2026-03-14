@@ -7,6 +7,8 @@ import { Errors } from "../lib/errors.js";
 
 const router = Router();
 const MAX_VERCEL_PDF_BYTES = Number(process.env.MAX_CV_PARSE_PDF_BYTES || "4000000");
+const OCR_MAX_PAGES = Math.max(1, Number(process.env.CV_PARSE_OCR_MAX_PAGES || "2"));
+const OCR_LANGUAGES = process.env.CV_PARSE_OCR_LANGUAGES || "eng";
 
 const DEFAULT_OPENROUTER_MODELS = [
   "nvidia/nemotron-3-nano-30b-a3b:free",
@@ -147,7 +149,80 @@ function normalizeParsedCandidate(parsed: Record<string, unknown>): Record<strin
   return normalized;
 }
 
+function isMeaningfulPdfText(text: string): boolean {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return false;
+  }
+
+  if (/^--\s*\d+\s+of\s+\d+\s*--$/i.test(normalized)) {
+    return false;
+  }
+
+  const letters = normalized.match(/\p{L}/gu) ?? [];
+  return letters.length >= 24;
+}
+
+async function renderPdfPagesToImages(buffer: Buffer): Promise<Buffer[]> {
+  const { createCanvas, DOMMatrix, ImageData, Path2D } = await import("@napi-rs/canvas");
+
+  // pdfjs expects DOM-like globals even in a server runtime.
+  globalThis.DOMMatrix ??= DOMMatrix;
+  globalThis.ImageData ??= ImageData;
+  globalThis.Path2D ??= Path2D;
+
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const loadingTask = pdfjs.getDocument({
+    data: new Uint8Array(buffer),
+    useSystemFonts: true,
+    isEvalSupported: false,
+  });
+  const pdf = await loadingTask.promise;
+
+  try {
+    const pageCount = Math.min(pdf.numPages, OCR_MAX_PAGES);
+    const images: Buffer[] = [];
+
+    for (let pageIndex = 1; pageIndex <= pageCount; pageIndex += 1) {
+      const page = await pdf.getPage(pageIndex);
+      const viewport = page.getViewport({ scale: 2 });
+      const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+      const canvasContext = canvas.getContext("2d");
+
+      await page.render({ canvas, canvasContext, viewport }).promise;
+      images.push(canvas.toBuffer("image/png"));
+    }
+
+    return images;
+  } finally {
+    await loadingTask.destroy();
+  }
+}
+
+async function extractTextWithOcr(images: Buffer[]): Promise<string> {
+  const { createWorker } = await import("tesseract.js");
+  const worker = await createWorker(OCR_LANGUAGES);
+
+  try {
+    const pages: string[] = [];
+
+    for (const image of images) {
+      const result = await worker.recognize(image);
+      const text = result.data.text.trim();
+      if (text) {
+        pages.push(text);
+      }
+    }
+
+    return pages.join("\n\n").trim();
+  } finally {
+    await worker.terminate();
+  }
+}
+
 async function extractTextFromPdf(buffer: Buffer): Promise<string> {
+  const failures: string[] = [];
+
   try {
     const pdfParseModule = (await import("pdf-parse")) as unknown as {
       PDFParse?: new (options: { data: Buffer }) => {
@@ -165,14 +240,29 @@ async function extractTextFromPdf(buffer: Buffer): Promise<string> {
     const data = await parser.getText();
     await parser.destroy?.();
     const text = (data?.text || "").trim();
-    if (!text) {
-      throw new Error("PDF contains no readable text");
+    if (isMeaningfulPdfText(text)) {
+      return text;
     }
-    return text;
+
+    failures.push("PDF contains no readable text layer");
   } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    throw new Error(`PDF extraction failed: ${errorMsg}`);
+    failures.push(err instanceof Error ? err.message : String(err));
   }
+
+  try {
+    const images = await renderPdfPagesToImages(buffer);
+    const text = await extractTextWithOcr(images);
+
+    if (isMeaningfulPdfText(text)) {
+      return text;
+    }
+
+    failures.push("OCR extracted no readable text");
+  } catch (err) {
+    failures.push(err instanceof Error ? err.message : String(err));
+  }
+
+  throw new Error(`PDF extraction failed: ${failures.join(" | ")}`);
 }
 
 async function readPdfBody(req: any, maxBytes: number): Promise<Buffer> {
