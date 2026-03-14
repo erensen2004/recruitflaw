@@ -1,4 +1,5 @@
 import { Storage, File } from "@google-cloud/storage";
+import { get as getBlob, head as headBlob, put as putBlob } from "@vercel/blob";
 import { Readable } from "stream";
 import { randomUUID } from "crypto";
 import { createReadStream } from "fs";
@@ -14,31 +15,44 @@ import {
 
 const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
 const LOCAL_STORAGE_BACKEND = "local";
+const VERCEL_BLOB_BACKEND = "vercel-blob";
 
-export const objectStorageClient = new Storage({
-  credentials: {
-    audience: "replit",
-    subject_token_type: "access_token",
-    token_url: `${REPLIT_SIDECAR_ENDPOINT}/token`,
-    type: "external_account",
-    credential_source: {
-      url: `${REPLIT_SIDECAR_ENDPOINT}/credential`,
-      format: {
-        type: "json",
-        subject_token_field_name: "access_token",
+function createReplitStorageClient(): Storage {
+  return new Storage({
+    credentials: {
+      audience: "replit",
+      subject_token_type: "access_token",
+      token_url: `${REPLIT_SIDECAR_ENDPOINT}/token`,
+      type: "external_account",
+      credential_source: {
+        url: `${REPLIT_SIDECAR_ENDPOINT}/credential`,
+        format: {
+          type: "json",
+          subject_token_field_name: "access_token",
+        },
       },
+      universe_domain: "googleapis.com",
     },
-    universe_domain: "googleapis.com",
-  },
-  projectId: "",
-});
+    projectId: "",
+  });
+}
 
-type StoredObject = File | LocalStoredObject;
+export const objectStorageClient = createReplitStorageClient();
+
+type StoredObject = File | LocalStoredObject | BlobStoredObject;
 
 interface LocalStoredObject {
   kind: "local";
   filePath: string;
   metadataPath: string;
+}
+
+interface BlobStoredObject {
+  kind: "blob";
+  pathname: string;
+  url: string;
+  contentType?: string | null;
+  size?: number | null;
 }
 
 interface LocalObjectMetadata {
@@ -59,6 +73,13 @@ export class ObjectStorageService {
 
   isLocalBackend(): boolean {
     return process.env.STORAGE_BACKEND === LOCAL_STORAGE_BACKEND;
+  }
+
+  isBlobBackend(): boolean {
+    return (
+      process.env.STORAGE_BACKEND === VERCEL_BLOB_BACKEND ||
+      (!process.env.STORAGE_BACKEND && Boolean(process.env.BLOB_READ_WRITE_TOKEN))
+    );
   }
 
   getLocalStorageRoot(): string {
@@ -86,6 +107,27 @@ export class ObjectStorageService {
       } catch {
         return null;
       }
+    }
+
+    if (this.isBlobBackend()) {
+      const normalizedFilePath = filePath.replace(/^\/+/, "");
+      const prefixes = this.getBlobPublicPrefixes();
+
+      for (const prefix of prefixes) {
+        const pathname = prefix ? `${prefix}/${normalizedFilePath}` : normalizedFilePath;
+        const object = await this.getBlobObject(pathname).catch((error) => {
+          if (isBlobNotFoundError(error)) {
+            return null;
+          }
+          throw error;
+        });
+
+        if (object) {
+          return object;
+        }
+      }
+
+      return null;
     }
 
     for (const searchPath of this.getPublicObjectSearchPaths()) {
@@ -121,6 +163,29 @@ export class ObjectStorageService {
       });
     }
 
+    if (isBlobStoredObject(file)) {
+      const response = await getBlob(file.pathname, {
+        access: "private",
+        token: this.getBlobToken(),
+      });
+
+      if (!response) {
+        throw new ObjectNotFoundError();
+      }
+
+      const headers: Record<string, string> = {
+        "Content-Type": file.contentType || response.blob.contentType || "application/octet-stream",
+        "Cache-Control": `private, max-age=${cacheTtlSec}`,
+      };
+
+      const contentLength = response.headers.get("content-length") || (file.size ? String(file.size) : null);
+      if (contentLength) {
+        headers["Content-Length"] = contentLength;
+      }
+
+      return new Response(response.stream as ReadableStream, { headers });
+    }
+
     const [metadata] = await file.getMetadata();
     const aclPolicy = await getObjectAclPolicy(file);
     const isPublic = aclPolicy?.visibility === "public";
@@ -144,6 +209,11 @@ export class ObjectStorageService {
       await this.ensureLocalStorageRoot();
       const objectId = randomUUID();
       return `/api/storage/uploads/local/${objectId}`;
+    }
+
+    if (this.isBlobBackend()) {
+      const objectId = randomUUID();
+      return `/api/storage/uploads/blob/${objectId}`;
     }
 
     const privateObjectDir = this.getPrivateObjectDir();
@@ -176,6 +246,11 @@ export class ObjectStorageService {
       } catch {
         throw new ObjectNotFoundError();
       }
+    }
+
+    if (this.isBlobBackend()) {
+      const pathname = this.getBlobPathFromObjectPath(objectPath);
+      return this.getBlobObject(pathname);
     }
 
     if (!objectPath.startsWith("/objects/")) {
@@ -212,6 +287,14 @@ export class ObjectStorageService {
       return rawPath;
     }
 
+    if (this.isBlobBackend()) {
+      const blobPrefix = "/api/storage/uploads/blob/";
+      if (rawPath.startsWith(blobPrefix)) {
+        return `/objects/uploads/${rawPath.slice(blobPrefix.length)}`;
+      }
+      return rawPath;
+    }
+
     if (!rawPath.startsWith("https://storage.googleapis.com/")) {
       return rawPath;
     }
@@ -241,11 +324,19 @@ export class ObjectStorageService {
       return normalizedPath;
     }
 
+    if (this.isBlobBackend()) {
+      return normalizedPath;
+    }
+
     const objectFile = await this.getObjectEntityFile(normalizedPath);
     if (isLocalStoredObject(objectFile)) {
       const metadata = await this.readLocalObjectMetadata(objectFile.metadataPath);
       metadata.aclPolicy = aclPolicy;
       await this.writeLocalObjectMetadata(objectFile.metadataPath, metadata);
+      return normalizedPath;
+    }
+
+    if (isBlobStoredObject(objectFile)) {
       return normalizedPath;
     }
 
@@ -267,6 +358,21 @@ export class ObjectStorageService {
     await this.writeLocalObjectMetadata(metadataPath, metadata);
   }
 
+  async writeBlobUploadedObject(
+    objectPath: string,
+    fileBuffer: Buffer,
+    contentType?: string
+  ): Promise<void> {
+    const pathname = this.getBlobPathFromObjectPath(objectPath);
+    await putBlob(pathname, fileBuffer, {
+      access: "private",
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      contentType: contentType || "application/octet-stream",
+      token: this.getBlobToken(),
+    });
+  }
+
   async canAccessObjectEntity({
     userId,
     objectFile,
@@ -285,6 +391,10 @@ export class ObjectStorageService {
       }
       if (!userId) return false;
       return aclPolicy.owner === userId;
+    }
+
+    if (isBlobStoredObject(objectFile)) {
+      return Boolean(userId) && (requestedPermission ?? ObjectPermission.READ) === ObjectPermission.READ;
     }
 
     return canAccessObject({
@@ -313,6 +423,18 @@ export class ObjectStorageService {
     return paths;
   }
 
+  getBlobPublicPrefixes(): Array<string> {
+    const pathsStr = process.env.PUBLIC_OBJECT_SEARCH_PATHS || "";
+    return Array.from(
+      new Set(
+        pathsStr
+          .split(",")
+          .map((currentPath) => currentPath.trim().replace(/^\/+|\/+$/g, ""))
+          .filter(Boolean)
+      )
+    );
+  }
+
   getPrivateObjectDir(): string {
     const dir = process.env.PRIVATE_OBJECT_DIR || "";
     if (!dir) {
@@ -337,10 +459,65 @@ export class ObjectStorageService {
     await mkdir(path.dirname(metadataPath), { recursive: true });
     await writeFile(metadataPath, JSON.stringify(metadata), "utf-8");
   }
+
+  private getBlobToken(): string {
+    const token = process.env.BLOB_READ_WRITE_TOKEN;
+    if (!token) {
+      throw new Error(
+        "BLOB_READ_WRITE_TOKEN not set. Connect a Vercel Blob store and expose the token.",
+      );
+    }
+    return token;
+  }
+
+  private getBlobPathFromObjectPath(objectPath: string): string {
+    if (!objectPath.startsWith("/objects/")) {
+      throw new ObjectNotFoundError();
+    }
+
+    const pathname = objectPath.slice("/objects/".length).replace(/^\/+/, "");
+    if (!pathname) {
+      throw new ObjectNotFoundError();
+    }
+    return pathname;
+  }
+
+  private async getBlobObject(pathname: string): Promise<BlobStoredObject> {
+    try {
+      const metadata = await headBlob(pathname, { token: this.getBlobToken() });
+      return {
+        kind: "blob",
+        pathname,
+        url: metadata.url,
+        contentType: metadata.contentType ?? null,
+        size: metadata.size ?? null,
+      };
+    } catch (error) {
+      if (isBlobNotFoundError(error)) {
+        throw new ObjectNotFoundError();
+      }
+      throw error;
+    }
+  }
 }
 
 function isLocalStoredObject(file: StoredObject): file is LocalStoredObject {
   return "kind" in file && file.kind === "local";
+}
+
+function isBlobStoredObject(file: StoredObject): file is BlobStoredObject {
+  return "kind" in file && file.kind === "blob";
+}
+
+function isBlobNotFoundError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+
+  const candidate = error as { status?: number; message?: string; code?: string };
+  return (
+    candidate.status === 404 ||
+    candidate.code === "not_found" ||
+    /not found/i.test(candidate.message || "")
+  );
 }
 
 function parseObjectPath(currentPath: string): {

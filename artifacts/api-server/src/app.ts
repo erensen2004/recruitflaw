@@ -2,18 +2,48 @@ import express, { type Express } from "express";
 import cors from "cors";
 import router from "./routes";
 
+function normalizeOrigin(candidate: string): string | null {
+  const trimmed = candidate.trim();
+  if (!trimmed) return null;
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed.replace(/\/$/, "");
+  }
+
+  return `https://${trimmed.replace(/\/$/, "")}`;
+}
+
+function getPlatformOrigins(): string[] {
+  const rawOrigins = [
+    process.env.VERCEL_URL,
+    process.env.VERCEL_BRANCH_URL,
+    process.env.VERCEL_PROJECT_PRODUCTION_URL,
+  ];
+
+  return Array.from(
+    new Set(
+      rawOrigins
+        .map((origin) => (origin ? normalizeOrigin(origin) : null))
+        .filter((origin): origin is string => Boolean(origin)),
+    ),
+  );
+}
+
 function buildCorsOptions() {
   const isProd = process.env.NODE_ENV === "production";
   const allowedOriginsEnv = process.env.ALLOWED_ORIGINS ?? "";
-  const allowedOrigins = allowedOriginsEnv
+  const configuredOrigins = allowedOriginsEnv
     .split(",")
-    .map((o) => o.trim())
-    .filter(Boolean);
+    .map((o) => normalizeOrigin(o))
+    .filter((o): o is string => Boolean(o));
+  const allowedOrigins = Array.from(
+    new Set([...configuredOrigins, ...getPlatformOrigins()]),
+  );
 
   if (isProd && allowedOrigins.length === 0) {
     throw new Error(
-      "ALLOWED_ORIGINS must be set in production. " +
-      "Refusing to start with open CORS policy."
+      "ALLOWED_ORIGINS or Vercel deployment URLs must be set in production. " +
+        "Refusing to start with open CORS policy."
     );
   }
 
@@ -35,7 +65,8 @@ function buildCorsOptions() {
         origin.endsWith(".repl.co") ||
         origin.endsWith(".pike.replit.dev");
 
-      const inWhitelist = allowedOrigins.includes(origin);
+      const normalizedOrigin = normalizeOrigin(origin);
+      const inWhitelist = normalizedOrigin ? allowedOrigins.includes(normalizedOrigin) : false;
 
       const inDevDefaults = !isProd && devDefaults.includes(origin);
 

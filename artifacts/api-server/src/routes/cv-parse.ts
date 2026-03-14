@@ -6,6 +6,7 @@ import { CvParseBodySchema, CvParseResponseSchema } from "../lib/schemas.js";
 import { Errors } from "../lib/errors.js";
 
 const router = Router();
+const MAX_VERCEL_PDF_BYTES = Number(process.env.MAX_CV_PARSE_PDF_BYTES || "4000000");
 
 const DEFAULT_OPENROUTER_MODELS = [
   "nvidia/nemotron-3-nano-30b-a3b:free",
@@ -174,6 +175,27 @@ async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   }
 }
 
+async function readPdfBody(req: Request, maxBytes: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+
+  req.on("data", (chunk: Buffer) => {
+    total += chunk.length;
+    if (total > maxBytes) {
+      req.destroy(new Error(`Payload exceeds ${maxBytes} bytes`));
+      return;
+    }
+    chunks.push(chunk);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    req.on("end", resolve);
+    req.on("error", reject);
+  });
+
+  return Buffer.concat(chunks);
+}
+
 async function parseWithAI(cvText: string): Promise<Record<string, unknown>> {
   const { client, models, provider } = getAiClientConfig();
   const systemPrompt = buildSystemPrompt();
@@ -234,14 +256,21 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
     let cvText: string;
 
     if (req.headers["content-type"]?.includes("application/pdf")) {
-      const chunks: Buffer[] = [];
-      req.on("data", (chunk: Buffer) => chunks.push(chunk));
-      await new Promise<void>((resolve, reject) => {
-        req.on("end", resolve);
-        req.on("error", reject);
-      });
+      let pdfBuffer: Buffer;
+      try {
+        pdfBuffer = await readPdfBody(req, MAX_VERCEL_PDF_BYTES);
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        if (errorMsg.includes("Payload exceeds")) {
+          res.status(413).json({
+            error: `PDF uploads must be ${Math.floor(MAX_VERCEL_PDF_BYTES / 1_000_000)}MB or smaller`,
+            code: "BAD_REQUEST",
+          });
+          return;
+        }
+        throw err;
+      }
 
-      const pdfBuffer = Buffer.concat(chunks);
       if (!pdfBuffer.length) {
         Errors.badRequest(res, "PDF body is empty");
         return;

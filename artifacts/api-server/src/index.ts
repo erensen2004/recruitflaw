@@ -1,10 +1,10 @@
 import app from "./app.js";
-import { seedIfEmpty } from "./lib/seed.js";
+import { ensureAppReady } from "./lib/runtime.js";
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
 
 async function main() {
-  await seedIfEmpty();
+  await ensureAppReady();
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`API server listening on port ${PORT}`);

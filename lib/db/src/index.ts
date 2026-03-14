@@ -18,7 +18,18 @@ function getDatabaseUrl(): string {
   );
 }
 
-export const pool = new Pool({ connectionString: getDatabaseUrl() });
+function getSearchPath(): string {
+  return process.env.DB_SEARCH_PATH || "public";
+}
+
+function getPoolConfig(): pg.PoolConfig {
+  return {
+    connectionString: getDatabaseUrl(),
+    options: `--search_path=${getSearchPath()}`,
+  };
+}
+
+export const pool = new Pool(getPoolConfig());
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";

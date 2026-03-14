@@ -12,6 +12,28 @@ import { resolveCandidateAccess } from "../lib/authz.js";
 
 const router = Router();
 const objectStorageService = new ObjectStorageService();
+const MAX_VERCEL_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_BYTES || "4000000");
+
+async function readRequestBody(req: Request, maxBytes?: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+
+  req.on("data", (chunk: Buffer) => {
+    total += chunk.length;
+    if (maxBytes && total > maxBytes) {
+      req.destroy(new Error(`Payload exceeds ${maxBytes} bytes`));
+      return;
+    }
+    chunks.push(chunk);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    req.on("end", resolve);
+    req.on("error", reject);
+  });
+
+  return Buffer.concat(chunks);
+}
 
 router.put("/storage/uploads/local/:objectId", requireAuth, async (req: Request, res: Response) => {
   if (!objectStorageService.isLocalBackend()) {
@@ -21,14 +43,7 @@ router.put("/storage/uploads/local/:objectId", requireAuth, async (req: Request,
 
   try {
     const objectId = req.params.objectId;
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    await new Promise<void>((resolve, reject) => {
-      req.on("end", resolve);
-      req.on("error", reject);
-    });
-
-    const fileBuffer = Buffer.concat(chunks);
+    const fileBuffer = await readRequestBody(req);
     if (!fileBuffer.length) {
       Errors.badRequest(res, "Upload body is empty");
       return;
@@ -48,6 +63,42 @@ router.put("/storage/uploads/local/:objectId", requireAuth, async (req: Request,
   }
 });
 
+router.put("/storage/uploads/blob/:objectId", requireAuth, async (req: Request, res: Response) => {
+  if (!objectStorageService.isBlobBackend()) {
+    Errors.notFound(res, "Vercel Blob upload endpoint is disabled");
+    return;
+  }
+
+  try {
+    const objectId = req.params.objectId;
+    const fileBuffer = await readRequestBody(req, MAX_VERCEL_UPLOAD_BYTES);
+    if (!fileBuffer.length) {
+      Errors.badRequest(res, "Upload body is empty");
+      return;
+    }
+
+    const objectPath = `/objects/uploads/${objectId}`;
+    await objectStorageService.writeBlobUploadedObject(
+      objectPath,
+      fileBuffer,
+      typeof req.headers["content-type"] === "string" ? req.headers["content-type"] : undefined,
+    );
+
+    res.status(204).end();
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("Payload exceeds")) {
+      res.status(413).json({
+        error: `Uploads must be ${Math.floor(MAX_VERCEL_UPLOAD_BYTES / 1_000_000)}MB or smaller on Vercel Blob server uploads`,
+        code: "BAD_REQUEST",
+      });
+      return;
+    }
+
+    console.error("Error storing Vercel Blob upload:", error);
+    Errors.internal(res, "Failed to store uploaded file");
+  }
+});
+
 /**
  * POST /storage/uploads/request-url
  *
@@ -62,6 +113,14 @@ router.post(
     try {
       const { name, size, contentType } = req.body;
       const { userId, companyId } = req.user!;
+
+      if (objectStorageService.isBlobBackend() && size > MAX_VERCEL_UPLOAD_BYTES) {
+        Errors.badRequest(
+          res,
+          `Uploads must be ${Math.floor(MAX_VERCEL_UPLOAD_BYTES / 1_000_000)}MB or smaller on Vercel Blob server uploads`,
+        );
+        return;
+      }
 
       const uploadURL = await objectStorageService.getObjectEntityUploadURL();
       const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
