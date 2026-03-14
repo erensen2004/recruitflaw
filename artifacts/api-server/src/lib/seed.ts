@@ -1,6 +1,6 @@
-import { db, usersTable, companiesTable } from "@workspace/db";
+import { db } from "@workspace/db";
+import { usersTable, companiesTable } from "@workspace/db/schema";
 import bcrypt from "bcryptjs";
-import { eq } from "drizzle-orm";
 
 export async function seedIfEmpty() {
   try {
