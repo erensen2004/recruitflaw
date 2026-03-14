@@ -1,0 +1,1193 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: ATS Platform API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: auth
+    description: Authentication
+  - name: companies
+    description: Company management
+  - name: users
+    description: User management
+  - name: roles
+    description: Job role management
+  - name: candidates
+    description: Candidate management
+  - name: contracts
+    description: Contract management
+  - name: timesheets
+    description: Timesheet management
+  - name: analytics
+    description: Analytics and reporting
+  - name: notes
+    description: Candidate notes
+  - name: Storage
+    description: Object storage upload and serving endpoints.
+
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login with email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /companies:
+    get:
+      operationId: listCompanies
+      tags: [companies]
+      summary: List all companies (Admin only)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of companies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Company"
+    post:
+      operationId: createCompany
+      tags: [companies]
+      summary: Create a company (Admin only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCompanyRequest"
+      responses:
+        "201":
+          description: Company created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Company"
+
+  /companies/{id}:
+    patch:
+      operationId: updateCompany
+      tags: [companies]
+      summary: Update a company (Admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCompanyRequest"
+      responses:
+        "200":
+          description: Company updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Company"
+
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List users (Admin only)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create a user (Admin only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{id}:
+    patch:
+      operationId: updateUser
+      tags: [users]
+      summary: Update a user (Admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /roles:
+    get:
+      operationId: listRoles
+      tags: [roles]
+      summary: List job roles (filtered by role)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of roles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/JobRole"
+    post:
+      operationId: createRole
+      tags: [roles]
+      summary: Create a job role (Client HR)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRoleRequest"
+      responses:
+        "201":
+          description: Role created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobRole"
+
+  /roles/{id}:
+    get:
+      operationId: getRole
+      tags: [roles]
+      summary: Get a job role by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Job role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobRole"
+    patch:
+      operationId: updateRole
+      tags: [roles]
+      summary: Update a job role
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRoleRequest"
+      responses:
+        "200":
+          description: Role updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobRole"
+
+  /roles/{id}/status:
+    patch:
+      operationId: updateRoleStatus
+      tags: [roles]
+      summary: Update job role status
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRoleStatusRequest"
+      responses:
+        "200":
+          description: Role status updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobRole"
+
+  /candidates:
+    get:
+      operationId: listCandidates
+      tags: [candidates]
+      summary: List candidates (filtered by role)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: roleId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of candidates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Candidate"
+    post:
+      operationId: submitCandidate
+      tags: [candidates]
+      summary: Submit a candidate (Vendor only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitCandidateRequest"
+      responses:
+        "201":
+          description: Candidate submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Candidate"
+        "409":
+          description: Duplicate candidate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /candidates/{id}:
+    get:
+      tags: [candidates]
+      operationId: getCandidate
+      summary: Get a candidate by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Candidate detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Candidate'
+        '404':
+          description: Not found
+
+  /candidates/{id}/status:
+    patch:
+      operationId: updateCandidateStatus
+      tags: [candidates]
+      summary: Update candidate status (Client HR)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCandidateStatusRequest"
+      responses:
+        "200":
+          description: Candidate status updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Candidate"
+
+  /contracts:
+    get:
+      operationId: listContracts
+      tags: [contracts]
+      summary: List contracts
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of contracts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Contract"
+    post:
+      operationId: createContract
+      tags: [contracts]
+      summary: Create a contract (Admin only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContractRequest"
+      responses:
+        "201":
+          description: Contract created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contract"
+
+  /timesheets:
+    get:
+      operationId: listTimesheets
+      tags: [timesheets]
+      summary: List timesheets
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of timesheets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Timesheet"
+    post:
+      operationId: submitTimesheet
+      tags: [timesheets]
+      summary: Submit a timesheet (Vendor only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitTimesheetRequest"
+      responses:
+        "201":
+          description: Timesheet submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Timesheet"
+
+  /candidates/{id}/notes:
+    get:
+      tags: [notes]
+      operationId: listCandidateNotes
+      summary: List notes for a candidate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of notes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CandidateNote'
+    post:
+      tags: [notes]
+      operationId: addCandidateNote
+      summary: Add a note to a candidate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddNoteRequest'
+      responses:
+        '201':
+          description: Note added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CandidateNote'
+
+  /analytics:
+    get:
+      tags: [analytics]
+      operationId: getAnalytics
+      summary: Get analytics overview
+      responses:
+        '200':
+          description: Analytics data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Analytics'
+
+  /storage/uploads/request-url:
+    post:
+      tags: [Storage]
+      operationId: requestUploadUrl
+      summary: Request a presigned URL for file upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadUrlRequest'
+      responses:
+        '200':
+          description: Presigned upload URL generated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadUrlResponse'
+        '400':
+          description: Missing or invalid required fields.
+        '500':
+          description: Failed to generate upload URL.
+  /storage/objects/{objectPath}:
+    get:
+      tags: [Storage]
+      operationId: getStorageObject
+      summary: Serve an object entity from PRIVATE_OBJECT_DIR
+      parameters:
+        - name: objectPath
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Object content streamed.
+          content:
+            '*/*':
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Object not found.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      required:
+        - error
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required:
+        - email
+        - password
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: "#/components/schemas/UserProfile"
+      required:
+        - token
+        - user
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          enum: [admin, client, vendor]
+        companyId:
+          type: integer
+          nullable: true
+        companyName:
+          type: string
+          nullable: true
+      required:
+        - id
+        - email
+        - name
+        - role
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          enum: [admin, client, vendor]
+        companyId:
+          type: integer
+          nullable: true
+        companyName:
+          type: string
+          nullable: true
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - email
+        - name
+        - role
+        - isActive
+        - createdAt
+
+    CreateUserRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        password:
+          type: string
+        role:
+          type: string
+          enum: [admin, client, vendor]
+        companyId:
+          type: integer
+          nullable: true
+      required:
+        - email
+        - name
+        - password
+        - role
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [admin, client, vendor]
+        companyId:
+          type: integer
+          nullable: true
+        isActive:
+          type: boolean
+        password:
+          type: string
+
+    Company:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        type:
+          type: string
+          enum: [client, vendor]
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - type
+        - isActive
+        - createdAt
+
+    CreateCompanyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [client, vendor]
+      required:
+        - name
+        - type
+
+    UpdateCompanyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        isActive:
+          type: boolean
+
+    JobRole:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        skills:
+          type: string
+          nullable: true
+        salaryMin:
+          type: number
+          nullable: true
+        salaryMax:
+          type: number
+          nullable: true
+        location:
+          type: string
+          nullable: true
+        employmentType:
+          type: string
+          enum: [full-time, part-time, contract, freelance]
+          nullable: true
+        isRemote:
+          type: boolean
+        status:
+          type: string
+          enum: [draft, pending_approval, published, closed]
+        companyId:
+          type: integer
+        companyName:
+          type: string
+        candidateCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - title
+        - status
+        - isRemote
+        - companyId
+        - companyName
+        - candidateCount
+        - createdAt
+        - updatedAt
+
+    CreateRoleRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        skills:
+          type: string
+        salaryMin:
+          type: number
+        salaryMax:
+          type: number
+        location:
+          type: string
+        employmentType:
+          type: string
+          enum: [full-time, part-time, contract, freelance]
+        isRemote:
+          type: boolean
+      required:
+        - title
+
+    UpdateRoleRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        skills:
+          type: string
+        salaryMin:
+          type: number
+        salaryMax:
+          type: number
+        location:
+          type: string
+        employmentType:
+          type: string
+          enum: [full-time, part-time, contract, freelance]
+        isRemote:
+          type: boolean
+
+    UpdateRoleStatusRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [draft, pending_approval, published, closed]
+      required:
+        - status
+
+    Candidate:
+      type: object
+      properties:
+        id:
+          type: integer
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        expectedSalary:
+          type: number
+          nullable: true
+        status:
+          type: string
+          enum: [submitted, screening, interview, offer, hired, rejected]
+        roleId:
+          type: integer
+        roleTitle:
+          type: string
+        vendorCompanyId:
+          type: integer
+        vendorCompanyName:
+          type: string
+        submittedAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        cvUrl:
+          type: string
+          nullable: true
+        tags:
+          type: string
+          nullable: true
+      required:
+        - id
+        - firstName
+        - lastName
+        - email
+        - status
+        - roleId
+        - roleTitle
+        - vendorCompanyId
+        - vendorCompanyName
+        - submittedAt
+        - updatedAt
+
+    SubmitCandidateRequest:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        expectedSalary:
+          type: number
+        roleId:
+          type: integer
+        cvUrl:
+          type: string
+        tags:
+          type: string
+      required:
+        - firstName
+        - lastName
+        - email
+        - roleId
+
+    UpdateCandidateStatusRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [submitted, screening, interview, offer, hired, rejected]
+      required:
+        - status
+
+    UploadUrlRequest:
+      type: object
+      required: [name, size, contentType]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        size:
+          type: integer
+          minimum: 1
+        contentType:
+          type: string
+          minLength: 1
+    UploadUrlResponse:
+      type: object
+      required: [uploadURL, objectPath]
+      properties:
+        uploadURL:
+          type: string
+          format: uri
+        objectPath:
+          type: string
+
+    Contract:
+      type: object
+      properties:
+        id:
+          type: integer
+        candidateId:
+          type: integer
+        candidateName:
+          type: string
+        roleTitle:
+          type: string
+        vendorCompanyName:
+          type: string
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+          nullable: true
+        dailyRate:
+          type: number
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - candidateId
+        - candidateName
+        - roleTitle
+        - vendorCompanyName
+        - startDate
+        - dailyRate
+        - isActive
+        - createdAt
+
+    CreateContractRequest:
+      type: object
+      properties:
+        candidateId:
+          type: integer
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        dailyRate:
+          type: number
+      required:
+        - candidateId
+        - startDate
+        - dailyRate
+
+    Timesheet:
+      type: object
+      properties:
+        id:
+          type: integer
+        contractId:
+          type: integer
+        candidateName:
+          type: string
+        roleTitle:
+          type: string
+        month:
+          type: integer
+        year:
+          type: integer
+        totalDays:
+          type: integer
+        totalAmount:
+          type: number
+        submittedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - contractId
+        - candidateName
+        - roleTitle
+        - month
+        - year
+        - totalDays
+        - totalAmount
+        - submittedAt
+
+    SubmitTimesheetRequest:
+      type: object
+      properties:
+        contractId:
+          type: integer
+        month:
+          type: integer
+        year:
+          type: integer
+        totalDays:
+          type: integer
+      required:
+        - contractId
+        - month
+        - year
+        - totalDays
+
+    CandidateNote:
+      type: object
+      properties:
+        id:
+          type: integer
+        candidateId:
+          type: integer
+        userId:
+          type: integer
+        authorName:
+          type: string
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - candidateId
+        - userId
+        - authorName
+        - content
+        - createdAt
+
+    AddNoteRequest:
+      type: object
+      properties:
+        content:
+          type: string
+      required:
+        - content
+
+    AnalyticsStatusCount:
+      type: object
+      properties:
+        status:
+          type: string
+        count:
+          type: integer
+      required:
+        - status
+        - count
+
+    AnalyticsTopRole:
+      type: object
+      properties:
+        roleId:
+          type: integer
+        roleTitle:
+          type: string
+        count:
+          type: integer
+      required:
+        - roleId
+        - roleTitle
+        - count
+
+    Analytics:
+      type: object
+      properties:
+        totalCandidates:
+          type: integer
+        totalRoles:
+          type: integer
+        totalCompanies:
+          type: integer
+        totalUsers:
+          type: integer
+        candidatesByStatus:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalyticsStatusCount'
+        rolesByStatus:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalyticsStatusCount'
+        topRoles:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalyticsTopRole'
+      required:
+        - totalCandidates
+        - totalRoles
+        - totalCompanies
+        - totalUsers
+        - candidatesByStatus
+        - rolesByStatus
+        - topRoles

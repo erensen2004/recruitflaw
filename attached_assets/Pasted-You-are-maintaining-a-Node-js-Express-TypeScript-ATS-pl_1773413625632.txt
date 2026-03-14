@@ -1,0 +1,219 @@
+You are maintaining a **Node.js + Express + TypeScript ATS platform** using PostgreSQL and Drizzle ORM.
+
+The previous security fixes improved authorization, but **several important production-grade issues remain**.
+Your task is to **complete the remaining hardening work** so the system becomes safe for production use.
+
+Follow the instructions carefully and refactor code where necessary.
+
+---
+
+# 1. Enforce Object-Level Authorization for Private Storage
+
+Currently the route:
+
+GET /storage/objects/*path
+
+only requires authentication, which is **not sufficient**.
+
+Fix this so that **file access is validated against object ownership**.
+
+### Requirements
+
+1. Before serving a private object:
+
+   * Resolve the object path
+   * Verify access using:
+
+   objectStorageService.canAccessObjectEntity(...)
+
+2. If access is not allowed:
+
+   return 403 Forbidden
+
+3. Never allow authenticated users to access objects belonging to other organizations.
+
+### Expected Logic
+
+* Admin → full access
+* Client → only objects belonging to their company
+* Vendor → only objects belonging to their vendor submissions
+
+If object metadata is missing or invalid → return 403.
+
+---
+
+# 2. Ensure Uploaded Files Receive ACL Metadata
+
+Uploads currently generate object paths but **ownership metadata may not be stored**.
+
+During upload preparation:
+
+Use:
+
+trySetObjectEntityAclPolicy(...)
+
+### Each uploaded file must store:
+
+* ownerId
+* companyId
+* entityType (candidate, cv, etc.)
+* visibility (private/public)
+
+### Requirements
+
+Modify the upload flow so that after generating an upload URL:
+
+1. ACL metadata is written
+2. Ownership is recorded
+3. Object cannot be accessed without ACL validation
+
+---
+
+# 3. Implement Proper Request Validation Using Zod
+
+Many API routes still use manual checks like:
+
+if (!title) { ... }
+
+Replace all ad-hoc validation with **Zod schemas**.
+
+### Implement validation for:
+
+* candidate creation
+* candidate status updates
+* role creation
+* role updates
+* contracts creation
+* timesheet creation
+* candidate notes
+* CV parsing endpoints
+
+### Validation must include:
+
+* correct types
+* enum validation
+* date validation
+* numeric coercion
+* string length limits
+* required fields
+
+If validation fails → return HTTP 400 with structured error response.
+
+---
+
+# 4. Harden CORS Configuration
+
+Current logic allows **all origins when ALLOWED_ORIGINS is empty**, which is dangerous.
+
+Refactor CORS configuration.
+
+### Requirements
+
+1. In production:
+
+   * Require ALLOWED_ORIGINS to be defined
+   * Only allow requests from that whitelist
+
+2. If ALLOWED_ORIGINS is empty in production:
+
+   * throw a startup error
+   * do NOT allow all origins
+
+3. For development:
+
+   * allow localhost origins
+
+Example allowed dev origins:
+
+http://localhost:3000
+http://localhost:5173
+
+---
+
+# 5. Implement Automatic PDF → Text Extraction for CV Parsing
+
+Currently CV parsing requires users to manually paste CV text.
+
+Add automatic extraction when a PDF CV is uploaded.
+
+### Workflow
+
+1. User uploads CV PDF
+2. System extracts text from the PDF
+3. Extracted text is passed to the AI parser
+4. Parsed data is validated and stored
+
+### Requirements
+
+Use a lightweight library such as:
+
+pdf-parse
+
+If extraction fails:
+
+* fall back to manual cvText input
+
+Do NOT break the existing manual CV text flow.
+
+---
+
+# 6. Ensure Consistent Error Handling
+
+Refactor endpoints to ensure consistent API error responses.
+
+### Standard error format
+
+{
+"error": "message",
+"code": "ERROR_TYPE"
+}
+
+Examples:
+
+* VALIDATION_ERROR
+* FORBIDDEN
+* NOT_FOUND
+* INTERNAL_ERROR
+
+Avoid inconsistent error structures across endpoints.
+
+---
+
+# 7. Improve Storage Security Defaults
+
+Ensure the following:
+
+* uploaded CV files default to private
+* public objects must be explicitly declared
+* object URLs must not expose internal storage structure
+
+Do not expose raw object paths to unauthorized users.
+
+---
+
+# 8. Final Code Quality Improvements
+
+Ensure:
+
+* no unused security helper functions remain
+* ACL helpers are actually used in routes
+* consistent TypeScript typing
+* no silent failures
+* safe null handling
+* clear authorization checks
+
+---
+
+# Expected Outcome
+
+After implementing these changes:
+
+* private files are fully protected
+* uploaded files have ownership metadata
+* API inputs are strictly validated
+* CORS is production-safe
+* CV parsing automatically supports PDF uploads
+* error handling is consistent
+* the system becomes **production-grade secure**
+
+Implement these changes across the codebase carefully.

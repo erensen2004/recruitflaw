@@ -1,0 +1,156 @@
+You are maintaining a Node.js / Express / TypeScript ATS platform.
+The system includes role-based authentication (admin, client, vendor), PostgreSQL with Drizzle ORM, and REST API endpoints for candidates, roles, contracts, notes, and timesheets.
+
+The application works, but there are several **critical security and authorization issues** that must be fixed before production.
+
+Please implement the following improvements carefully.
+
+---
+
+### 1. Implement ownership-based authorization
+
+Currently many endpoints rely only on role-based authorization.
+
+Add **ownership checks** so users can only access resources within their scope:
+
+* **Admin:** full access
+* **Client:** only resources belonging to their company
+* **Vendor:** only resources belonging to their vendor account
+
+This must apply to:
+
+* candidates
+* roles
+* candidate notes
+* contracts
+* timesheets
+
+Users must never access data outside their scope.
+
+---
+
+### 2. Secure `GET /candidates/:id`
+
+Ensure the endpoint verifies that the authenticated user has permission to access the candidate.
+
+Add checks such that:
+
+* admin → allowed
+* client → candidate.role.company_id must match user's company
+* vendor → candidate.vendor_id must match vendor user
+
+Return **403 Forbidden** if access is invalid.
+
+---
+
+### 3. Secure `PATCH /candidates/:id/status`
+
+Currently status updates are allowed but ownership may not be verified.
+
+Add validation so that:
+
+* admin can update any candidate
+* client can only update candidates belonging to roles within their company
+* vendor should NOT be allowed unless explicitly intended
+
+Reject unauthorized updates.
+
+---
+
+### 4. Secure `PATCH /roles/:id`
+
+Ensure only the owning company or admin can modify a role.
+
+Implement checks:
+
+* admin → allowed
+* client → role.company_id must match client company
+* vendor → no permission
+
+Prevent users from modifying roles belonging to other companies.
+
+---
+
+### 5. Fix authorization for candidate notes
+
+Endpoints for notes must verify candidate ownership.
+
+Before creating or retrieving notes:
+
+* verify the candidate exists
+* verify the candidate belongs to the requesting user's scope
+
+Clients should not read notes of candidates from other companies.
+
+---
+
+### 6. Fix timesheet filtering bug
+
+The current client-side timesheet filtering appears to use async logic inside `.filter()` which is incorrect.
+
+Refactor logic so that:
+
+* filtering is done with proper synchronous checks
+* queries ensure clients only retrieve timesheets belonging to their company
+
+Prefer filtering directly in the database query instead of post-processing.
+
+---
+
+### 7. Secure contracts visibility
+
+Ensure contract endpoints enforce strict scope filtering.
+
+Rules:
+
+* admin → all contracts
+* client → only contracts linked to their company
+* vendor → only contracts belonging to their vendor
+
+Apply this to both list and detail endpoints.
+
+---
+
+### 8. Protect private storage routes
+
+Private files (such as CVs) must not be publicly accessible.
+
+Ensure that:
+
+* private object routes verify authentication
+* signed URLs or authenticated access is required
+* remove any commented-out authorization checks
+* enforce ACL rules before serving files
+
+CVs must never be publicly accessible without authentication.
+
+---
+
+### 9. Production hardening improvements
+
+Implement the following security improvements:
+
+1. Remove fallback/default JWT secret and require `JWT_SECRET` from environment variables.
+2. Restrict CORS using an origin whitelist instead of `app.use(cors())`.
+3. Add request validation using a schema validator (preferably Zod).
+4. Validate AI CV parsing responses before storing them in the database.
+5. If possible, improve CV parsing pipeline:
+
+   * PDF upload
+   * text extraction
+   * AI parsing
+   * structured validation
+
+---
+
+### Expected result
+
+After these changes:
+
+* all sensitive endpoints enforce ownership checks
+* users cannot access data outside their organization
+* file storage is properly protected
+* API security is improved
+* the platform is closer to production readiness
+
+Please update the codebase accordingly.
