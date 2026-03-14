@@ -1,9 +1,14 @@
 import { defineConfig } from "drizzle-kit";
 import path from "path";
 
+function sanitizeEnvValue(value: string | undefined): string {
+  return value ? value.replace(/\\n/g, "\n").trim() : "";
+}
+
 function getDatabaseUrl() {
-  if (process.env.DATABASE_URL) {
-    return process.env.DATABASE_URL;
+  const databaseUrl = sanitizeEnvValue(process.env.DATABASE_URL);
+  if (databaseUrl) {
+    return databaseUrl;
   }
 
   if (process.env.LOCAL_DEV === "1") {

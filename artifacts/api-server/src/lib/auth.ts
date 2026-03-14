@@ -1,7 +1,11 @@
 import jwt from "jsonwebtoken";
 
+function sanitizeEnvValue(value: string | undefined): string {
+  return value ? value.replace(/\\n/g, "\n").trim() : "";
+}
+
 function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET;
+  const secret = sanitizeEnvValue(process.env.JWT_SECRET);
   if (!secret) {
     throw new Error("JWT_SECRET environment variable is required but not set.");
   }

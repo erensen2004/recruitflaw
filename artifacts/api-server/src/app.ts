@@ -3,7 +3,7 @@ import cors from "cors";
 import router from "./routes/index.js";
 
 function normalizeOrigin(candidate: string): string | null {
-  const trimmed = candidate.trim();
+  const trimmed = candidate.replace(/\\n/g, "\n").trim();
   if (!trimmed) return null;
 
   if (/^https?:\/\//i.test(trimmed)) {

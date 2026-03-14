@@ -5,9 +5,14 @@ import * as schema from "./schema/index.js";
 
 const { Pool } = pg;
 
-function getDatabaseUrl(): string {
-  if (process.env.DATABASE_URL) {
-    return process.env.DATABASE_URL;
+function sanitizeEnvValue(value: string | undefined): string {
+  return value ? value.replace(/\\n/g, "\n").trim() : "";
+}
+
+function getRawDatabaseUrl(): string {
+  const databaseUrl = sanitizeEnvValue(process.env.DATABASE_URL);
+  if (databaseUrl) {
+    return databaseUrl;
   }
 
   if (process.env.LOCAL_DEV === "1") {
@@ -19,14 +24,44 @@ function getDatabaseUrl(): string {
   );
 }
 
+function getDatabaseUrl(): string {
+  const databaseUrl = getRawDatabaseUrl();
+  const parsedUrl = new URL(databaseUrl);
+  parsedUrl.searchParams.delete("sslmode");
+  parsedUrl.searchParams.delete("uselibpqcompat");
+  return parsedUrl.toString();
+}
+
 function getSearchPath(): string {
-  return process.env.DB_SEARCH_PATH || "public";
+  return sanitizeEnvValue(process.env.DB_SEARCH_PATH) || "public";
+}
+
+function getSslConfig(rawDatabaseUrl: string): pg.PoolConfig["ssl"] {
+  if (rawDatabaseUrl.includes("sslmode=disable")) {
+    return undefined;
+  }
+
+  if (
+    rawDatabaseUrl.includes("sslmode=") ||
+    rawDatabaseUrl.includes("supabase.co") ||
+    rawDatabaseUrl.includes("pooler.supabase.com")
+  ) {
+    return {
+      rejectUnauthorized: false,
+    };
+  }
+
+  return undefined;
 }
 
 function getPoolConfig(): pg.PoolConfig {
+  const rawDatabaseUrl = getRawDatabaseUrl();
+  const databaseUrl = getDatabaseUrl();
+
   return {
-    connectionString: getDatabaseUrl(),
+    connectionString: databaseUrl,
     options: `--search_path=${getSearchPath()}`,
+    ssl: getSslConfig(rawDatabaseUrl),
   };
 }
 
