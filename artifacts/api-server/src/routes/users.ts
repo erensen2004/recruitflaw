@@ -1,7 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { db, usersTable, companiesTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { companiesTable, db, eq, usersTable } from "@workspace/db";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole } from "../lib/authz.js";
 import { Errors } from "../lib/errors.js";

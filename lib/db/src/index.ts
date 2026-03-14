@@ -1,4 +1,5 @@
 import { drizzle } from "drizzle-orm/node-postgres";
+export { and, count, eq, inArray, sql } from "drizzle-orm";
 import pg from "pg";
 import * as schema from "./schema/index.js";
 

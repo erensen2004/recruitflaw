@@ -1,5 +1,3 @@
-import { Response } from "express";
-
 export type ApiErrorCode =
   | "VALIDATION_ERROR"
   | "UNAUTHORIZED"
@@ -17,7 +15,7 @@ export interface ApiError {
 }
 
 export function sendError(
-  res: Response,
+  res: any,
   status: number,
   message: string,
   code: ApiErrorCode,
@@ -29,20 +27,20 @@ export function sendError(
 }
 
 export const Errors = {
-  validation: (res: Response, details?: unknown) =>
+  validation: (res: any, details?: unknown) =>
     sendError(res, 400, "Validation failed", "VALIDATION_ERROR", details),
-  badRequest: (res: Response, message: string) =>
+  badRequest: (res: any, message: string) =>
     sendError(res, 400, message, "BAD_REQUEST"),
-  unauthorized: (res: Response, message = "Unauthorized") =>
+  unauthorized: (res: any, message = "Unauthorized") =>
     sendError(res, 401, message, "UNAUTHORIZED"),
-  forbidden: (res: Response, message = "Forbidden") =>
+  forbidden: (res: any, message = "Forbidden") =>
     sendError(res, 403, message, "FORBIDDEN"),
-  notFound: (res: Response, message = "Not found") =>
+  notFound: (res: any, message = "Not found") =>
     sendError(res, 404, message, "NOT_FOUND"),
-  conflict: (res: Response, message: string) =>
+  conflict: (res: any, message: string) =>
     sendError(res, 409, message, "CONFLICT"),
-  internal: (res: Response, message = "Internal server error") =>
+  internal: (res: any, message = "Internal server error") =>
     sendError(res, 500, message, "INTERNAL_ERROR"),
-  serviceUnavailable: (res: Response, message: string) =>
+  serviceUnavailable: (res: any, message: string) =>
     sendError(res, 503, message, "SERVICE_UNAVAILABLE"),
 };

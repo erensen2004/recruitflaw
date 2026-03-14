@@ -1,6 +1,5 @@
 import { Router } from "express";
-import { db, contractsTable, candidatesTable, jobRolesTable, companiesTable } from "@workspace/db";
-import { eq, inArray } from "drizzle-orm";
+import { companiesTable, contractsTable, candidatesTable, db, eq, inArray, jobRolesTable } from "@workspace/db";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole } from "../lib/authz.js";
 import { validate } from "../middlewares/validate.js";

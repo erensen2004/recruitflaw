@@ -5,8 +5,9 @@ import {
   contractsTable,
   candidatesTable,
   jobRolesTable,
+  eq,
+  inArray,
 } from "@workspace/db";
-import { eq, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole } from "../lib/authz.js";
 import { validate } from "../middlewares/validate.js";

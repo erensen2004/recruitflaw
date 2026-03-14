@@ -1,6 +1,5 @@
 import { Router } from "express";
-import { db, candidateNotesTable, usersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { candidateNotesTable, db, eq, usersTable } from "@workspace/db";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole, resolveCandidateAccess } from "../lib/authz.js";
 import { validate } from "../middlewares/validate.js";
@@ -11,7 +10,7 @@ const router = Router({ mergeParams: true });
 
 router.get("/", requireAuth, requireRole("admin", "client"), async (req, res) => {
   try {
-    const candidateId = Number(req.params.id);
+    const candidateId = Number((req.params as Record<string, string>).id);
 
     const access = await resolveCandidateAccess(req, res, candidateId);
     if (!access) return;
@@ -45,7 +44,7 @@ router.post(
   validate(CreateNoteSchema),
   async (req, res) => {
     try {
-      const candidateId = Number(req.params.id);
+      const candidateId = Number((req.params as Record<string, string>).id);
       const { content } = req.body;
 
       const access = await resolveCandidateAccess(req, res, candidateId);

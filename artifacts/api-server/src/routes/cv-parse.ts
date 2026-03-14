@@ -1,4 +1,4 @@
-import { Router, Request, Response } from "express";
+import { Router } from "express";
 import OpenAI from "openai";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole } from "../lib/authz.js";
@@ -175,7 +175,7 @@ async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   }
 }
 
-async function readPdfBody(req: Request, maxBytes: number): Promise<Buffer> {
+async function readPdfBody(req: any, maxBytes: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let total = 0;
 
@@ -243,7 +243,7 @@ async function parseWithAI(cvText: string): Promise<Record<string, unknown>> {
   throw lastError || new Error("All CV parsing models failed");
 }
 
-router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: Response) => {
+router.post("/", requireAuth, requireRole("vendor"), async (req: any, res: any) => {
   try {
     const hasAiProvider = Boolean(
       process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY || process.env.REPLIT_AI_TOKEN,

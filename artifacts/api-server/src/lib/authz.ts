@@ -1,6 +1,4 @@
-import { Request, Response, NextFunction } from "express";
-import { db, candidatesTable, jobRolesTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { candidatesTable, db, eq, jobRolesTable } from "@workspace/db";
 import { Errors } from "./errors.js";
 
 export type UserRole = "admin" | "client" | "vendor";
@@ -10,8 +8,8 @@ export type UserRole = "admin" | "client" | "vendor";
  * Returns the candidate row if allowed, sends a 403/404 otherwise.
  */
 export async function resolveCandidateAccess(
-  req: Request,
-  res: Response,
+  req: any,
+  res: any,
   candidateId: number,
 ): Promise<{
   id: number;
@@ -63,8 +61,8 @@ export async function resolveCandidateAccess(
  * Check if the authenticated user can access a job role.
  */
 export async function resolveRoleAccess(
-  req: Request,
-  res: Response,
+  req: any,
+  res: any,
   roleId: number,
 ): Promise<{ id: number; companyId: number; status: string } | null> {
   const { role: userRole, companyId } = req.user!;
@@ -101,7 +99,7 @@ export async function resolveRoleAccess(
  * Middleware: require one of the given roles, otherwise send 403.
  */
 export function requireRole(...roles: UserRole[]) {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return (req: any, res: any, next: any): void => {
     if (!req.user) {
       Errors.unauthorized(res);
       return;

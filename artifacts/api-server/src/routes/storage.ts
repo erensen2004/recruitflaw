@@ -1,4 +1,4 @@
-import { Router, type Request, type Response } from "express";
+import { Router } from "express";
 import { Readable } from "stream";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage.js";
 import { ObjectPermission } from "../lib/objectAcl.js";
@@ -6,15 +6,14 @@ import { requireAuth } from "../lib/auth.js";
 import { validate } from "../middlewares/validate.js";
 import { RequestUploadUrlSchema, ConfirmUploadSchema } from "../lib/schemas.js";
 import { Errors } from "../lib/errors.js";
-import { db, candidatesTable, jobRolesTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, candidatesTable, eq, jobRolesTable } from "@workspace/db";
 import { resolveCandidateAccess } from "../lib/authz.js";
 
 const router = Router();
 const objectStorageService = new ObjectStorageService();
 const MAX_VERCEL_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_BYTES || "4000000");
 
-async function readRequestBody(req: Request, maxBytes?: number): Promise<Buffer> {
+async function readRequestBody(req: any, maxBytes?: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let total = 0;
 
@@ -35,7 +34,7 @@ async function readRequestBody(req: Request, maxBytes?: number): Promise<Buffer>
   return Buffer.concat(chunks);
 }
 
-router.put("/storage/uploads/local/:objectId", requireAuth, async (req: Request, res: Response) => {
+router.put("/storage/uploads/local/:objectId", requireAuth, async (req: any, res: any) => {
   if (!objectStorageService.isLocalBackend()) {
     Errors.notFound(res, "Local upload endpoint is disabled");
     return;
@@ -63,7 +62,7 @@ router.put("/storage/uploads/local/:objectId", requireAuth, async (req: Request,
   }
 });
 
-router.put("/storage/uploads/blob/:objectId", requireAuth, async (req: Request, res: Response) => {
+router.put("/storage/uploads/blob/:objectId", requireAuth, async (req: any, res: any) => {
   if (!objectStorageService.isBlobBackend()) {
     Errors.notFound(res, "Vercel Blob upload endpoint is disabled");
     return;
@@ -109,7 +108,7 @@ router.post(
   "/storage/uploads/request-url",
   requireAuth,
   validate(RequestUploadUrlSchema),
-  async (req: Request, res: Response) => {
+  async (req: any, res: any) => {
     try {
       const { name, size, contentType } = req.body;
       const { userId, companyId } = req.user!;
@@ -153,7 +152,7 @@ router.post(
   "/storage/uploads/confirm",
   requireAuth,
   validate(ConfirmUploadSchema),
-  async (req: Request, res: Response) => {
+  async (req: any, res: any) => {
     try {
       const { objectPath } = req.body;
       const { userId } = req.user!;
@@ -176,7 +175,7 @@ router.post(
  *
  * Serve public assets. No authentication required.
  */
-router.get("/storage/public-objects/*filePath", async (req: Request, res: Response) => {
+router.get("/storage/public-objects/*filePath", async (req: any, res: any) => {
   try {
     const raw = req.params.filePath;
     const filePath = Array.isArray(raw) ? raw.join("/") : raw;
@@ -187,7 +186,7 @@ router.get("/storage/public-objects/*filePath", async (req: Request, res: Respon
       return;
     }
 
-    const response = await objectStorageService.downloadObject(file);
+    const response: any = await objectStorageService.downloadObject(file);
     res.status(response.status);
     response.headers.forEach((value, key) => res.setHeader(key, value));
 
@@ -233,7 +232,7 @@ async function findCandidateByObjectPath(objectPath: string): Promise<number | n
  * 2. Use candidate-level authorization (resolveCandidateAccess)
  * 3. Serve file if authorized
  */
-router.get("/storage/objects/*path", requireAuth, async (req: Request, res: Response) => {
+router.get("/storage/objects/*path", requireAuth, async (req: any, res: any) => {
   try {
     const raw = req.params.path;
     const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
@@ -242,7 +241,7 @@ router.get("/storage/objects/*path", requireAuth, async (req: Request, res: Resp
     // Admin always has access
     if (req.user!.role === "admin") {
       const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
-      const response = await objectStorageService.downloadObject(objectFile);
+      const response: any = await objectStorageService.downloadObject(objectFile);
       res.status(response.status);
       response.headers.forEach((value, key) => res.setHeader(key, value));
       if (response.body) {
@@ -269,7 +268,7 @@ router.get("/storage/objects/*path", requireAuth, async (req: Request, res: Resp
 
     // Authorization passed, fetch and serve the file
     const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
-    const response = await objectStorageService.downloadObject(objectFile);
+    const response: any = await objectStorageService.downloadObject(objectFile);
     res.status(response.status);
     response.headers.forEach((value, key) => res.setHeader(key, value));
 
