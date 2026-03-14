@@ -1,20 +1,14 @@
-import type { IncomingMessage, ServerResponse } from "http";
-
 let appLoader:
   | Promise<{
-      app: any;
-      ensureAppReady: () => Promise<void>;
+      handle: (req: any, res: any) => Promise<void>;
     }>
   | undefined;
 
 function loadApp() {
   if (!appLoader) {
-    appLoader = Promise.all([
-      import("../artifacts/api-server/src/app.js"),
-      import("../artifacts/api-server/src/lib/runtime.js"),
-    ]).then(([appModule, runtimeModule]) => ({
-      app: appModule.default,
-      ensureAppReady: runtimeModule.ensureAppReady,
+    const handlerModulePath = "../artifacts/api-server/dist/" + "vercel.cjs";
+    appLoader = import(handlerModulePath).then((module: any) => ({
+      handle: module.handle ?? module.default?.handle ?? module.default,
     }));
   }
 
@@ -22,10 +16,9 @@ function loadApp() {
 }
 
 export default async function handler(
-  req: IncomingMessage,
-  res: ServerResponse,
+  req: any,
+  res: any,
 ): Promise<void> {
-  const { app, ensureAppReady } = await loadApp();
-  await ensureAppReady();
-  app.handle(req, res, () => undefined);
+  const { handle } = await loadApp();
+  await handle(req, res);
 }
