@@ -5,7 +5,6 @@
   "outputDirectory": "artifacts/ats-platform/dist/public",
   "functions": {
     "api/[[...route]].ts": {
-      "runtime": "nodejs22.x",
       "maxDuration": 60
     }
   },
