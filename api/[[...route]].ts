@@ -7,5 +7,5 @@ export default async function handler(
   res: ServerResponse,
 ): Promise<void> {
   await ensureAppReady();
-  app.handle(req as never, res as never, () => undefined);
+  (app as any).handle(req, res, () => undefined);
 }
