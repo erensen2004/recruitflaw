@@ -1,6 +1,6 @@
-import express, { type Express } from "express";
+import express from "express";
 import cors from "cors";
-import router from "./routes";
+import router from "./routes/index.js";
 
 function normalizeOrigin(candidate: string): string | null {
   const trimmed = candidate.trim();
@@ -80,7 +80,7 @@ function buildCorsOptions() {
   });
 }
 
-const app: Express = express();
+const app = express();
 
 app.use(buildCorsOptions());
 app.use(express.json({ limit: "2mb" }));
