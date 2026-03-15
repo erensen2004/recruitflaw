@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "ATS Platform"
+version = "1.0.0"
+id = "artifacts/ats-platform"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+localPort = 25964
+name = "web"
+paths = ["/"]
+
+[services.development]
+run = "pnpm --filter @workspace/ats-platform run dev"
+
+[services.env]
+PORT = "25964"
+BASE_PATH = "/"
+
+[services.production]
+build = ["pnpm", "--filter", "@workspace/ats-platform", "run", "build"]
+publicDir = "artifacts/ats-platform/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"

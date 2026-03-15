@@ -1,0 +1,14 @@
+packages:
+  "react-hook-form": "Robust form state management and validation"
+  "@hookform/resolvers": "Zod integration for form validation"
+  "framer-motion": "Smooth page transitions and micro-interactions"
+  "date-fns": "Date formatting for tables and contracts"
+  "clsx": "Utility for conditionally joining classNames"
+  "tailwind-merge": "Utility to safely merge Tailwind CSS classes"
+  "lucide-react": "Beautiful consistent icons for the dashboard"
+
+images: []
+
+notes:
+  - "Will override global fetch in App.tsx to automatically inject the Authorization header with the JWT token for all API requests made by orval's customFetch."
+  - "Using provided @workspace/api-client-react hooks directly as specified in the workspace rules."
