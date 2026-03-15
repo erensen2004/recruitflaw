@@ -165,11 +165,13 @@ function isMeaningfulPdfText(text: string): boolean {
 
 async function renderPdfPagesToImages(buffer: Buffer): Promise<Buffer[]> {
   const { createCanvas, DOMMatrix, ImageData, Path2D } = await import("@napi-rs/canvas");
+  const pdfjsWorker = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
 
   // pdfjs expects DOM-like globals even in a server runtime.
   globalThis.DOMMatrix ??= DOMMatrix;
   globalThis.ImageData ??= ImageData;
   globalThis.Path2D ??= Path2D;
+  (globalThis as typeof globalThis & { pdfjsWorker?: object }).pdfjsWorker ??= pdfjsWorker;
 
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const loadingTask = pdfjs.getDocument({
