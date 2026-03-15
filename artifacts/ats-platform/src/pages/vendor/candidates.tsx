@@ -10,6 +10,7 @@ import { UserCircle, Loader2, Plus, FileText, Upload, Tag, Sparkles } from "luci
 import { format } from "date-fns";
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { extractPdfTextInBrowser } from "@/lib/pdf-client-parse";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListCandidatesQueryKey } from "@workspace/api-client-react";
 
@@ -128,25 +129,57 @@ export default function VendorCandidates() {
     setParsing(true);
     try {
       const token = localStorage.getItem("ats_token");
-      const res = await fetch("/api/cv-parse", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/pdf",
-          "X-File-Name": encodeURIComponent(file.name),
-        },
-        body: file,
-      });
-      if (!res.ok) {
-        toast({
-          title: "CV parsing failed",
-          description: await getErrorMessage(res),
-          variant: "destructive",
+      const parseText = async (cvText: string): Promise<ParsedCandidateProfile> => {
+        const response = await fetch("/api/cv-parse", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ cvText }),
         });
-        return;
+        if (!response.ok) {
+          throw new Error(await getErrorMessage(response));
+        }
+        return response.json();
+      };
+
+      let parsed: ParsedCandidateProfile | null = null;
+
+      try {
+        const res = await fetch("/api/cv-parse", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/pdf",
+            "X-File-Name": encodeURIComponent(file.name),
+          },
+          body: file,
+          signal: AbortSignal.timeout(20000),
+        });
+
+        if (res.ok) {
+          parsed = await res.json();
+        } else {
+          throw new Error(await getErrorMessage(res));
+        }
+      } catch (error) {
+        const fallbackReason = error instanceof Error ? error.message : "Unknown parsing error";
+        toast({
+          title: "Trying scanned PDF fallback",
+          description: "The server could not read this PDF directly, so we are extracting it in the browser.",
+        });
+
+        const extractedText = await extractPdfTextInBrowser(file);
+        parsed = await parseText(extractedText);
+
+        console.warn("PDF parse fell back to browser OCR:", fallbackReason);
       }
 
-      const parsed: ParsedCandidateProfile = await res.json();
+      if (!parsed) {
+        throw new Error("CV parsing returned no data");
+      }
+
       setParsedProfile(parsed);
       setFormData(prev => ({
         ...prev,
