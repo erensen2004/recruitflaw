@@ -8,11 +8,16 @@
 
 export * from "./addNoteRequest";
 export * from "./analytics";
+export * from "./analyticsRecentActivityItem";
 export * from "./analyticsStatusCount";
 export * from "./analyticsTopRole";
 export * from "./candidate";
 export * from "./candidateNote";
+export * from "./candidateParsedEducation";
+export * from "./candidateParsedExperience";
+export * from "./candidateParseStatus";
 export * from "./candidateStatus";
+export * from "./candidateStatusHistoryItem";
 export * from "./company";
 export * from "./companyType";
 export * from "./contract";
@@ -32,6 +37,7 @@ export * from "./listCandidatesParams";
 export * from "./loginRequest";
 export * from "./loginResponse";
 export * from "./submitCandidateRequest";
+export * from "./submitCandidateRequestParseStatus";
 export * from "./submitTimesheetRequest";
 export * from "./timesheet";
 export * from "./updateCandidateStatusRequest";

@@ -282,6 +282,13 @@ export const UpdateRoleStatusResponse = zod.object({
  */
 export const ListCandidatesQueryParams = zod.object({
   roleId: zod.coerce.number().optional(),
+  status: zod.coerce.string().optional(),
+  search: zod.coerce.string().optional(),
+  skill: zod.coerce.string().optional(),
+  hasCv: zod.coerce.boolean().optional(),
+  reviewRequired: zod.coerce.boolean().optional(),
+  minExperience: zod.coerce.number().optional(),
+  vendorCompanyId: zod.coerce.number().optional(),
 });
 
 export const ListCandidatesResponseItem = zod.object({
@@ -306,6 +313,45 @@ export const ListCandidatesResponseItem = zod.object({
   submittedAt: zod.date(),
   updatedAt: zod.date(),
   cvUrl: zod.string().nullish(),
+  originalCvFileName: zod.string().nullish(),
+  originalCvMimeType: zod.string().nullish(),
+  standardizedCvUrl: zod.string().nullish(),
+  parseStatus: zod.enum([
+    "not_started",
+    "processing",
+    "parsed",
+    "partial",
+    "failed",
+  ]),
+  parseConfidence: zod.number().nullish(),
+  parseReviewRequired: zod.boolean(),
+  parseProvider: zod.string().nullish(),
+  currentTitle: zod.string().nullish(),
+  location: zod.string().nullish(),
+  yearsExperience: zod.number().nullish(),
+  education: zod.string().nullish(),
+  languages: zod.string().nullish(),
+  summary: zod.string().nullish(),
+  standardizedProfile: zod.string().nullish(),
+  parsedSkills: zod.array(zod.string()),
+  parsedExperience: zod.array(
+    zod.object({
+      company: zod.string().nullish(),
+      title: zod.string().nullish(),
+      startDate: zod.string().nullish(),
+      endDate: zod.string().nullish(),
+      highlights: zod.array(zod.string()).optional(),
+    }),
+  ),
+  parsedEducation: zod.array(
+    zod.object({
+      institution: zod.string().nullish(),
+      degree: zod.string().nullish(),
+      fieldOfStudy: zod.string().nullish(),
+      startDate: zod.string().nullish(),
+      endDate: zod.string().nullish(),
+    }),
+  ),
   tags: zod.string().nullish(),
 });
 export const ListCandidatesResponse = zod.array(ListCandidatesResponseItem);
@@ -321,7 +367,45 @@ export const SubmitCandidateBody = zod.object({
   expectedSalary: zod.number().optional(),
   roleId: zod.number(),
   cvUrl: zod.string().optional(),
+  originalCvFileName: zod.string().optional(),
+  originalCvMimeType: zod.string().optional(),
   tags: zod.string().optional(),
+  currentTitle: zod.string().optional(),
+  location: zod.string().optional(),
+  yearsExperience: zod.number().optional(),
+  education: zod.string().optional(),
+  languages: zod.string().optional(),
+  summary: zod.string().optional(),
+  standardizedProfile: zod.string().optional(),
+  parseStatus: zod
+    .enum(["not_started", "processing", "parsed", "partial", "failed"])
+    .optional(),
+  parseConfidence: zod.number().optional(),
+  parseReviewRequired: zod.boolean().optional(),
+  parseProvider: zod.string().optional(),
+  parsedSkills: zod.array(zod.string()).optional(),
+  parsedExperience: zod
+    .array(
+      zod.object({
+        company: zod.string().nullish(),
+        title: zod.string().nullish(),
+        startDate: zod.string().nullish(),
+        endDate: zod.string().nullish(),
+        highlights: zod.array(zod.string()).optional(),
+      }),
+    )
+    .optional(),
+  parsedEducation: zod
+    .array(
+      zod.object({
+        institution: zod.string().nullish(),
+        degree: zod.string().nullish(),
+        fieldOfStudy: zod.string().nullish(),
+        startDate: zod.string().nullish(),
+        endDate: zod.string().nullish(),
+      }),
+    )
+    .optional(),
 });
 
 /**
@@ -353,8 +437,68 @@ export const GetCandidateResponse = zod.object({
   submittedAt: zod.date(),
   updatedAt: zod.date(),
   cvUrl: zod.string().nullish(),
+  originalCvFileName: zod.string().nullish(),
+  originalCvMimeType: zod.string().nullish(),
+  standardizedCvUrl: zod.string().nullish(),
+  parseStatus: zod.enum([
+    "not_started",
+    "processing",
+    "parsed",
+    "partial",
+    "failed",
+  ]),
+  parseConfidence: zod.number().nullish(),
+  parseReviewRequired: zod.boolean(),
+  parseProvider: zod.string().nullish(),
+  currentTitle: zod.string().nullish(),
+  location: zod.string().nullish(),
+  yearsExperience: zod.number().nullish(),
+  education: zod.string().nullish(),
+  languages: zod.string().nullish(),
+  summary: zod.string().nullish(),
+  standardizedProfile: zod.string().nullish(),
+  parsedSkills: zod.array(zod.string()),
+  parsedExperience: zod.array(
+    zod.object({
+      company: zod.string().nullish(),
+      title: zod.string().nullish(),
+      startDate: zod.string().nullish(),
+      endDate: zod.string().nullish(),
+      highlights: zod.array(zod.string()).optional(),
+    }),
+  ),
+  parsedEducation: zod.array(
+    zod.object({
+      institution: zod.string().nullish(),
+      degree: zod.string().nullish(),
+      fieldOfStudy: zod.string().nullish(),
+      startDate: zod.string().nullish(),
+      endDate: zod.string().nullish(),
+    }),
+  ),
   tags: zod.string().nullish(),
 });
+
+/**
+ * @summary List status history for a candidate
+ */
+export const ListCandidateHistoryParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ListCandidateHistoryResponseItem = zod.object({
+  id: zod.number(),
+  candidateId: zod.number(),
+  previousStatus: zod.string().nullish(),
+  nextStatus: zod.string(),
+  reason: zod.string().nullish(),
+  changedByUserId: zod.number(),
+  changedByName: zod.string(),
+  createdAt: zod.date(),
+});
+export const ListCandidateHistoryResponse = zod.array(
+  ListCandidateHistoryResponseItem,
+);
 
 /**
  * @summary Update candidate status (Client HR)
@@ -372,6 +516,7 @@ export const UpdateCandidateStatusBody = zod.object({
     "hired",
     "rejected",
   ]),
+  reason: zod.string().nullish(),
 });
 
 export const UpdateCandidateStatusResponse = zod.object({
@@ -396,6 +541,45 @@ export const UpdateCandidateStatusResponse = zod.object({
   submittedAt: zod.date(),
   updatedAt: zod.date(),
   cvUrl: zod.string().nullish(),
+  originalCvFileName: zod.string().nullish(),
+  originalCvMimeType: zod.string().nullish(),
+  standardizedCvUrl: zod.string().nullish(),
+  parseStatus: zod.enum([
+    "not_started",
+    "processing",
+    "parsed",
+    "partial",
+    "failed",
+  ]),
+  parseConfidence: zod.number().nullish(),
+  parseReviewRequired: zod.boolean(),
+  parseProvider: zod.string().nullish(),
+  currentTitle: zod.string().nullish(),
+  location: zod.string().nullish(),
+  yearsExperience: zod.number().nullish(),
+  education: zod.string().nullish(),
+  languages: zod.string().nullish(),
+  summary: zod.string().nullish(),
+  standardizedProfile: zod.string().nullish(),
+  parsedSkills: zod.array(zod.string()),
+  parsedExperience: zod.array(
+    zod.object({
+      company: zod.string().nullish(),
+      title: zod.string().nullish(),
+      startDate: zod.string().nullish(),
+      endDate: zod.string().nullish(),
+      highlights: zod.array(zod.string()).optional(),
+    }),
+  ),
+  parsedEducation: zod.array(
+    zod.object({
+      institution: zod.string().nullish(),
+      degree: zod.string().nullish(),
+      fieldOfStudy: zod.string().nullish(),
+      startDate: zod.string().nullish(),
+      endDate: zod.string().nullish(),
+    }),
+  ),
   tags: zod.string().nullish(),
 });
 
@@ -490,6 +674,9 @@ export const GetAnalyticsResponse = zod.object({
   totalRoles: zod.number(),
   totalCompanies: zod.number(),
   totalUsers: zod.number(),
+  interviewingCandidates: zod.number(),
+  hiredCandidates: zod.number(),
+  rejectedCandidates: zod.number(),
   candidatesByStatus: zod.array(
     zod.object({
       status: zod.string(),
@@ -507,6 +694,16 @@ export const GetAnalyticsResponse = zod.object({
       roleId: zod.number(),
       roleTitle: zod.string(),
       count: zod.number(),
+    }),
+  ),
+  recentActivity: zod.array(
+    zod.object({
+      type: zod.string(),
+      candidateId: zod.number().nullish(),
+      candidateName: zod.string().nullish(),
+      actorName: zod.string().nullish(),
+      message: zod.string(),
+      createdAt: zod.date(),
     }),
   ),
 });

@@ -1,16 +1,7 @@
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
+import { useGetAnalytics } from "@workspace/api-client-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { Loader2, Users, Briefcase, Building2, UserCircle, TrendingUp } from "lucide-react";
-
-interface Analytics {
-  totalCandidates: number;
-  totalRoles: number;
-  totalCompanies: number;
-  totalUsers: number;
-  candidatesByStatus: { status: string; count: number }[];
-  rolesByStatus: { status: string; count: number }[];
-  topRoles: { roleId: number; roleTitle: string; count: number }[];
-}
+import { Loader2, Users, Briefcase, Building2, UserCircle, TrendingUp, Activity } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
   submitted: "bg-blue-100 text-blue-700",
@@ -39,16 +30,19 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export default function AdminAnalytics() {
-  const [data, setData] = useState<Analytics | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const token = localStorage.getItem("ats_token");
-    fetch("/api/analytics", { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
+  const { data, isLoading } = useGetAnalytics();
+  const headlineStats = useMemo(
+    () =>
+      data
+        ? [
+            { label: "Total Candidates", value: data.totalCandidates, icon: Users, color: "text-blue-500", bg: "bg-blue-50" },
+            { label: "Interview Pipeline", value: data.interviewingCandidates, icon: Briefcase, color: "text-violet-500", bg: "bg-violet-50" },
+            { label: "Hired", value: data.hiredCandidates, icon: Building2, color: "text-green-500", bg: "bg-green-50" },
+            { label: "Rejected", value: data.rejectedCandidates, icon: UserCircle, color: "text-rose-500", bg: "bg-rose-50" },
+          ]
+        : [],
+    [data],
+  );
 
   return (
     <DashboardLayout allowedRoles={["admin"]}>
@@ -57,25 +51,33 @@ export default function AdminAnalytics() {
         <p className="text-slate-500 mt-1">Platform-wide overview and metrics</p>
       </div>
 
-      {loading ? (
+      {isLoading ? (
         <div className="flex justify-center p-16"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
       ) : !data ? (
         <div className="text-center text-slate-500 p-12">Failed to load analytics.</div>
       ) : (
         <div className="space-y-8">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-            {[
-              { label: "Total Candidates", value: data.totalCandidates, icon: Users, color: "text-blue-500", bg: "bg-blue-50" },
-              { label: "Total Roles", value: data.totalRoles, icon: Briefcase, color: "text-violet-500", bg: "bg-violet-50" },
-              { label: "Companies", value: data.totalCompanies, icon: Building2, color: "text-orange-500", bg: "bg-orange-50" },
-              { label: "Users", value: data.totalUsers, icon: UserCircle, color: "text-green-500", bg: "bg-green-50" },
-            ].map(stat => (
+            {headlineStats.map(stat => (
               <div key={stat.label} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
                 <div className={`w-10 h-10 rounded-xl ${stat.bg} flex items-center justify-center mb-4`}>
                   <stat.icon className={`w-5 h-5 ${stat.color}`} />
                 </div>
                 <p className="text-3xl font-bold text-slate-900">{stat.value}</p>
                 <p className="text-sm text-slate-500 mt-1">{stat.label}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-6">
+            {[
+              { label: "Total Roles", value: data.totalRoles },
+              { label: "Companies", value: data.totalCompanies },
+              { label: "Users", value: data.totalUsers },
+            ].map((item) => (
+              <div key={item.label} className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+                <p className="text-sm text-slate-500">{item.label}</p>
+                <p className="mt-2 text-2xl font-bold text-slate-900">{item.value}</p>
               </div>
             ))}
           </div>
@@ -157,6 +159,28 @@ export default function AdminAnalytics() {
                         />
                       </div>
                     </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
+            <h2 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
+              <Activity className="w-4 h-4 text-primary" /> Recent Activity
+            </h2>
+            {data.recentActivity.length === 0 ? (
+              <p className="text-slate-400 text-sm">No recent platform activity yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {data.recentActivity.map((item, index) => (
+                  <div key={`${item.type}-${item.createdAt}-${index}`} className="rounded-xl bg-slate-50 p-4">
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-sm font-semibold text-slate-800">{item.candidateName || item.type}</p>
+                      <span className="text-xs text-slate-400">{new Date(item.createdAt).toLocaleString()}</span>
+                    </div>
+                    <p className="mt-1 text-sm text-slate-600">{item.message}</p>
+                    {item.actorName ? <p className="mt-1 text-xs text-slate-400">by {item.actorName}</p> : null}
                   </div>
                 ))}
               </div>

@@ -8,4 +8,11 @@
 
 export type ListCandidatesParams = {
   roleId?: number;
+  status?: string;
+  search?: string;
+  skill?: string;
+  hasCv?: boolean;
+  reviewRequired?: boolean;
+  minExperience?: number;
+  vendorCompanyId?: number;
 };

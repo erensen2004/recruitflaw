@@ -337,6 +337,34 @@ paths:
           in: query
           schema:
             type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: skill
+          in: query
+          schema:
+            type: string
+        - name: hasCv
+          in: query
+          schema:
+            type: boolean
+        - name: reviewRequired
+          in: query
+          schema:
+            type: boolean
+        - name: minExperience
+          in: query
+          schema:
+            type: integer
+        - name: vendorCompanyId
+          in: query
+          schema:
+            type: integer
       responses:
         "200":
           description: List of candidates
@@ -392,6 +420,29 @@ paths:
                 $ref: '#/components/schemas/Candidate'
         '404':
           description: Not found
+
+  /candidates/{id}/history:
+    get:
+      operationId: listCandidateHistory
+      tags: [candidates]
+      summary: List status history for a candidate
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Candidate status history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CandidateStatusHistoryItem'
 
   /candidates/{id}/status:
     patch:
@@ -923,6 +974,59 @@ components:
         cvUrl:
           type: string
           nullable: true
+        originalCvFileName:
+          type: string
+          nullable: true
+        originalCvMimeType:
+          type: string
+          nullable: true
+        standardizedCvUrl:
+          type: string
+          nullable: true
+        parseStatus:
+          type: string
+          enum: [not_started, processing, parsed, partial, failed]
+        parseConfidence:
+          type: integer
+          nullable: true
+        parseReviewRequired:
+          type: boolean
+        parseProvider:
+          type: string
+          nullable: true
+        currentTitle:
+          type: string
+          nullable: true
+        location:
+          type: string
+          nullable: true
+        yearsExperience:
+          type: integer
+          nullable: true
+        education:
+          type: string
+          nullable: true
+        languages:
+          type: string
+          nullable: true
+        summary:
+          type: string
+          nullable: true
+        standardizedProfile:
+          type: string
+          nullable: true
+        parsedSkills:
+          type: array
+          items:
+            type: string
+        parsedExperience:
+          type: array
+          items:
+            $ref: '#/components/schemas/CandidateParsedExperience'
+        parsedEducation:
+          type: array
+          items:
+            $ref: '#/components/schemas/CandidateParsedEducation'
         tags:
           type: string
           nullable: true
@@ -936,8 +1040,82 @@ components:
         - roleTitle
         - vendorCompanyId
         - vendorCompanyName
+        - parseStatus
+        - parseReviewRequired
+        - parsedSkills
+        - parsedExperience
+        - parsedEducation
         - submittedAt
         - updatedAt
+
+    CandidateParsedExperience:
+      type: object
+      properties:
+        company:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          nullable: true
+        endDate:
+          type: string
+          nullable: true
+        highlights:
+          type: array
+          items:
+            type: string
+
+    CandidateParsedEducation:
+      type: object
+      properties:
+        institution:
+          type: string
+          nullable: true
+        degree:
+          type: string
+          nullable: true
+        fieldOfStudy:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          nullable: true
+        endDate:
+          type: string
+          nullable: true
+
+    CandidateStatusHistoryItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        candidateId:
+          type: integer
+        previousStatus:
+          type: string
+          nullable: true
+        nextStatus:
+          type: string
+        reason:
+          type: string
+          nullable: true
+        changedByUserId:
+          type: integer
+        changedByName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - candidateId
+        - nextStatus
+        - changedByUserId
+        - changedByName
+        - createdAt
 
     SubmitCandidateRequest:
       type: object
@@ -957,8 +1135,47 @@ components:
           type: integer
         cvUrl:
           type: string
+        originalCvFileName:
+          type: string
+        originalCvMimeType:
+          type: string
         tags:
           type: string
+        currentTitle:
+          type: string
+        location:
+          type: string
+        yearsExperience:
+          type: integer
+        education:
+          type: string
+        languages:
+          type: string
+        summary:
+          type: string
+        standardizedProfile:
+          type: string
+        parseStatus:
+          type: string
+          enum: [not_started, processing, parsed, partial, failed]
+        parseConfidence:
+          type: integer
+        parseReviewRequired:
+          type: boolean
+        parseProvider:
+          type: string
+        parsedSkills:
+          type: array
+          items:
+            type: string
+        parsedExperience:
+          type: array
+          items:
+            $ref: '#/components/schemas/CandidateParsedExperience'
+        parsedEducation:
+          type: array
+          items:
+            $ref: '#/components/schemas/CandidateParsedEducation'
       required:
         - firstName
         - lastName
@@ -971,6 +1188,9 @@ components:
         status:
           type: string
           enum: [submitted, screening, interview, offer, hired, rejected]
+        reason:
+          type: string
+          nullable: true
       required:
         - status
 
@@ -1171,6 +1391,12 @@ components:
           type: integer
         totalUsers:
           type: integer
+        interviewingCandidates:
+          type: integer
+        hiredCandidates:
+          type: integer
+        rejectedCandidates:
+          type: integer
         candidatesByStatus:
           type: array
           items:
@@ -1183,11 +1409,43 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AnalyticsTopRole'
+        recentActivity:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalyticsRecentActivityItem'
       required:
         - totalCandidates
         - totalRoles
         - totalCompanies
         - totalUsers
+        - interviewingCandidates
+        - hiredCandidates
+        - rejectedCandidates
         - candidatesByStatus
         - rolesByStatus
         - topRoles
+        - recentActivity
+
+    AnalyticsRecentActivityItem:
+      type: object
+      properties:
+        type:
+          type: string
+        candidateId:
+          type: integer
+          nullable: true
+        candidateName:
+          type: string
+          nullable: true
+        actorName:
+          type: string
+          nullable: true
+        message:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - type
+        - message
+        - createdAt

@@ -9,4 +9,5 @@ import type { UpdateCandidateStatusRequestStatus } from "./updateCandidateStatus
 
 export interface UpdateCandidateStatusRequest {
   status: UpdateCandidateStatusRequestStatus;
+  reason?: string | null;
 }

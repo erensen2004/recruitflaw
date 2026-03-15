@@ -5,6 +5,7 @@
  * ATS Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { AnalyticsRecentActivityItem } from "./analyticsRecentActivityItem";
 import type { AnalyticsStatusCount } from "./analyticsStatusCount";
 import type { AnalyticsTopRole } from "./analyticsTopRole";
 
@@ -13,7 +14,11 @@ export interface Analytics {
   totalRoles: number;
   totalCompanies: number;
   totalUsers: number;
+  interviewingCandidates: number;
+  hiredCandidates: number;
+  rejectedCandidates: number;
   candidatesByStatus: AnalyticsStatusCount[];
   rolesByStatus: AnalyticsStatusCount[];
   topRoles: AnalyticsTopRole[];
+  recentActivity: AnalyticsRecentActivityItem[];
 }

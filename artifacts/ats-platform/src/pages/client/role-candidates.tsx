@@ -8,6 +8,17 @@ import { format } from "date-fns";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListCandidatesQueryKey } from "@workspace/api-client-react";
 import { formatCurrency, getPrivateObjectUrl } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
+
+function getParseBadge(parseStatus: string, reviewRequired: boolean) {
+  if (parseStatus === "parsed" && !reviewRequired) {
+    return { label: "Parsed", className: "bg-emerald-100 text-emerald-700" };
+  }
+  if (parseStatus === "partial" || reviewRequired) {
+    return { label: "Review", className: "bg-amber-100 text-amber-700" };
+  }
+  return { label: "Manual", className: "bg-slate-100 text-slate-700" };
+}
 
 export default function ClientRoleCandidates() {
   const [, params] = useRoute("/client/roles/:id/candidates");
@@ -16,9 +27,20 @@ export default function ClientRoleCandidates() {
   const { data: role } = useGetRole(roleId);
   const { data: candidates, isLoading } = useListCandidates({ roleId });
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const { mutate: updateStatus } = useUpdateCandidateStatus({
     mutation: {
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: getListCandidatesQueryKey({ roleId }) })
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getListCandidatesQueryKey({ roleId }) });
+        toast({ title: "Candidate status updated" });
+      },
+      onError: (error: Error) => {
+        toast({
+          title: "Status update failed",
+          description: error.message || "Please try again.",
+          variant: "destructive",
+        });
+      },
     }
   });
 
@@ -69,6 +91,11 @@ export default function ClientRoleCandidates() {
                       <div>
                         <div className="font-semibold text-slate-900">{c.firstName} {c.lastName}</div>
                         <div className="text-sm text-slate-500">{c.email}{c.phone ? ` • ${c.phone}` : ''}</div>
+                        <div className="mt-2">
+                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${getParseBadge(c.parseStatus, c.parseReviewRequired).className}`}>
+                            {getParseBadge(c.parseStatus, c.parseReviewRequired).label}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </td>
@@ -93,7 +120,10 @@ export default function ClientRoleCandidates() {
                   <td className="px-6 py-4">
                     <Select
                       value={c.status}
-                      onValueChange={(v: any) => updateStatus({ id: c.id, data: { status: v } })}
+                      onValueChange={(v: any) => {
+                        const reason = window.prompt("Optional reason for this status change:");
+                        updateStatus({ id: c.id, data: { status: v, reason: reason?.trim() || undefined } });
+                      }}
                     >
                       <SelectTrigger className="h-9 rounded-lg">
                         <SelectValue />

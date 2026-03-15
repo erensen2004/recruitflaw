@@ -5,6 +5,9 @@
  * ATS Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { CandidateParsedEducation } from "./candidateParsedEducation";
+import type { CandidateParsedExperience } from "./candidateParsedExperience";
+import type { CandidateParseStatus } from "./candidateParseStatus";
 import type { CandidateStatus } from "./candidateStatus";
 
 export interface Candidate {
@@ -22,5 +25,22 @@ export interface Candidate {
   submittedAt: Date;
   updatedAt: Date;
   cvUrl?: string | null;
+  originalCvFileName?: string | null;
+  originalCvMimeType?: string | null;
+  standardizedCvUrl?: string | null;
+  parseStatus: CandidateParseStatus;
+  parseConfidence?: number | null;
+  parseReviewRequired: boolean;
+  parseProvider?: string | null;
+  currentTitle?: string | null;
+  location?: string | null;
+  yearsExperience?: number | null;
+  education?: string | null;
+  languages?: string | null;
+  summary?: string | null;
+  standardizedProfile?: string | null;
+  parsedSkills: string[];
+  parsedExperience: CandidateParsedExperience[];
+  parsedEducation: CandidateParsedEducation[];
   tags?: string | null;
 }

@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Loader2, ArrowLeft, Send, FileText, Upload, Sparkles, Tag } from "lucide-react";
 import { useRoute, Link, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { validatePdfResumeFile } from "@/lib/utils";
+import { validateResumeFile } from "@/lib/utils";
 
 type ParsedCandidateProfile = {
   firstName?: string | null;
@@ -23,6 +23,26 @@ type ParsedCandidateProfile = {
   languages?: string | null;
   summary?: string | null;
   standardizedProfile?: string | null;
+  parsedSkills?: string[];
+  parsedExperience?: Array<{
+    company?: string | null;
+    title?: string | null;
+    startDate?: string | null;
+    endDate?: string | null;
+    highlights?: string[];
+  }>;
+  parsedEducation?: Array<{
+    institution?: string | null;
+    degree?: string | null;
+    fieldOfStudy?: string | null;
+    startDate?: string | null;
+    endDate?: string | null;
+  }>;
+  parseStatus?: "not_started" | "processing" | "parsed" | "partial" | "failed";
+  parseConfidence?: number | null;
+  parseReviewRequired?: boolean;
+  parseProvider?: string | null;
+  warnings?: string[];
 };
 
 async function getErrorMessage(response: Response): Promise<string> {
@@ -123,7 +143,7 @@ export default function VendorSubmitCandidate() {
   };
 
   const parsePdfCv = async (file: File): Promise<void> => {
-    const validationError = validatePdfResumeFile(file);
+    const validationError = validateResumeFile(file);
     if (validationError) {
       toast({ title: "Invalid CV file", description: validationError, variant: "destructive" });
       return;
@@ -136,7 +156,7 @@ export default function VendorSubmitCandidate() {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
-          "Content-Type": "application/pdf",
+          "Content-Type": file.type || "application/octet-stream",
           "X-File-Name": encodeURIComponent(file.name),
         },
         body: file,
@@ -152,10 +172,15 @@ export default function VendorSubmitCandidate() {
 
       const parsed: ParsedCandidateProfile = await res.json();
       applyParsedProfile(parsed);
-      toast({ title: "CV parsed successfully", description: "We auto-filled the candidate fields from the uploaded PDF." });
+      toast({
+        title: parsed.parseReviewRequired ? "Resume parsed with review suggested" : "Resume parsed successfully",
+        description:
+          parsed.warnings?.[0] ||
+          "We auto-filled the candidate fields from the uploaded resume.",
+      });
     } catch (error) {
       toast({
-        title: "PDF parsing error",
+        title: "Resume parsing error",
         description: error instanceof Error ? error.message : "Unknown parsing error",
         variant: "destructive",
       });
@@ -231,7 +256,23 @@ export default function VendorSubmitCandidate() {
         expectedSalary: formData.expectedSalary ? Number(formData.expectedSalary) : undefined,
         roleId,
         cvUrl,
-        tags: formData.tags || undefined,
+        originalCvFileName: cvFile?.name,
+        originalCvMimeType: cvFile?.type || undefined,
+        tags: formData.tags || parsedProfile?.parsedSkills?.join(", ") || undefined,
+        currentTitle: parsedProfile?.currentTitle || undefined,
+        location: parsedProfile?.location || undefined,
+        yearsExperience: parsedProfile?.yearsExperience ?? undefined,
+        education: parsedProfile?.education || undefined,
+        languages: parsedProfile?.languages || undefined,
+        summary: parsedProfile?.summary || undefined,
+        standardizedProfile: parsedProfile?.standardizedProfile || undefined,
+        parseStatus: parsedProfile?.parseStatus || undefined,
+        parseConfidence: parsedProfile?.parseConfidence ?? undefined,
+        parseReviewRequired: parsedProfile?.parseReviewRequired ?? undefined,
+        parseProvider: parsedProfile?.parseProvider || undefined,
+        parsedSkills: parsedProfile?.parsedSkills?.length ? parsedProfile.parsedSkills : undefined,
+        parsedExperience: parsedProfile?.parsedExperience?.length ? parsedProfile.parsedExperience : undefined,
+        parsedEducation: parsedProfile?.parsedEducation?.length ? parsedProfile.parsedEducation : undefined,
       }
     });
   };
@@ -313,7 +354,7 @@ export default function VendorSubmitCandidate() {
             <h3 className="font-semibold text-violet-900 mb-2 flex items-center gap-2">
               <Sparkles className="w-4 h-4" /> AI CV Parser
             </h3>
-            <p className="text-sm text-violet-700 mb-3">You can upload a PDF for auto-fill, or paste raw CV text here as a fallback.</p>
+            <p className="text-sm text-violet-700 mb-3">You can upload a PDF, DOCX, or image resume for auto-fill, or paste raw CV text here as a fallback.</p>
             <Textarea
               value={cvText}
               onChange={e => setCvText(e.target.value)}
@@ -381,7 +422,7 @@ export default function VendorSubmitCandidate() {
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-semibold">CV / Resume <span className="font-normal text-slate-400">(PDF, optional)</span></label>
+            <label className="text-sm font-semibold">CV / Resume <span className="font-normal text-slate-400">(PDF, DOCX, or image, optional)</span></label>
             <div
               className="border-2 border-dashed border-slate-200 rounded-xl p-6 text-center cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-colors"
               onClick={() => fileRef.current?.click()}
@@ -389,7 +430,7 @@ export default function VendorSubmitCandidate() {
               <input
                 ref={fileRef}
                 type="file"
-                accept=".pdf"
+                accept=".pdf,.docx,.jpg,.jpeg,.png,.webp"
                 className="hidden"
                 onChange={e => {
                   const file = e.target.files?.[0] || null;
@@ -398,7 +439,7 @@ export default function VendorSubmitCandidate() {
                     return;
                   }
 
-                  const validationError = validatePdfResumeFile(file);
+                  const validationError = validateResumeFile(file);
                   if (validationError) {
                     toast({ title: "Invalid CV file", description: validationError, variant: "destructive" });
                     if (fileRef.current) {
@@ -420,8 +461,11 @@ export default function VendorSubmitCandidate() {
                     <span className="text-slate-400 font-normal">({(cvFile.size / 1024).toFixed(0)} KB)</span>
                   </div>
                   <div className="text-xs text-slate-500">
-                    {parsing ? "PDF is being parsed automatically..." : "Fields are auto-filled after PDF analysis."}
+                    {parsing ? "Resume is being parsed automatically..." : "Fields are auto-filled after resume analysis."}
                   </div>
+                  {parsedProfile?.parseReviewRequired ? (
+                    <div className="text-xs text-amber-700">Some extracted fields may need a quick manual review.</div>
+                  ) : null}
                   <Button
                     type="button"
                     variant="secondary"
@@ -433,13 +477,13 @@ export default function VendorSubmitCandidate() {
                     disabled={parsing}
                     className="rounded-lg gap-2"
                   >
-                    {parsing ? <><Loader2 className="w-3 h-3 animate-spin" />Parsing PDF...</> : <><Sparkles className="w-3 h-3" />Parse Again</>}
+                    {parsing ? <><Loader2 className="w-3 h-3 animate-spin" />Parsing resume...</> : <><Sparkles className="w-3 h-3" />Parse Again</>}
                   </Button>
                 </div>
               ) : (
                 <div className="text-slate-400">
                   <Upload className="w-6 h-6 mx-auto mb-2" />
-                  <p className="text-sm">Click to upload CV (PDF)</p>
+                  <p className="text-sm">Click to upload CV (PDF, DOCX, or image)</p>
                   <p className="text-xs mt-1">Candidate fields and standardized profile will be generated automatically.</p>
                 </div>
               )}

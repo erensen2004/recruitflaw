@@ -235,6 +235,33 @@ export const CandidateStatus = {
   rejected: "rejected",
 } as const;
 
+export type CandidateParseStatus =
+  (typeof CandidateParseStatus)[keyof typeof CandidateParseStatus];
+
+export const CandidateParseStatus = {
+  not_started: "not_started",
+  processing: "processing",
+  parsed: "parsed",
+  partial: "partial",
+  failed: "failed",
+} as const;
+
+export interface CandidateParsedExperience {
+  company?: string | null;
+  title?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  highlights?: string[];
+}
+
+export interface CandidateParsedEducation {
+  institution?: string | null;
+  degree?: string | null;
+  fieldOfStudy?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+}
+
 export interface Candidate {
   id: number;
   firstName: string;
@@ -250,8 +277,47 @@ export interface Candidate {
   submittedAt: string;
   updatedAt: string;
   cvUrl?: string | null;
+  originalCvFileName?: string | null;
+  originalCvMimeType?: string | null;
+  standardizedCvUrl?: string | null;
+  parseStatus: CandidateParseStatus;
+  parseConfidence?: number | null;
+  parseReviewRequired: boolean;
+  parseProvider?: string | null;
+  currentTitle?: string | null;
+  location?: string | null;
+  yearsExperience?: number | null;
+  education?: string | null;
+  languages?: string | null;
+  summary?: string | null;
+  standardizedProfile?: string | null;
+  parsedSkills: string[];
+  parsedExperience: CandidateParsedExperience[];
+  parsedEducation: CandidateParsedEducation[];
   tags?: string | null;
 }
+
+export interface CandidateStatusHistoryItem {
+  id: number;
+  candidateId: number;
+  previousStatus?: string | null;
+  nextStatus: string;
+  reason?: string | null;
+  changedByUserId: number;
+  changedByName: string;
+  createdAt: string;
+}
+
+export type SubmitCandidateRequestParseStatus =
+  (typeof SubmitCandidateRequestParseStatus)[keyof typeof SubmitCandidateRequestParseStatus];
+
+export const SubmitCandidateRequestParseStatus = {
+  not_started: "not_started",
+  processing: "processing",
+  parsed: "parsed",
+  partial: "partial",
+  failed: "failed",
+} as const;
 
 export interface SubmitCandidateRequest {
   firstName: string;
@@ -261,7 +327,23 @@ export interface SubmitCandidateRequest {
   expectedSalary?: number;
   roleId: number;
   cvUrl?: string;
+  originalCvFileName?: string;
+  originalCvMimeType?: string;
   tags?: string;
+  currentTitle?: string;
+  location?: string;
+  yearsExperience?: number;
+  education?: string;
+  languages?: string;
+  summary?: string;
+  standardizedProfile?: string;
+  parseStatus?: SubmitCandidateRequestParseStatus;
+  parseConfidence?: number;
+  parseReviewRequired?: boolean;
+  parseProvider?: string;
+  parsedSkills?: string[];
+  parsedExperience?: CandidateParsedExperience[];
+  parsedEducation?: CandidateParsedEducation[];
 }
 
 export type UpdateCandidateStatusRequestStatus =
@@ -278,6 +360,7 @@ export const UpdateCandidateStatusRequestStatus = {
 
 export interface UpdateCandidateStatusRequest {
   status: UpdateCandidateStatusRequestStatus;
+  reason?: string | null;
 }
 
 export interface UploadUrlRequest {
@@ -357,16 +440,36 @@ export interface AnalyticsTopRole {
   count: number;
 }
 
+export interface AnalyticsRecentActivityItem {
+  type: string;
+  candidateId?: number | null;
+  candidateName?: string | null;
+  actorName?: string | null;
+  message: string;
+  createdAt: string;
+}
+
 export interface Analytics {
   totalCandidates: number;
   totalRoles: number;
   totalCompanies: number;
   totalUsers: number;
+  interviewingCandidates: number;
+  hiredCandidates: number;
+  rejectedCandidates: number;
   candidatesByStatus: AnalyticsStatusCount[];
   rolesByStatus: AnalyticsStatusCount[];
   topRoles: AnalyticsTopRole[];
+  recentActivity: AnalyticsRecentActivityItem[];
 }
 
 export type ListCandidatesParams = {
   roleId?: number;
+  status?: string;
+  search?: string;
+  skill?: string;
+  hasCv?: boolean;
+  reviewRequired?: boolean;
+  minExperience?: number;
+  vendorCompanyId?: number;
 };

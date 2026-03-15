@@ -21,6 +21,7 @@ import type {
   Analytics,
   Candidate,
   CandidateNote,
+  CandidateStatusHistoryItem,
   Company,
   Contract,
   CreateCompanyRequest,
@@ -1427,6 +1428,97 @@ export function useGetCandidate<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetCandidateQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List status history for a candidate
+ */
+export const getListCandidateHistoryUrl = (id: number) => {
+  return `/api/candidates/${id}/history`;
+};
+
+export const listCandidateHistory = async (
+  id: number,
+  options?: RequestInit,
+): Promise<CandidateStatusHistoryItem[]> => {
+  return customFetch<CandidateStatusHistoryItem[]>(
+    getListCandidateHistoryUrl(id),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListCandidateHistoryQueryKey = (id: number) => {
+  return [`/api/candidates/${id}/history`] as const;
+};
+
+export const getListCandidateHistoryQueryOptions = <
+  TData = Awaited<ReturnType<typeof listCandidateHistory>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listCandidateHistory>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListCandidateHistoryQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listCandidateHistory>>
+  > = ({ signal }) => listCandidateHistory(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listCandidateHistory>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListCandidateHistoryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listCandidateHistory>>
+>;
+export type ListCandidateHistoryQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List status history for a candidate
+ */
+
+export function useListCandidateHistory<
+  TData = Awaited<ReturnType<typeof listCandidateHistory>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listCandidateHistory>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListCandidateHistoryQueryOptions(id, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

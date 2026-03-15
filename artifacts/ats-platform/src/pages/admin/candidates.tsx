@@ -1,8 +1,19 @@
 import { useListCandidates } from "@workspace/api-client-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { UserCircle, Loader2, FileText } from "lucide-react";
+import { UserCircle, Loader2, FileText, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
+import { getPrivateObjectUrl } from "@/lib/utils";
+
+function getParseBadge(parseStatus: string, reviewRequired: boolean) {
+  if (parseStatus === "parsed" && !reviewRequired) {
+    return { label: "Parsed", className: "bg-emerald-100 text-emerald-700" };
+  }
+  if (parseStatus === "partial" || reviewRequired) {
+    return { label: "Review", className: "bg-amber-100 text-amber-700" };
+  }
+  return { label: "Manual", className: "bg-slate-100 text-slate-700" };
+}
 
 export default function AdminCandidates() {
   const { data: candidates, isLoading } = useListCandidates();
@@ -42,6 +53,11 @@ export default function AdminCandidates() {
                       <div>
                         <div className="font-semibold text-slate-900">{c.firstName} {c.lastName}</div>
                         <div className="text-sm text-slate-500">{c.email}</div>
+                        <div className="mt-2">
+                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${getParseBadge(c.parseStatus, c.parseReviewRequired).className}`}>
+                            {getParseBadge(c.parseStatus, c.parseReviewRequired).label}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </td>
@@ -50,7 +66,7 @@ export default function AdminCandidates() {
                   <td className="px-6 py-4">
                     {c.cvUrl ? (
                       <a
-                        href={`/api/storage${c.cvUrl}`}
+                        href={getPrivateObjectUrl(c.cvUrl) ?? "#"}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
@@ -58,7 +74,9 @@ export default function AdminCandidates() {
                         <FileText className="w-4 h-4" /> View CV
                       </a>
                     ) : (
-                      <span className="text-slate-400 text-sm">—</span>
+                      <span className="inline-flex items-center gap-1 text-amber-600 text-sm">
+                        <AlertTriangle className="w-4 h-4" /> Missing
+                      </span>
                     )}
                   </td>
                   <td className="px-6 py-4"><StatusBadge status={c.status} /></td>

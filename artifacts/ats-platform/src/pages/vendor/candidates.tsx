@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UserCircle, Loader2, Plus, FileText, Upload, Tag, Sparkles } from "lucide-react";
 import { format } from "date-fns";
-import { formatCurrency, getPrivateObjectUrl, validatePdfResumeFile } from "@/lib/utils";
+import { formatCurrency, getPrivateObjectUrl, validateResumeFile } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListCandidatesQueryKey } from "@workspace/api-client-react";
@@ -27,6 +27,26 @@ type ParsedCandidateProfile = {
   languages?: string | null;
   summary?: string | null;
   standardizedProfile?: string | null;
+  parsedSkills?: string[];
+  parsedExperience?: Array<{
+    company?: string | null;
+    title?: string | null;
+    startDate?: string | null;
+    endDate?: string | null;
+    highlights?: string[];
+  }>;
+  parsedEducation?: Array<{
+    institution?: string | null;
+    degree?: string | null;
+    fieldOfStudy?: string | null;
+    startDate?: string | null;
+    endDate?: string | null;
+  }>;
+  parseStatus?: "not_started" | "processing" | "parsed" | "partial" | "failed";
+  parseConfidence?: number | null;
+  parseReviewRequired?: boolean;
+  parseProvider?: string | null;
+  warnings?: string[];
 };
 
 async function getErrorMessage(response: Response): Promise<string> {
@@ -127,7 +147,7 @@ export default function VendorCandidates() {
   };
 
   const parsePdfCv = async (file: File): Promise<void> => {
-    const validationError = validatePdfResumeFile(file);
+    const validationError = validateResumeFile(file);
     if (validationError) {
       toast({ title: "Invalid CV file", description: validationError, variant: "destructive" });
       return;
@@ -140,7 +160,7 @@ export default function VendorCandidates() {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
-          "Content-Type": "application/pdf",
+          "Content-Type": file.type || "application/octet-stream",
           "X-File-Name": encodeURIComponent(file.name),
         },
         body: file,
@@ -167,10 +187,15 @@ export default function VendorCandidates() {
       if (parsed.skills) {
         setTags(parsed.skills);
       }
-      toast({ title: "CV parsed successfully", description: "Candidate fields were auto-filled from the uploaded PDF." });
+      toast({
+        title: parsed.parseReviewRequired ? "Resume parsed with review suggested" : "Resume parsed successfully",
+        description:
+          parsed.warnings?.[0] ||
+          "Candidate fields were auto-filled and normalized from the uploaded resume.",
+      });
     } catch (error) {
       toast({
-        title: "CV parsing error",
+        title: "Resume parsing error",
         description: error instanceof Error ? error.message : "Unknown parsing error",
         variant: "destructive",
       });
@@ -213,7 +238,23 @@ export default function VendorCandidates() {
         roleId: Number(formData.roleId),
         expectedSalary: formData.expectedSalary ? Number(formData.expectedSalary) : undefined,
         cvUrl,
-        tags: tags || undefined,
+        originalCvFileName: cvFile?.name,
+        originalCvMimeType: cvFile?.type || undefined,
+        tags: tags || parsedProfile?.parsedSkills?.join(", ") || undefined,
+        currentTitle: parsedProfile?.currentTitle || undefined,
+        location: parsedProfile?.location || undefined,
+        yearsExperience: parsedProfile?.yearsExperience ?? undefined,
+        education: parsedProfile?.education || undefined,
+        languages: parsedProfile?.languages || undefined,
+        summary: parsedProfile?.summary || undefined,
+        standardizedProfile: parsedProfile?.standardizedProfile || undefined,
+        parseStatus: parsedProfile?.parseStatus || undefined,
+        parseConfidence: parsedProfile?.parseConfidence ?? undefined,
+        parseReviewRequired: parsedProfile?.parseReviewRequired ?? undefined,
+        parseProvider: parsedProfile?.parseProvider || undefined,
+        parsedSkills: parsedProfile?.parsedSkills?.length ? parsedProfile.parsedSkills : undefined,
+        parsedExperience: parsedProfile?.parsedExperience?.length ? parsedProfile.parsedExperience : undefined,
+        parsedEducation: parsedProfile?.parsedEducation?.length ? parsedProfile.parsedEducation : undefined,
       }
     });
   };
@@ -371,7 +412,7 @@ export default function VendorCandidates() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-semibold">CV / Resume (PDF)</label>
+              <label className="text-sm font-semibold">CV / Resume</label>
               <div
                 className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-colors"
                 onClick={() => fileRef.current?.click()}
@@ -379,7 +420,7 @@ export default function VendorCandidates() {
                 <input
                   ref={fileRef}
                   type="file"
-                  accept=".pdf"
+                  accept=".pdf,.docx,.jpg,.jpeg,.png,.webp"
                   className="hidden"
                   onChange={async e => {
                     const file = e.target.files?.[0] || null;
@@ -388,7 +429,7 @@ export default function VendorCandidates() {
                       return;
                     }
 
-                    const fileError = validatePdfResumeFile(file);
+                    const fileError = validateResumeFile(file);
                     if (fileError) {
                       toast({ title: "Invalid CV file", description: fileError, variant: "destructive" });
                       if (fileRef.current) {
@@ -408,13 +449,18 @@ export default function VendorCandidates() {
                       <FileText className="w-4 h-4" /> {cvFile.name}
                     </div>
                     <div className="inline-flex items-center gap-2 rounded-lg bg-violet-50 px-3 py-2 text-xs font-medium text-violet-700">
-                      {parsing ? <><Loader2 className="w-3 h-3 animate-spin" />Parsing CV and auto-filling form...</> : <><Sparkles className="w-3 h-3" />PDF uploaded. Fields auto-fill automatically.</>}
+                      {parsing ? <><Loader2 className="w-3 h-3 animate-spin" />Reading resume and preparing normalized profile...</> : <><Sparkles className="w-3 h-3" />Resume uploaded. Candidate fields will be normalized automatically.</>}
                     </div>
+                    {parsedProfile?.parseReviewRequired ? (
+                      <div className="text-xs text-amber-700">
+                        Some fields may need review, but you can still submit the candidate.
+                      </div>
+                    ) : null}
                   </div>
                 ) : (
                   <div className="text-slate-400 text-sm">
                     <Upload className="w-5 h-5 mx-auto mb-1" />
-                    Click to upload PDF and auto-fill candidate fields
+                    Click to upload PDF, DOCX, or image resume and auto-fill candidate fields
                   </div>
                 )}
               </div>
