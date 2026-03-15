@@ -15,6 +15,8 @@ const router = Router();
 const MAX_VERCEL_PDF_BYTES = Number(process.env.MAX_CV_PARSE_PDF_BYTES || "4000000");
 const OCR_MAX_PAGES = Math.max(1, Number(process.env.CV_PARSE_OCR_MAX_PAGES || "2"));
 const OCR_LANGUAGES = process.env.CV_PARSE_OCR_LANGUAGES || "eng";
+const OCR_LANG_DATA_DIR = path.join(process.cwd(), "artifacts", "api-server");
+const OCR_CACHE_DIR = path.join(tmpdir(), "recruitflaw-tesseract-cache");
 const requireFromHere =
   typeof require === "function"
     ? require
@@ -251,7 +253,13 @@ async function renderPdfPagesToImages(buffer: Buffer): Promise<Buffer[]> {
 }
 
 async function extractTextWithOcr(images: Buffer[]): Promise<string> {
-  const worker = await createWorker(OCR_LANGUAGES);
+  const platformHost = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+  const langPath = platformHost ? `https://${platformHost.replace(/^https?:\/\//, "").replace(/\/$/, "")}/ocr` : OCR_LANG_DATA_DIR;
+  const worker = await createWorker(OCR_LANGUAGES, 1, {
+    langPath,
+    cachePath: OCR_CACHE_DIR,
+    gzip: !path.isAbsolute(langPath),
+  });
 
   try {
     const pages: string[] = [];
