@@ -1,5 +1,9 @@
 import { Router } from "express";
 import OpenAI from "openai";
+import { createCanvas, DOMMatrix, ImageData, Path2D } from "@napi-rs/canvas";
+import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
+import * as pdfjsWorker from "pdfjs-dist/legacy/build/pdf.worker.mjs";
+import { createWorker } from "tesseract.js";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole } from "../lib/authz.js";
 import { CvParseBodySchema, CvParseResponseSchema } from "../lib/schemas.js";
@@ -164,16 +168,11 @@ function isMeaningfulPdfText(text: string): boolean {
 }
 
 async function renderPdfPagesToImages(buffer: Buffer): Promise<Buffer[]> {
-  const { createCanvas, DOMMatrix, ImageData, Path2D } = await import("@napi-rs/canvas");
-  const pdfjsWorker = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
-
   // pdfjs expects DOM-like globals even in a server runtime.
   globalThis.DOMMatrix ??= DOMMatrix;
   globalThis.ImageData ??= ImageData;
   globalThis.Path2D ??= Path2D;
   (globalThis as typeof globalThis & { pdfjsWorker?: object }).pdfjsWorker ??= pdfjsWorker;
-
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(buffer),
     useSystemFonts: true,
@@ -202,7 +201,6 @@ async function renderPdfPagesToImages(buffer: Buffer): Promise<Buffer[]> {
 }
 
 async function extractTextWithOcr(images: Buffer[]): Promise<string> {
-  const { createWorker } = await import("tesseract.js");
   const worker = await createWorker(OCR_LANGUAGES);
 
   try {
