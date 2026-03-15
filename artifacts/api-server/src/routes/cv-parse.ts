@@ -1,8 +1,9 @@
 import { Router } from "express";
-import { mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, writeFile } from "node:fs/promises";
 import Module, { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { gunzipSync } from "node:zlib";
 import OpenAI from "openai";
 import { createCanvas, DOMMatrix, ImageData, Path2D } from "@napi-rs/canvas";
 import { createWorker } from "tesseract.js";
@@ -15,13 +16,16 @@ const router = Router();
 const MAX_VERCEL_PDF_BYTES = Number(process.env.MAX_CV_PARSE_PDF_BYTES || "4000000");
 const OCR_MAX_PAGES = Math.max(1, Number(process.env.CV_PARSE_OCR_MAX_PAGES || "2"));
 const OCR_LANGUAGES = process.env.CV_PARSE_OCR_LANGUAGES || "eng";
+const OCR_RENDER_SCALE = Math.max(1, Number(process.env.CV_PARSE_OCR_RENDER_SCALE || "1.25"));
 const OCR_LANG_DATA_DIR = path.join(process.cwd(), "artifacts", "api-server");
 const OCR_CACHE_DIR = path.join(tmpdir(), "recruitflaw-tesseract-cache");
+const OCR_LANG_TMP_DIR = path.join(tmpdir(), "recruitflaw-tesseract-lang");
 const requireFromHere =
   typeof require === "function"
     ? require
     : createRequire(path.join(process.cwd(), "__cv_parse_resolver__.cjs"));
 let pdfJsCanvasShimPromise: Promise<void> | undefined;
+const localOcrLangDirPromises = new Map<string, Promise<string>>();
 
 const DEFAULT_OPENROUTER_MODELS = [
   "nvidia/nemotron-3-nano-30b-a3b:free",
@@ -238,7 +242,7 @@ async function renderPdfPagesToImages(buffer: Buffer): Promise<Buffer[]> {
 
     for (let pageIndex = 1; pageIndex <= pageCount; pageIndex += 1) {
       const page = await pdf.getPage(pageIndex);
-      const viewport = page.getViewport({ scale: 2 });
+      const viewport = page.getViewport({ scale: OCR_RENDER_SCALE });
       const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
       const canvasContext = canvas.getContext("2d");
 
@@ -252,13 +256,55 @@ async function renderPdfPagesToImages(buffer: Buffer): Promise<Buffer[]> {
   }
 }
 
+async function ensureLocalOcrLanguageData(language: string): Promise<string> {
+  const existingPromise = localOcrLangDirPromises.get(language);
+  if (existingPromise) {
+    return existingPromise;
+  }
+
+  const promise = (async () => {
+    const languageDir = path.join(OCR_LANG_TMP_DIR, language);
+    const trainedDataPath = path.join(languageDir, `${language}.traineddata`);
+
+    try {
+      await access(trainedDataPath);
+      return languageDir;
+    } catch {
+      // Fall through and populate the cache.
+    }
+
+    await mkdir(languageDir, { recursive: true });
+
+    const platformHost = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+    const normalizedHost = platformHost?.replace(/^https?:\/\//, "").replace(/\/$/, "");
+
+    if (normalizedHost) {
+      const url = `https://${normalizedHost}/ocr/${language}.traineddata.gz`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to download OCR language data (${response.status} ${response.statusText})`);
+      }
+
+      const compressed = Buffer.from(await response.arrayBuffer());
+      const trainedData = gunzipSync(compressed);
+      await writeFile(trainedDataPath, trainedData);
+      return languageDir;
+    }
+
+    return OCR_LANG_DATA_DIR;
+  })();
+
+  localOcrLangDirPromises.set(language, promise);
+  return promise;
+}
+
 async function extractTextWithOcr(images: Buffer[]): Promise<string> {
-  const platformHost = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
-  const langPath = platformHost ? `https://${platformHost.replace(/^https?:\/\//, "").replace(/\/$/, "")}/ocr` : OCR_LANG_DATA_DIR;
+  const primaryLanguage = OCR_LANGUAGES.split("+").map((value) => value.trim()).find(Boolean) || "eng";
+  const langPath = await ensureLocalOcrLanguageData(primaryLanguage);
   const worker = await createWorker(OCR_LANGUAGES, 1, {
     langPath,
     cachePath: OCR_CACHE_DIR,
-    gzip: !path.isAbsolute(langPath),
+    gzip: false,
   });
 
   try {
