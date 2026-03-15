@@ -3,6 +3,11 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm run build:vercel",
   "outputDirectory": "artifacts/ats-platform/dist/public",
+  "functions": {
+    "api/[...route].ts": {
+      "includeFiles": "node_modules/.pnpm/pdfjs-dist@*/node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",
