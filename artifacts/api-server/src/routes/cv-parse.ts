@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { raw, Router } from "express";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import Module, { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -393,27 +393,6 @@ async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   throw new Error(`PDF extraction failed: ${failures.join(" | ")}`);
 }
 
-async function readPdfBody(req: any, maxBytes: number): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  let total = 0;
-
-  req.on("data", (chunk: Buffer) => {
-    total += chunk.length;
-    if (total > maxBytes) {
-      req.destroy(new Error(`Payload exceeds ${maxBytes} bytes`));
-      return;
-    }
-    chunks.push(chunk);
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    req.on("end", resolve);
-    req.on("error", reject);
-  });
-
-  return Buffer.concat(chunks);
-}
-
 async function parseWithAI(cvText: string): Promise<Record<string, unknown>> {
   const { client, models, provider } = getAiClientConfig();
   const systemPrompt = buildSystemPrompt();
@@ -461,81 +440,76 @@ async function parseWithAI(cvText: string): Promise<Record<string, unknown>> {
   throw lastError || new Error("All CV parsing models failed");
 }
 
-router.post("/", requireAuth, requireRole("vendor"), async (req: any, res: any) => {
-  try {
-    const hasAiProvider = Boolean(
-      process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY || process.env.REPLIT_AI_TOKEN,
-    );
-    if (!hasAiProvider) {
-      Errors.serviceUnavailable(res, "AI service not configured");
-      return;
-    }
+router.post(
+  "/",
+  raw({ type: "application/pdf", limit: `${MAX_VERCEL_PDF_BYTES}b` }),
+  requireAuth,
+  requireRole("vendor"),
+  async (req: any, res: any) => {
+    try {
+      const hasAiProvider = Boolean(
+        process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY || process.env.REPLIT_AI_TOKEN,
+      );
+      if (!hasAiProvider) {
+        Errors.serviceUnavailable(res, "AI service not configured");
+        return;
+      }
 
-    let cvText: string;
+      let cvText: string;
 
-    if (req.headers["content-type"]?.includes("application/pdf")) {
-      let pdfBuffer: Buffer;
-      try {
-        pdfBuffer = await readPdfBody(req, MAX_VERCEL_PDF_BYTES);
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        if (errorMsg.includes("Payload exceeds")) {
-          res.status(413).json({
-            error: `PDF uploads must be ${Math.floor(MAX_VERCEL_PDF_BYTES / 1_000_000)}MB or smaller`,
-            code: "BAD_REQUEST",
-          });
+      if (req.headers["content-type"]?.includes("application/pdf")) {
+        const pdfBuffer = Buffer.isBuffer(req.body)
+          ? req.body
+          : Buffer.from(req.body || []);
+
+        if (!pdfBuffer.length) {
+          Errors.badRequest(res, "PDF body is empty");
           return;
         }
-        throw err;
-      }
 
-      if (!pdfBuffer.length) {
-        Errors.badRequest(res, "PDF body is empty");
-        return;
-      }
-
-      try {
-        cvText = await extractTextFromPdf(pdfBuffer);
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        Errors.badRequest(res, `Failed to extract text from PDF: ${errorMsg}`);
-        return;
-      }
-    } else {
-      const bodyValidation = CvParseBodySchema.safeParse(req.body);
-      if (!bodyValidation.success) {
-        Errors.validation(res, bodyValidation.error.flatten());
-        return;
-      }
-      cvText = bodyValidation.data.cvText;
-    }
-
-    let parsedJson: Record<string, unknown>;
-    try {
-      parsedJson = await parseWithAI(cvText);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      if (message === "AI service not configured") {
-        Errors.serviceUnavailable(res, "AI service not configured");
-      } else if (message.includes("JSON")) {
-        Errors.badRequest(res, "AI returned invalid JSON");
+        try {
+          cvText = await extractTextFromPdf(pdfBuffer);
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          Errors.badRequest(res, `Failed to extract text from PDF: ${errorMsg}`);
+          return;
+        }
       } else {
-        Errors.badRequest(res, `CV parsing provider error: ${message}`);
+        const bodyValidation = CvParseBodySchema.safeParse(req.body);
+        if (!bodyValidation.success) {
+          Errors.validation(res, bodyValidation.error.flatten());
+          return;
+        }
+        cvText = bodyValidation.data.cvText;
       }
-      return;
-    }
 
-    const validated = CvParseResponseSchema.safeParse(parsedJson);
-    if (!validated.success) {
-      Errors.validation(res, validated.error.flatten());
-      return;
-    }
+      let parsedJson: Record<string, unknown>;
+      try {
+        parsedJson = await parseWithAI(cvText);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        if (message === "AI service not configured") {
+          Errors.serviceUnavailable(res, "AI service not configured");
+        } else if (message.includes("JSON")) {
+          Errors.badRequest(res, "AI returned invalid JSON");
+        } else {
+          Errors.badRequest(res, `CV parsing provider error: ${message}`);
+        }
+        return;
+      }
 
-    res.json(validated.data);
-  } catch (err) {
-    console.error("CV parse error:", err);
-    Errors.internal(res, "CV parsing failed");
-  }
-});
+      const validated = CvParseResponseSchema.safeParse(parsedJson);
+      if (!validated.success) {
+        Errors.validation(res, validated.error.flatten());
+        return;
+      }
+
+      res.json(validated.data);
+    } catch (err) {
+      console.error("CV parse error:", err);
+      Errors.internal(res, "CV parsing failed");
+    }
+  },
+);
 
 export default router;
