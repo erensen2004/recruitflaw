@@ -17,11 +17,44 @@ export const CreateCandidateSchema = z.object({
   expectedSalary: z.number().positive().nullable().optional(),
   roleId: z.number().int().positive(),
   cvUrl: z.string().max(2048).nullable().optional(),
+  originalCvFileName: z.string().max(500).nullable().optional(),
+  originalCvMimeType: z.string().max(100).nullable().optional(),
   tags: z.string().max(500).nullable().optional(),
+  currentTitle: z.string().max(200).nullable().optional(),
+  location: z.string().max(200).nullable().optional(),
+  yearsExperience: z.number().int().min(0).max(80).nullable().optional(),
+  education: z.string().max(5000).nullable().optional(),
+  languages: z.string().max(1000).nullable().optional(),
+  summary: z.string().max(5000).nullable().optional(),
+  standardizedProfile: z.string().max(10000).nullable().optional(),
+  parseStatus: z.enum(["not_started", "processing", "parsed", "partial", "failed"]).optional(),
+  parseConfidence: z.number().int().min(0).max(100).nullable().optional(),
+  parseReviewRequired: z.boolean().optional(),
+  parseProvider: z.string().max(100).nullable().optional(),
+  parsedSkills: z.array(z.string().max(200)).max(100).nullable().optional(),
+  parsedExperience: z.array(
+    z.object({
+      company: z.string().max(200).nullable().optional(),
+      title: z.string().max(200).nullable().optional(),
+      startDate: z.string().max(50).nullable().optional(),
+      endDate: z.string().max(50).nullable().optional(),
+      highlights: z.array(z.string().max(500)).max(20).nullable().optional(),
+    }),
+  ).max(50).nullable().optional(),
+  parsedEducation: z.array(
+    z.object({
+      institution: z.string().max(300).nullable().optional(),
+      degree: z.string().max(300).nullable().optional(),
+      fieldOfStudy: z.string().max(300).nullable().optional(),
+      startDate: z.string().max(50).nullable().optional(),
+      endDate: z.string().max(50).nullable().optional(),
+    }),
+  ).max(50).nullable().optional(),
 });
 
 export const CandidateStatusSchema = z.object({
   status: z.enum(["submitted", "screening", "interview", "offer", "hired", "rejected"]),
+  reason: z.string().max(1000).nullable().optional(),
 });
 
 // ─── Roles ───────────────────────────────────────────────────────────────────
@@ -107,7 +140,7 @@ export const CvParseResponseSchema = z.object({
 
 export const RequestUploadUrlSchema = z.object({
   name: z.string().min(1).max(500),
-  size: z.number().int().positive().max(50 * 1024 * 1024),
+  size: z.number().int().positive().max(4 * 1024 * 1024),
   contentType: z.string().min(1).max(100),
 });
 

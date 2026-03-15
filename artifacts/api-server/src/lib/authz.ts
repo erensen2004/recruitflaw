@@ -15,6 +15,7 @@ export async function resolveCandidateAccess(
   candidateId: number,
 ): Promise<{
   id: number;
+  status: string;
   roleId: number;
   vendorCompanyId: number;
   roleCompanyId: number | null;
@@ -24,6 +25,7 @@ export async function resolveCandidateAccess(
   const [row] = await db
     .select({
       id: candidatesTable.id,
+      status: candidatesTable.status,
       roleId: candidatesTable.roleId,
       vendorCompanyId: candidatesTable.vendorCompanyId,
       roleCompanyId: jobRolesTable.companyId,

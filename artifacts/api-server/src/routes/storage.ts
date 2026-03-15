@@ -13,6 +13,22 @@ import { resolveCandidateAccess } from "../lib/authz.js";
 const router = Router();
 const objectStorageService = new ObjectStorageService();
 const MAX_VERCEL_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_BYTES || "4000000");
+const ALLOWED_RESUME_CONTENT_TYPES = new Set([
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+const ALLOWED_RESUME_EXTENSIONS = [".pdf", ".docx", ".jpg", ".jpeg", ".png", ".webp"];
+
+function isAllowedResumeUpload(name: string, contentType: string): boolean {
+  const normalizedName = name.trim().toLowerCase();
+  const normalizedType = contentType.trim().toLowerCase();
+  const extensionAllowed = ALLOWED_RESUME_EXTENSIONS.some((extension) => normalizedName.endsWith(extension));
+  const typeAllowed = ALLOWED_RESUME_CONTENT_TYPES.has(normalizedType);
+  return extensionAllowed && typeAllowed;
+}
 
 async function readRequestBody(req: Request, maxBytes?: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
@@ -113,6 +129,14 @@ router.post(
     try {
       const { name, size, contentType } = req.body;
       const { userId, companyId } = req.user!;
+
+      if (!isAllowedResumeUpload(name, contentType)) {
+        Errors.badRequest(
+          res,
+          "Only PDF, DOCX, JPG, PNG, and WEBP resume uploads are allowed.",
+        );
+        return;
+      }
 
       if (objectStorageService.isBlobBackend() && size > MAX_VERCEL_UPLOAD_BYTES) {
         Errors.badRequest(
