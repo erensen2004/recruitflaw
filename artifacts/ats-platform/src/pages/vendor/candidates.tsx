@@ -319,7 +319,7 @@ export default function VendorCandidates() {
       </div>
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogContent className="sm:max-w-xl rounded-2xl">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl rounded-2xl">
           <DialogHeader>
             <DialogTitle>Add Candidate</DialogTitle>
           </DialogHeader>
