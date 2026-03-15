@@ -256,6 +256,45 @@ async function renderPdfPagesToImages(buffer: Buffer): Promise<Buffer[]> {
   }
 }
 
+async function extractTextLayerWithPdfJs(buffer: Buffer): Promise<string> {
+  await ensurePdfJsCanvasShim();
+  const pdfjsWorker = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+
+  globalThis.DOMMatrix ??= DOMMatrix;
+  globalThis.ImageData ??= ImageData;
+  globalThis.Path2D ??= Path2D;
+  (globalThis as typeof globalThis & { pdfjsWorker?: object }).pdfjsWorker ??= pdfjsWorker;
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+
+  const loadingTask = pdfjs.getDocument({
+    data: new Uint8Array(buffer),
+    useSystemFonts: true,
+    isEvalSupported: false,
+  });
+  const pdf = await loadingTask.promise;
+
+  try {
+    const chunks: string[] = [];
+
+    for (let pageIndex = 1; pageIndex <= pdf.numPages; pageIndex += 1) {
+      const page = await pdf.getPage(pageIndex);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item) => ("str" in item ? item.str : ""))
+        .join(" ")
+        .trim();
+
+      if (pageText) {
+        chunks.push(pageText);
+      }
+    }
+
+    return chunks.join("\n\n").trim();
+  } finally {
+    await loadingTask.destroy();
+  }
+}
+
 async function ensureLocalOcrLanguageData(language: string): Promise<string> {
   const existingPromise = localOcrLangDirPromises.get(language);
   if (existingPromise) {
@@ -328,29 +367,14 @@ async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   const failures: string[] = [];
 
   try {
-    const pdfParseModule = (await import("pdf-parse")) as unknown as {
-      PDFParse?: new (options: { data: Buffer }) => {
-        getText: () => Promise<{ text?: string }>;
-        destroy?: () => Promise<void>;
-      };
-    };
-    const PDFParse = pdfParseModule.PDFParse;
-
-    if (typeof PDFParse !== "function") {
-      throw new Error("pdf-parse PDFParse export is not available");
-    }
-
-    const parser = new PDFParse({ data: buffer });
-    const data = await parser.getText();
-    await parser.destroy?.();
-    const text = (data?.text || "").trim();
+    const text = await extractTextLayerWithPdfJs(buffer);
     if (isMeaningfulPdfText(text)) {
       return text;
     }
 
     failures.push("PDF contains no readable text layer");
   } catch (err) {
-    failures.push(err instanceof Error ? err.message : String(err));
+    failures.push(`Text-layer extraction failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   try {
