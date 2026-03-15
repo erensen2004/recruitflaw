@@ -134,6 +134,30 @@ export const CvParseResponseSchema = z.object({
   languages: z.string().nullable().optional(),
   summary: z.string().nullable().optional(),
   standardizedProfile: z.string().nullable().optional(),
+  parsedSkills: z.array(z.string()).nullable().optional(),
+  parsedExperience: z.array(
+    z.object({
+      company: z.string().nullable().optional(),
+      title: z.string().nullable().optional(),
+      startDate: z.string().nullable().optional(),
+      endDate: z.string().nullable().optional(),
+      highlights: z.array(z.string()).nullable().optional(),
+    }),
+  ).nullable().optional(),
+  parsedEducation: z.array(
+    z.object({
+      institution: z.string().nullable().optional(),
+      degree: z.string().nullable().optional(),
+      fieldOfStudy: z.string().nullable().optional(),
+      startDate: z.string().nullable().optional(),
+      endDate: z.string().nullable().optional(),
+    }),
+  ).nullable().optional(),
+  parseConfidence: z.number().int().min(0).max(100).nullable().optional(),
+  parseReviewRequired: z.boolean().nullable().optional(),
+  parseStatus: z.enum(["not_started", "processing", "parsed", "partial", "failed"]).nullable().optional(),
+  parseProvider: z.string().nullable().optional(),
+  warnings: z.array(z.string()).nullable().optional(),
 });
 
 // ─── Storage ─────────────────────────────────────────────────────────────────
