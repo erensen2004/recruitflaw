@@ -1,4 +1,8 @@
 import { Router } from "express";
+import { mkdir, writeFile } from "node:fs/promises";
+import Module, { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import OpenAI from "openai";
 import { createCanvas, DOMMatrix, ImageData, Path2D } from "@napi-rs/canvas";
 import { createWorker } from "tesseract.js";
@@ -11,6 +15,11 @@ const router = Router();
 const MAX_VERCEL_PDF_BYTES = Number(process.env.MAX_CV_PARSE_PDF_BYTES || "4000000");
 const OCR_MAX_PAGES = Math.max(1, Number(process.env.CV_PARSE_OCR_MAX_PAGES || "2"));
 const OCR_LANGUAGES = process.env.CV_PARSE_OCR_LANGUAGES || "eng";
+const requireFromHere =
+  typeof require === "function"
+    ? require
+    : createRequire(path.join(process.cwd(), "__cv_parse_resolver__.cjs"));
+let pdfJsCanvasShimPromise: Promise<void> | undefined;
 
 const DEFAULT_OPENROUTER_MODELS = [
   "nvidia/nemotron-3-nano-30b-a3b:free",
@@ -165,7 +174,46 @@ function isMeaningfulPdfText(text: string): boolean {
   return letters.length >= 24;
 }
 
+async function ensurePdfJsCanvasShim(): Promise<void> {
+  if (!pdfJsCanvasShimPromise) {
+    pdfJsCanvasShimPromise = (async () => {
+      const resolvedCanvasPath = requireFromHere.resolve("@napi-rs/canvas");
+      const shimRoot = path.join(tmpdir(), "recruitflaw-pdfjs-shim");
+      const shimNodeModules = path.join(shimRoot, "node_modules");
+      const shimPackageDir = path.join(shimNodeModules, "@napi-rs", "canvas");
+
+      await mkdir(shimPackageDir, { recursive: true });
+      await writeFile(
+        path.join(shimPackageDir, "package.json"),
+        JSON.stringify(
+          {
+            name: "@napi-rs/canvas",
+            main: "index.cjs",
+          },
+          null,
+          2,
+        ),
+      );
+      await writeFile(
+        path.join(shimPackageDir, "index.cjs"),
+        `module.exports = require(${JSON.stringify(resolvedCanvasPath)});\n`,
+      );
+
+      const existingNodePath = (process.env.NODE_PATH || "")
+        .split(path.delimiter)
+        .filter(Boolean);
+      if (!existingNodePath.includes(shimNodeModules)) {
+        process.env.NODE_PATH = [shimNodeModules, ...existingNodePath].join(path.delimiter);
+        (Module as unknown as { _initPaths?: () => void })._initPaths?.();
+      }
+    })();
+  }
+
+  await pdfJsCanvasShimPromise;
+}
+
 async function renderPdfPagesToImages(buffer: Buffer): Promise<Buffer[]> {
+  await ensurePdfJsCanvasShim();
   const pdfjsWorker = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
 
   // pdfjs expects DOM-like globals even in a server runtime.
