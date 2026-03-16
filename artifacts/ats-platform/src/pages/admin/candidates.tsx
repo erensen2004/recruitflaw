@@ -1,9 +1,18 @@
-import { useListCandidates } from "@workspace/api-client-react";
+import { useState } from "react";
+import { useListCandidates, useUpdateCandidateStatus } from "@workspace/api-client-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { UserCircle, Loader2, FileText, AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { UserCircle, Loader2, FileText, AlertTriangle, Eye, CheckCircle2, XCircle } from "lucide-react";
 import { format } from "date-fns";
 import { getPrivateObjectUrl } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "wouter";
+
+const CANDIDATE_STATUSES = ["submitted", "screening", "interview", "offer", "hired", "rejected"] as const;
+type CandidateStatusValue = (typeof CANDIDATE_STATUSES)[number];
 
 function getParseBadge(parseStatus: string, reviewRequired: boolean) {
   if (parseStatus === "parsed" && !reviewRequired) {
@@ -16,7 +25,47 @@ function getParseBadge(parseStatus: string, reviewRequired: boolean) {
 }
 
 export default function AdminCandidates() {
+  const [pendingCandidateId, setPendingCandidateId] = useState<number | null>(null);
   const { data: candidates, isLoading } = useListCandidates();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { mutate: updateStatus, isPending: updatingStatus } = useUpdateCandidateStatus({
+    mutation: {
+      onSuccess: (updatedCandidate) => {
+        setPendingCandidateId(null);
+        queryClient.setQueriesData(
+          {
+            predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === "/api/candidates",
+          },
+          (current: unknown) =>
+            Array.isArray(current)
+              ? current.map((candidate) =>
+                  candidate && typeof candidate === "object" && (candidate as { id?: number }).id === updatedCandidate.id
+                    ? { ...(candidate as Record<string, unknown>), ...updatedCandidate }
+                    : candidate,
+                )
+              : current,
+        );
+        queryClient.invalidateQueries({
+          predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === "/api/candidates",
+        });
+        toast({ title: "Candidate status updated" });
+      },
+      onError: (error: Error) => {
+        setPendingCandidateId(null);
+        toast({
+          title: "Status update failed",
+          description: error.message || "Please try again.",
+          variant: "destructive",
+        });
+      },
+    },
+  });
+
+  const handleStatusUpdate = (candidateId: number, status: CandidateStatusValue) => {
+    setPendingCandidateId(candidateId);
+    updateStatus({ id: candidateId, data: { status } });
+  };
 
   return (
     <DashboardLayout allowedRoles={["admin"]}>
@@ -36,13 +85,14 @@ export default function AdminCandidates() {
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">CV</th>
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Submitted</th>
+                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {isLoading ? (
-                <tr><td colSpan={6} className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-slate-400" /></td></tr>
+                <tr><td colSpan={7} className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-slate-400" /></td></tr>
               ) : candidates?.length === 0 ? (
-                <tr><td colSpan={6} className="p-12 text-center text-slate-500">No candidates found.</td></tr>
+                <tr><td colSpan={7} className="p-12 text-center text-slate-500">No candidates found.</td></tr>
               ) : candidates?.map(c => (
                 <tr key={c.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-6 py-4">
@@ -81,6 +131,56 @@ export default function AdminCandidates() {
                   </td>
                   <td className="px-6 py-4"><StatusBadge status={c.status} /></td>
                   <td className="px-6 py-4 text-sm text-slate-600">{format(new Date(c.submittedAt), 'MMM d, yyyy')}</td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link href={`/admin/candidates/${c.id}`}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="rounded-xl gap-1.5 border-slate-200 bg-slate-50/80 text-slate-700 shadow-sm hover:border-primary hover:bg-primary/5 hover:text-primary"
+                        >
+                          <Eye className="h-3.5 w-3.5" /> Details
+                        </Button>
+                      </Link>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="rounded-xl gap-1.5 border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-400 hover:bg-emerald-100"
+                        disabled={updatingStatus && pendingCandidateId === c.id}
+                        onClick={() => handleStatusUpdate(c.id, "screening")}
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Accept
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="rounded-xl gap-1.5 border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-400 hover:bg-rose-100"
+                        disabled={updatingStatus && pendingCandidateId === c.id}
+                        onClick={() => handleStatusUpdate(c.id, "rejected")}
+                      >
+                        <XCircle className="h-3.5 w-3.5" /> Reject
+                      </Button>
+                      <Select
+                        value={c.status}
+                        onValueChange={(value) => handleStatusUpdate(c.id, value as CandidateStatusValue)}
+                        disabled={updatingStatus && pendingCandidateId === c.id}
+                      >
+                        <SelectTrigger className="h-9 min-w-[140px] rounded-xl border-slate-200 bg-white">
+                          <SelectValue placeholder={updatingStatus && pendingCandidateId === c.id ? "Updating..." : undefined} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="submitted">Submitted</SelectItem>
+                          <SelectItem value="screening">Screening</SelectItem>
+                          <SelectItem value="interview">Interview</SelectItem>
+                          <SelectItem value="offer">Offer</SelectItem>
+                          <SelectItem value="hired">Hired</SelectItem>
+                          <SelectItem value="rejected">Rejected</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>

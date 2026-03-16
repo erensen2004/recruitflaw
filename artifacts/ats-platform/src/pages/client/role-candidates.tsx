@@ -11,6 +11,9 @@ import { getListCandidatesQueryKey } from "@workspace/api-client-react";
 import { cn, formatCurrency, getPrivateObjectUrl } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
+const CANDIDATE_STATUSES = ["submitted", "screening", "interview", "offer", "hired", "rejected"] as const;
+type CandidateStatusValue = (typeof CANDIDATE_STATUSES)[number];
+
 function getParseBadge(parseStatus: string, reviewRequired: boolean) {
   if (parseStatus === "parsed" && !reviewRequired) {
     return { label: "Parsed", className: "bg-emerald-100 text-emerald-700" };
@@ -61,6 +64,9 @@ export default function ClientRoleCandidates() {
         setPendingCandidateId(null);
         syncUpdatedCandidate(queryClient, updatedCandidate);
         queryClient.invalidateQueries({ queryKey: getListCandidatesQueryKey({ roleId }) });
+        queryClient.invalidateQueries({
+          predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === "/api/candidates",
+        });
         toast({ title: "Candidate status updated" });
       },
       onError: (error: Error) => {
@@ -73,6 +79,11 @@ export default function ClientRoleCandidates() {
       },
     }
   });
+
+  const handleStatusUpdate = (candidateId: number, status: CandidateStatusValue) => {
+    setPendingCandidateId(candidateId);
+    updateStatus({ id: candidateId, data: { status } });
+  };
 
   return (
     <DashboardLayout allowedRoles={["client"]}>
@@ -150,11 +161,7 @@ export default function ClientRoleCandidates() {
                   <td className="px-6 py-4">
                     <Select
                       value={c.status}
-                      onValueChange={(v: any) => {
-                        const reason = window.prompt("Optional reason for this status change:");
-                        setPendingCandidateId(c.id);
-                        updateStatus({ id: c.id, data: { status: v, reason: reason?.trim() || undefined } });
-                      }}
+                      onValueChange={(value) => handleStatusUpdate(c.id, value as CandidateStatusValue)}
                       disabled={updatingStatus && pendingCandidateId === c.id}
                     >
                       <SelectTrigger
@@ -163,7 +170,7 @@ export default function ClientRoleCandidates() {
                           updatingStatus && pendingCandidateId === c.id && "border-primary/50 bg-primary/5 text-primary",
                         )}
                       >
-                        <SelectValue />
+                        <SelectValue placeholder={updatingStatus && pendingCandidateId === c.id ? "Updating..." : undefined} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="submitted">Submitted</SelectItem>

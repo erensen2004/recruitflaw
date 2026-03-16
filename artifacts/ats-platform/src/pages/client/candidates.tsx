@@ -174,7 +174,11 @@ export default function ClientCandidates() {
                     </td>
                     <td className="px-5 py-4">
                       <Link href={`/client/candidates/${c.id}`}>
-                        <Button variant="ghost" size="sm" className="rounded-lg gap-1 hover-elevate active-elevate-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="rounded-xl gap-1.5 border-slate-200 bg-slate-50/80 text-slate-700 shadow-sm hover:border-primary hover:bg-primary/5 hover:text-primary"
+                        >
                           <Eye className="w-3.5 h-3.5" /> Details
                         </Button>
                       </Link>

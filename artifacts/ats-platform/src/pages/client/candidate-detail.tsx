@@ -5,6 +5,7 @@ import {
   useUpdateCandidateStatus,
   getGetCandidateQueryKey,
   getListCandidateHistoryQueryKey,
+  useGetMe,
 } from "@workspace/api-client-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -99,21 +100,31 @@ function getParseBadge(parseStatus: string, confidence?: number | null, reviewRe
 }
 
 export default function ClientCandidateDetail() {
-  const [, params] = useRoute("/client/candidates/:id");
+  const [, clientParams] = useRoute("/client/candidates/:id");
+  const [, adminParams] = useRoute("/admin/candidates/:id");
+  const params = clientParams ?? adminParams;
   const candidateId = Number(params?.id);
+  const isAdminRoute = Boolean(adminParams?.id);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { data: me } = useGetMe();
+  const [pendingStatus, setPendingStatus] = useState<string | null>(null);
 
   const { data: candidate, isLoading } = useGetCandidate(candidateId);
   const { data: history = [], isLoading: historyLoading } = useListCandidateHistory(candidateId);
   const { mutate: updateStatus, isPending: updatingStatus } = useUpdateCandidateStatus({
     mutation: {
       onSuccess: (updatedCandidate) => {
+        setPendingStatus(null);
         syncUpdatedCandidate(queryClient, updatedCandidate);
         queryClient.invalidateQueries({ queryKey: getListCandidateHistoryQueryKey(candidateId) });
+        queryClient.invalidateQueries({
+          predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === "/api/candidates",
+        });
         toast({ title: "Status updated" });
       },
       onError: (error: Error) => {
+        setPendingStatus(null);
         toast({
           title: "Status update failed",
           description: error.message || "Please try again.",
@@ -191,7 +202,7 @@ export default function ClientCandidateDetail() {
 
   if (isLoading) {
     return (
-      <DashboardLayout allowedRoles={["client"]}>
+      <DashboardLayout allowedRoles={["client", "admin"]}>
         <div className="flex justify-center p-16">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
@@ -201,7 +212,7 @@ export default function ClientCandidateDetail() {
 
   if (!candidate) {
     return (
-      <DashboardLayout allowedRoles={["client"]}>
+      <DashboardLayout allowedRoles={["client", "admin"]}>
         <div className="text-center text-slate-500 p-12">Candidate not found.</div>
       </DashboardLayout>
     );
@@ -209,12 +220,22 @@ export default function ClientCandidateDetail() {
 
   const tags = candidate.tags ? candidate.tags.split(",").map((tag) => tag.trim()).filter(Boolean) : [];
   const parsedSkills = candidate.parsedSkills?.length ? candidate.parsedSkills : tags;
+  const backHref = isAdminRoute || me?.role === "admin" ? "/admin/candidates" : "/client/candidates";
+
+  const handleStatusUpdate = (statusValue: (typeof STATUSES)[number]) => {
+    if (updatingStatus || candidate.status === statusValue) return;
+    setPendingStatus(statusValue);
+    updateStatus({
+      id: candidateId,
+      data: { status: statusValue },
+    });
+  };
 
   return (
-    <DashboardLayout allowedRoles={["client"]}>
+    <DashboardLayout allowedRoles={["client", "admin"]}>
       <div className="mx-auto max-w-6xl space-y-6">
         <Link
-          href="/client/candidates"
+          href={backHref}
           className="inline-flex items-center text-sm font-medium text-slate-500 hover:text-primary transition-colors"
         >
           <ArrowLeft className="mr-1 h-4 w-4" /> Back to Candidates
@@ -399,20 +420,16 @@ export default function ClientCandidateDetail() {
                   <button
                     key={statusValue}
                     disabled={updatingStatus || candidate.status === statusValue}
-                    onClick={() => {
-                      const reason = window.prompt("Optional reason for this status change:");
-                      updateStatus({
-                        id: candidateId,
-                        data: { status: statusValue, reason: reason?.trim() || undefined },
-                      });
-                    }}
-                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-all hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] ${
+                    onClick={() => handleStatusUpdate(statusValue)}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-all duration-150 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] ${
                       candidate.status === statusValue
                         ? "border-primary bg-primary text-white shadow-sm"
-                        : "border-slate-200 bg-white text-slate-600 hover:border-primary hover:bg-primary/5 hover:text-primary"
+                        : pendingStatus === statusValue
+                          ? "border-primary/40 bg-primary/10 text-primary shadow-sm"
+                          : "border-slate-200 bg-white text-slate-600 hover:border-primary hover:bg-primary/5 hover:text-primary hover:shadow-sm"
                     }`}
                   >
-                    {STATUS_LABELS[statusValue]}
+                    {pendingStatus === statusValue ? "Updating..." : STATUS_LABELS[statusValue]}
                   </button>
                 ))}
               </div>
