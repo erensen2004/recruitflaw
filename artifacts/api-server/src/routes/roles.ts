@@ -9,6 +9,18 @@ import { Errors } from "../lib/errors.js";
 
 const router = Router();
 
+type EmploymentTypeValue = "full-time" | "part-time" | "contract" | "freelance";
+
+function normalizeEmploymentType(value: string | null | undefined): EmploymentTypeValue | null {
+  if (!value) return null;
+  if (value === "full_time") return "full-time";
+  if (value === "part_time") return "part-time";
+  if (value === "full-time" || value === "part-time" || value === "contract" || value === "freelance") {
+    return value;
+  }
+  return null;
+}
+
 function formatRole(role: {
   id: number;
   title: string;
@@ -32,7 +44,7 @@ function formatRole(role: {
     salaryMin: role.salaryMin ? Number(role.salaryMin) : null,
     salaryMax: role.salaryMax ? Number(role.salaryMax) : null,
     location: role.location,
-    employmentType: role.employmentType,
+    employmentType: normalizeEmploymentType(role.employmentType),
     isRemote: role.isRemote,
     status: role.status,
     companyId: role.companyId,
@@ -183,7 +195,7 @@ router.post(
           salaryMin: salaryMin != null ? String(salaryMin) : null,
           salaryMax: salaryMax != null ? String(salaryMax) : null,
           location: location ?? null,
-          employmentType: employmentType ?? null,
+          employmentType: normalizeEmploymentType(employmentType ?? null),
           isRemote: isRemote ?? false,
           status: "draft",
           companyId,
@@ -223,7 +235,7 @@ router.patch(
       if (salaryMin !== undefined) updates.salaryMin = salaryMin != null ? String(salaryMin) : null;
       if (salaryMax !== undefined) updates.salaryMax = salaryMax != null ? String(salaryMax) : null;
       if (location !== undefined) updates.location = location;
-      if (employmentType !== undefined) updates.employmentType = employmentType;
+      if (employmentType !== undefined) updates.employmentType = normalizeEmploymentType(employmentType);
       if (isRemote !== undefined) updates.isRemote = isRemote;
 
       const [role] = await db

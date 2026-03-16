@@ -17,6 +17,8 @@ const EMPLOYMENT_TYPES = ["full-time", "part-time", "contract", "freelance"];
 const empTypeLabel: Record<string, string> = {
   "full-time": "Full-time",
   "part-time": "Part-time",
+  "full_time": "Full-time",
+  "part_time": "Part-time",
   "contract": "Contract",
   "freelance": "Freelance",
 };

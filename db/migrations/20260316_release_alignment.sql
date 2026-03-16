@@ -40,3 +40,11 @@ CREATE INDEX IF NOT EXISTS candidate_status_history_candidate_id_idx
 
 CREATE INDEX IF NOT EXISTS candidate_status_history_created_at_idx
   ON public.candidate_status_history(created_at DESC);
+
+UPDATE public.job_roles
+SET employment_type = CASE employment_type
+  WHEN 'full_time' THEN 'full-time'
+  WHEN 'part_time' THEN 'part-time'
+  ELSE employment_type
+END
+WHERE employment_type IN ('full_time', 'part_time');
