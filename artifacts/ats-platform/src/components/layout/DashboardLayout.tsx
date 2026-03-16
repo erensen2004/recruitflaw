@@ -122,8 +122,8 @@ export function DashboardLayout({ children, allowedRoles }: { children: React.Re
               <div
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 ${
                   isActive 
-                    ? "bg-primary text-primary-foreground shadow-sm shadow-black/10" 
-                    : "text-sidebar-foreground hover:bg-sidebar-border/50 hover:text-white"
+                    ? "bg-primary text-primary-foreground shadow-sm shadow-black/10 ring-1 ring-white/10" 
+                    : "text-sidebar-foreground hover:-translate-y-0.5 hover:bg-sidebar-border/50 hover:text-white hover:shadow-sm"
                 }`}
                 onClick={() => setIsMobileMenuOpen(false)}
               >
@@ -138,7 +138,7 @@ export function DashboardLayout({ children, allowedRoles }: { children: React.Re
       <div className="p-4 border-t border-sidebar-border">
         <button
           onClick={handleLogout}
-          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-red-400 hover:bg-red-400/10 transition-colors"
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-red-400 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-400/10 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/40"
         >
           <LogOut className="w-5 h-5" />
           <span className="font-medium">Sign Out</span>
@@ -162,7 +162,11 @@ export function DashboardLayout({ children, allowedRoles }: { children: React.Re
           </div>
           RecruitFlow
         </div>
-        <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="text-white p-2" aria-label="Toggle navigation">
+        <button
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="rounded-xl p-2 text-white transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+          aria-label="Toggle navigation"
+        >
           {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
         </button>
       </div>
