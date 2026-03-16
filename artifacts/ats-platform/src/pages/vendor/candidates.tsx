@@ -4,7 +4,7 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UserCircle, Loader2, Plus, FileText, Upload, Tag, Sparkles } from "lucide-react";
 import { format } from "date-fns";
@@ -235,16 +235,25 @@ export default function VendorCandidates() {
 
   return (
     <DashboardLayout allowedRoles={["vendor"]}>
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900">My Candidates</h1>
-          <p className="text-slate-500 mt-1">Track the pipeline status of candidates you submitted</p>
+      <Dialog
+        open={isOpen}
+        onOpenChange={(open) => {
+          setIsOpen(open);
+          if (!open) resetForm();
+        }}
+      >
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900">My Candidates</h1>
+            <p className="mt-1 text-slate-500">Track the pipeline status of candidates you submitted</p>
+          </div>
+          <DialogTrigger asChild>
+            <Button className="h-11 rounded-xl px-6 shadow-md hover-elevate active-elevate-2">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Candidate
+            </Button>
+          </DialogTrigger>
         </div>
-        <Button className="rounded-xl shadow-md h-11 px-6 hover-elevate active-elevate-2" onClick={() => setIsOpen(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          Add Candidate
-        </Button>
-      </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
@@ -268,7 +277,7 @@ export default function VendorCandidates() {
                   <td colSpan={7} className="p-12 text-center">
                     <UserCircle className="w-12 h-12 mx-auto mb-3 text-slate-300" />
                     <p className="text-slate-500 font-medium">No candidates yet</p>
-                    <p className="text-sm text-slate-400 mt-1">Click "Add Candidate" to submit your first candidate</p>
+                    <p className="text-sm text-slate-400 mt-1">Click &quot;Add Candidate&quot; to submit your first candidate and start tracking their pipeline.</p>
                   </td>
                 </tr>
               ) : candidates?.map(c => {
@@ -322,13 +331,6 @@ export default function VendorCandidates() {
         </div>
       </div>
 
-      <Dialog
-        open={isOpen}
-        onOpenChange={(open) => {
-          setIsOpen(open);
-          if (!open) resetForm();
-        }}
-      >
         <DialogContent className="sm:max-w-xl rounded-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add Candidate</DialogTitle>

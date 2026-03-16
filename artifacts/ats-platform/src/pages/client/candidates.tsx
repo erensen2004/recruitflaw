@@ -84,7 +84,7 @@ export default function ClientCandidates() {
         />
       </div>
 
-      <div className="mb-6 flex flex-wrap gap-2">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <Button
           type="button"
           variant={reviewRequired === "yes" ? "default" : "outline"}
@@ -119,11 +119,21 @@ export default function ClientCandidates() {
         </Button>
       </div>
 
+      {!isLoading && candidates?.length ? (
+        <p className="mb-6 text-sm text-slate-500">
+          Showing <span className="font-semibold text-slate-700">{candidates.length}</span> candidate{candidates.length === 1 ? "" : "s"}.
+        </p>
+      ) : null}
+
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         {isLoading ? (
           <div className="flex justify-center p-12"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div>
         ) : !candidates?.length ? (
-          <div className="text-center text-slate-400 p-12">No candidates found.</div>
+          <div className="p-12 text-center">
+            <AlertTriangle className="mx-auto mb-3 h-10 w-10 text-slate-300" />
+            <p className="font-medium text-slate-600">No candidates matched these filters.</p>
+            <p className="mt-1 text-sm text-slate-400">Try widening the search, clearing filters, or checking another status bucket.</p>
+          </div>
         ) : (
           <div className="overflow-x-auto">
           <table className="w-full text-sm">

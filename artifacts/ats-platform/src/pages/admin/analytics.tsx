@@ -57,7 +57,7 @@ export default function AdminAnalytics() {
         <div className="text-center text-slate-500 p-12">Failed to load analytics.</div>
       ) : (
         <div className="space-y-8">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {headlineStats.map(stat => (
               <div key={stat.label} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
                 <div className={`w-10 h-10 rounded-xl ${stat.bg} flex items-center justify-center mb-4`}>
@@ -69,7 +69,7 @@ export default function AdminAnalytics() {
             ))}
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {[
               { label: "Total Roles", value: data.totalRoles },
               { label: "Companies", value: data.totalCompanies },
