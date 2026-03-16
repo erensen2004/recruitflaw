@@ -43,6 +43,7 @@ function Router() {
       <Route path="/admin/companies" component={AdminCompanies} />
       <Route path="/admin/users" component={AdminUsers} />
       <Route path="/admin/roles" component={AdminRoles} />
+      <Route path="/admin/roles/:id/candidates" component={ClientRoleCandidates} />
       <Route path="/admin/candidates" component={AdminCandidates} />
       <Route path="/admin/candidates/:id" component={ClientCandidateDetail} />
       <Route path="/admin/contracts" component={AdminContracts} />

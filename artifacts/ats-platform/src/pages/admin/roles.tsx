@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListRolesQueryKey } from "@workspace/api-client-react";
 import { format } from "date-fns";
+import { Link } from "wouter";
 
 export default function AdminRoles() {
   const { data: roles, isLoading } = useListRoles();
@@ -100,6 +101,12 @@ export default function AdminRoles() {
                         {(role.status === 'draft' || role.status === 'closed') && (
                           <span className="text-xs text-slate-400">—</span>
                         )}
+                        <Link
+                          href={`/admin/roles/${role.id}/candidates`}
+                          className="inline-flex min-h-8 items-center justify-center rounded-lg px-3 text-xs font-medium text-slate-700 transition-all duration-150 hover:-translate-y-0.5 hover:bg-slate-100 hover:text-primary active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                        >
+                          View Candidates
+                        </Link>
                       </div>
                     </td>
                   </tr>

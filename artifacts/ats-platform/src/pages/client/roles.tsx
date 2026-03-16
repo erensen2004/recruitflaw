@@ -201,8 +201,11 @@ export default function ClientRoles() {
                 <Users className="w-4 h-4" />
                 {role.candidateCount} Candidates
               </div>
-              <Link href={`/client/roles/${role.id}/candidates`}>
-                <Button variant="ghost" size="sm" className="rounded-lg hover-elevate active-elevate-2">View Details</Button>
+              <Link
+                href={`/client/roles/${role.id}/candidates`}
+                className="inline-flex min-h-8 items-center justify-center rounded-lg px-3 text-xs font-medium text-slate-700 transition-all duration-150 hover:-translate-y-0.5 hover:bg-slate-100 hover:text-primary active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                View Details
               </Link>
             </div>
           </div>

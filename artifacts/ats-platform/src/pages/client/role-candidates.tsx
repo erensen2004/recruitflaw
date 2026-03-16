@@ -7,9 +7,9 @@ import { UserCircle, Loader2, ArrowLeft, FileText } from "lucide-react";
 import { useRoute, Link } from "wouter";
 import { format } from "date-fns";
 import { useQueryClient } from "@tanstack/react-query";
-import { getListCandidatesQueryKey } from "@workspace/api-client-react";
 import { cn, formatCurrency, getPrivateObjectUrl } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { invalidateCandidateQueries, syncCandidateAcrossCaches } from "@/lib/candidate-query";
 
 const CANDIDATE_STATUSES = ["submitted", "screening", "interview", "offer", "hired", "rejected"] as const;
 type CandidateStatusValue = (typeof CANDIDATE_STATUSES)[number];
@@ -24,34 +24,12 @@ function getParseBadge(parseStatus: string, reviewRequired: boolean) {
   return { label: "Manual", className: "bg-slate-100 text-slate-700" };
 }
 
-function syncUpdatedCandidate(queryClient: ReturnType<typeof useQueryClient>, updatedCandidate: any) {
-  queryClient.setQueriesData(
-    {
-      predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === "/api/candidates",
-    },
-    (current: unknown) =>
-      Array.isArray(current)
-        ? current.map((candidate) =>
-            candidate && typeof candidate === "object" && (candidate as { id?: number }).id === updatedCandidate.id
-              ? { ...(candidate as Record<string, unknown>), ...updatedCandidate }
-              : candidate,
-          )
-        : current,
-  );
-  queryClient.setQueriesData(
-    {
-      predicate: (query) =>
-        Array.isArray(query.queryKey) &&
-        typeof query.queryKey[0] === "string" &&
-        query.queryKey[0] === `/api/candidates/${updatedCandidate.id}`,
-    },
-    updatedCandidate,
-  );
-}
-
 export default function ClientRoleCandidates() {
-  const [, params] = useRoute("/client/roles/:id/candidates");
+  const [, clientParams] = useRoute("/client/roles/:id/candidates");
+  const [, adminParams] = useRoute("/admin/roles/:id/candidates");
+  const params = clientParams ?? adminParams;
   const roleId = Number(params?.id);
+  const isAdminRoute = Boolean(adminParams?.id);
 
   const { data: role } = useGetRole(roleId);
   const { data: candidates, isLoading } = useListCandidates({ roleId });
@@ -62,11 +40,8 @@ export default function ClientRoleCandidates() {
     mutation: {
       onSuccess: (updatedCandidate) => {
         setPendingCandidateId(null);
-        syncUpdatedCandidate(queryClient, updatedCandidate);
-        queryClient.invalidateQueries({ queryKey: getListCandidatesQueryKey({ roleId }) });
-        queryClient.invalidateQueries({
-          predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === "/api/candidates",
-        });
+        syncCandidateAcrossCaches(queryClient, updatedCandidate);
+        void invalidateCandidateQueries(queryClient, updatedCandidate.id);
         toast({ title: "Candidate status updated" });
       },
       onError: (error: Error) => {
@@ -81,14 +56,19 @@ export default function ClientRoleCandidates() {
   });
 
   const handleStatusUpdate = (candidateId: number, status: CandidateStatusValue) => {
+    const currentCandidate = candidates?.find((candidate) => candidate.id === candidateId);
+    if (updatingStatus || currentCandidate?.status === status) return;
     setPendingCandidateId(candidateId);
     updateStatus({ id: candidateId, data: { status } });
   };
 
   return (
-    <DashboardLayout allowedRoles={["client"]}>
+    <DashboardLayout allowedRoles={["client", "admin"]}>
       <div className="mb-8">
-        <Link href="/client/roles" className="inline-flex items-center text-sm font-medium text-slate-500 hover:text-primary transition-colors mb-4">
+        <Link
+          href={isAdminRoute ? "/admin/roles" : "/client/roles"}
+          className="inline-flex items-center text-sm font-medium text-slate-500 hover:text-primary transition-colors mb-4"
+        >
           <ArrowLeft className="w-4 h-4 mr-1" /> Back to Roles
         </Link>
         <h1 className="text-3xl font-bold text-slate-900">

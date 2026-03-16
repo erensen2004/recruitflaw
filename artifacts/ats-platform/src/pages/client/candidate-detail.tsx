@@ -3,8 +3,6 @@ import {
   useGetCandidate,
   useListCandidateHistory,
   useUpdateCandidateStatus,
-  getGetCandidateQueryKey,
-  getListCandidateHistoryQueryKey,
   useGetMe,
 } from "@workspace/api-client-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
@@ -29,6 +27,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { getPrivateObjectUrl } from "@/lib/utils";
 import { exportStandardizedCandidatePdf } from "@/lib/standardized-cv";
+import { invalidateCandidateQueries, syncCandidateAcrossCaches } from "@/lib/candidate-query";
 
 const STATUSES = ["submitted", "screening", "interview", "offer", "hired", "rejected"] as const;
 const STATUS_LABELS: Record<string, string> = {
@@ -61,23 +60,6 @@ function cleanSnapshotText(value?: string | null) {
   }
 
   return normalized;
-}
-
-function syncUpdatedCandidate(queryClient: ReturnType<typeof useQueryClient>, updatedCandidate: any) {
-  queryClient.setQueriesData({ queryKey: getGetCandidateQueryKey(updatedCandidate.id) }, updatedCandidate);
-  queryClient.setQueriesData(
-    {
-      predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === "/api/candidates",
-    },
-    (current: unknown) =>
-      Array.isArray(current)
-        ? current.map((candidate) =>
-            candidate && typeof candidate === "object" && (candidate as { id?: number }).id === updatedCandidate.id
-              ? { ...(candidate as Record<string, unknown>), ...updatedCandidate }
-              : candidate,
-          )
-        : current,
-  );
 }
 
 function getParseBadge(parseStatus: string, confidence?: number | null, reviewRequired?: boolean) {
@@ -116,11 +98,8 @@ export default function ClientCandidateDetail() {
     mutation: {
       onSuccess: (updatedCandidate) => {
         setPendingStatus(null);
-        syncUpdatedCandidate(queryClient, updatedCandidate);
-        queryClient.invalidateQueries({ queryKey: getListCandidateHistoryQueryKey(candidateId) });
-        queryClient.invalidateQueries({
-          predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === "/api/candidates",
-        });
+        syncCandidateAcrossCaches(queryClient, updatedCandidate);
+        void invalidateCandidateQueries(queryClient, candidateId);
         toast({ title: "Status updated" });
       },
       onError: (error: Error) => {
@@ -421,6 +400,7 @@ export default function ClientCandidateDetail() {
                     key={statusValue}
                     disabled={updatingStatus || candidate.status === statusValue}
                     onClick={() => handleStatusUpdate(statusValue)}
+                    aria-pressed={candidate.status === statusValue}
                     className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-all duration-150 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] ${
                       candidate.status === statusValue
                         ? "border-primary bg-primary text-white shadow-sm"

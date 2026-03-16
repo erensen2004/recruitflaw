@@ -1,7 +1,6 @@
 import { useListRoles } from "@workspace/api-client-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Button } from "@/components/ui/button";
 import { Briefcase, Loader2, ArrowRight } from "lucide-react";
 import { Link } from "wouter";
 
@@ -41,10 +40,11 @@ export default function VendorPositions() {
                <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-1 rounded">
                 Required: {role.skills || 'Not specified'}
                </span>
-              <Link href={`/vendor/submit/${role.id}`}>
-                <Button className="rounded-lg shadow-sm group-hover:bg-primary/90 transition-colors hover-elevate active-elevate-2">
-                  Submit Candidate <ArrowRight className="w-4 h-4 ml-2" />
-                </Button>
+              <Link
+                href={`/vendor/submit/${role.id}`}
+                className="inline-flex min-h-9 items-center justify-center rounded-lg border border-primary bg-primary px-4 text-sm font-medium text-white shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-md active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                Submit Candidate <ArrowRight className="ml-2 w-4 h-4" />
               </Link>
             </div>
           </div>

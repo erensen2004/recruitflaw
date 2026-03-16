@@ -173,14 +173,11 @@ export default function ClientCandidates() {
                       ) : <span className="text-slate-300 text-xs">—</span>}
                     </td>
                     <td className="px-5 py-4">
-                      <Link href={`/client/candidates/${c.id}`}>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="rounded-xl gap-1.5 border-slate-200 bg-slate-50/80 text-slate-700 shadow-sm hover:border-primary hover:bg-primary/5 hover:text-primary"
-                        >
-                          <Eye className="w-3.5 h-3.5" /> Details
-                        </Button>
+                      <Link
+                        href={`/client/candidates/${c.id}`}
+                        className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50/80 px-3 text-xs font-medium text-slate-700 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-primary hover:bg-primary/5 hover:text-primary hover:shadow-md active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                      >
+                        <Eye className="w-3.5 h-3.5" /> Details
                       </Link>
                     </td>
                   </tr>

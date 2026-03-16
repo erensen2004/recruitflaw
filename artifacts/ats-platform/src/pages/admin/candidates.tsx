@@ -10,6 +10,7 @@ import { getPrivateObjectUrl } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
+import { invalidateCandidateQueries, syncCandidateAcrossCaches } from "@/lib/candidate-query";
 
 const CANDIDATE_STATUSES = ["submitted", "screening", "interview", "offer", "hired", "rejected"] as const;
 type CandidateStatusValue = (typeof CANDIDATE_STATUSES)[number];
@@ -33,22 +34,8 @@ export default function AdminCandidates() {
     mutation: {
       onSuccess: (updatedCandidate) => {
         setPendingCandidateId(null);
-        queryClient.setQueriesData(
-          {
-            predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === "/api/candidates",
-          },
-          (current: unknown) =>
-            Array.isArray(current)
-              ? current.map((candidate) =>
-                  candidate && typeof candidate === "object" && (candidate as { id?: number }).id === updatedCandidate.id
-                    ? { ...(candidate as Record<string, unknown>), ...updatedCandidate }
-                    : candidate,
-                )
-              : current,
-        );
-        queryClient.invalidateQueries({
-          predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === "/api/candidates",
-        });
+        syncCandidateAcrossCaches(queryClient, updatedCandidate);
+        void invalidateCandidateQueries(queryClient, updatedCandidate.id);
         toast({ title: "Candidate status updated" });
       },
       onError: (error: Error) => {
@@ -63,6 +50,8 @@ export default function AdminCandidates() {
   });
 
   const handleStatusUpdate = (candidateId: number, status: CandidateStatusValue) => {
+    const currentCandidate = candidates?.find((candidate) => candidate.id === candidateId);
+    if (updatingStatus || currentCandidate?.status === status) return;
     setPendingCandidateId(candidateId);
     updateStatus({ id: candidateId, data: { status } });
   };
@@ -133,14 +122,11 @@ export default function AdminCandidates() {
                   <td className="px-6 py-4 text-sm text-slate-600">{format(new Date(c.submittedAt), 'MMM d, yyyy')}</td>
                   <td className="px-6 py-4">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Link href={`/admin/candidates/${c.id}`}>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="rounded-xl gap-1.5 border-slate-200 bg-slate-50/80 text-slate-700 shadow-sm hover:border-primary hover:bg-primary/5 hover:text-primary"
-                        >
-                          <Eye className="h-3.5 w-3.5" /> Details
-                        </Button>
+                      <Link
+                        href={`/admin/candidates/${c.id}`}
+                        className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50/80 px-3 text-xs font-medium text-slate-700 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-primary hover:bg-primary/5 hover:text-primary hover:shadow-md active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                      >
+                        <Eye className="h-3.5 w-3.5" /> Details
                       </Link>
                       <Button
                         type="button"
