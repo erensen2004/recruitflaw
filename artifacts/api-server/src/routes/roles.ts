@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, jobRolesTable, companiesTable, candidatesTable } from "@workspace/db";
-import { eq, count } from "drizzle-orm";
+import { eq, count, ne, and } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole, resolveRoleAccess } from "../lib/authz.js";
 import { validate } from "../middlewares/validate.js";
@@ -59,7 +59,7 @@ async function getCandidateCount(roleId: number): Promise<number> {
   const [{ cnt }] = await db
     .select({ cnt: count() })
     .from(candidatesTable)
-    .where(eq(candidatesTable.roleId, roleId));
+    .where(and(eq(candidatesTable.roleId, roleId), ne(candidatesTable.status, "withdrawn")));
   return Number(cnt);
 }
 
@@ -96,6 +96,7 @@ router.get("/", requireAuth, async (req, res) => {
     const candidateCounts = await db
       .select({ roleId: candidatesTable.roleId, cnt: count() })
       .from(candidatesTable)
+      .where(ne(candidatesTable.status, "withdrawn"))
       .groupBy(candidatesTable.roleId);
 
     const countMap = Object.fromEntries(candidateCounts.map((c) => [c.roleId, Number(c.cnt)]));

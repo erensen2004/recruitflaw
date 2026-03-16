@@ -31,6 +31,8 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
         return "bg-green-100 text-green-800 border-green-200";
       case "rejected":
         return "bg-red-100 text-red-800 border-red-200";
+      case "withdrawn":
+        return "bg-orange-100 text-orange-800 border-orange-200";
         
       // User Roles & Company Types
       case "admin":

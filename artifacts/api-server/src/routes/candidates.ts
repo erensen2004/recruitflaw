@@ -7,11 +7,16 @@ import {
   companiesTable,
   usersTable,
 } from "@workspace/db";
-import { eq, and, desc, ilike, or, isNull, isNotNull, gte } from "drizzle-orm";
+import { eq, and, desc, ilike, or, isNull, isNotNull, gte, ne } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole, resolveCandidateAccess } from "../lib/authz.js";
 import { validate } from "../middlewares/validate.js";
-import { CreateCandidateSchema, CandidateStatusSchema } from "../lib/schemas.js";
+import {
+  CreateCandidateSchema,
+  CandidateStatusSchema,
+  UpdateCandidateSchema,
+  WithdrawCandidateSchema,
+} from "../lib/schemas.js";
 import { Errors } from "../lib/errors.js";
 
 const router = Router();
@@ -58,6 +63,24 @@ function inferParseStatus(input: {
   if (input.parseReviewRequired) return "partial";
   if (typeof input.parseConfidence === "number" && input.parseConfidence < 65) return "partial";
   return "parsed";
+}
+
+function normalizeNullableString(value: string | null | undefined) {
+  if (value == null) return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function normalizeTags(value: string | string[] | null | undefined) {
+  if (value == null) return null;
+  if (Array.isArray(value)) {
+    const joined = value
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .join(", ");
+    return joined ? joined : null;
+  }
+  return normalizeNullableString(value);
 }
 
 async function getActorName(userId: number): Promise<string> {
@@ -164,6 +187,7 @@ router.get("/", requireAuth, async (req, res) => {
       conditions.push(eq(candidatesTable.vendorCompanyId, companyId));
     } else if (userRole === "client" && companyId) {
       conditions.push(eq(jobRolesTable.companyId, companyId));
+      conditions.push(ne(candidatesTable.status, "withdrawn"));
     }
     if (skill) {
       const like = `%${skill}%`;
@@ -250,6 +274,11 @@ router.get("/:id/history", requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     const access = await resolveCandidateAccess(req, res, id);
     if (!access) return;
+
+    if (req.user?.role === "client" && access.status === "withdrawn") {
+      Errors.notFound(res, "Candidate not found");
+      return;
+    }
 
     const rows = await db
       .select()
@@ -424,7 +453,7 @@ router.post(
           cvUrl: cvUrl ?? null,
           originalCvFileName: originalCvFileName ?? null,
           originalCvMimeType: originalCvMimeType ?? null,
-          tags: tags ?? null,
+          tags: normalizeTags(tags),
           currentTitle: currentTitle ?? null,
           location: location ?? null,
           yearsExperience: yearsExperience ?? null,
@@ -464,6 +493,160 @@ router.post(
         .where(eq(companiesTable.id, companyId));
 
       res.status(201).json(formatCandidate(candidate, role.title, vendorCompany?.name ?? ""));
+    } catch (err) {
+      console.error(err);
+      Errors.internal(res);
+    }
+  },
+);
+
+router.patch(
+  "/:id",
+  requireAuth,
+  requireRole("vendor"),
+  validate(UpdateCandidateSchema),
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const access = await resolveCandidateAccess(req, res, id);
+      if (!access) return;
+
+      if (!["submitted", "screening"].includes(access.status)) {
+        Errors.forbidden(
+          res,
+          "Only candidates in submitted or screening can be edited by the vendor.",
+        );
+        return;
+      }
+
+      const {
+        firstName,
+        lastName,
+        email,
+        phone,
+        expectedSalary,
+        cvUrl,
+        originalCvFileName,
+        originalCvMimeType,
+        tags,
+        currentTitle,
+        location,
+        yearsExperience,
+        education,
+        languages,
+        summary,
+        standardizedProfile,
+        parseStatus,
+        parseConfidence,
+        parseReviewRequired,
+        parseProvider,
+        parsedSkills,
+        parsedExperience,
+        parsedEducation,
+      } = req.body;
+
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      if (firstName !== undefined) updates.firstName = firstName.trim();
+      if (lastName !== undefined) updates.lastName = lastName.trim();
+      if (email !== undefined) updates.email = email.trim().toLowerCase();
+      if (phone !== undefined) updates.phone = normalizeNullableString(phone);
+      if (expectedSalary !== undefined) updates.expectedSalary = expectedSalary != null ? String(expectedSalary) : null;
+      if (cvUrl !== undefined) updates.cvUrl = normalizeNullableString(cvUrl);
+      if (originalCvFileName !== undefined) updates.originalCvFileName = normalizeNullableString(originalCvFileName);
+      if (originalCvMimeType !== undefined) updates.originalCvMimeType = normalizeNullableString(originalCvMimeType);
+      if (tags !== undefined) updates.tags = normalizeTags(tags);
+      if (currentTitle !== undefined) updates.currentTitle = normalizeNullableString(currentTitle);
+      if (location !== undefined) updates.location = normalizeNullableString(location);
+      if (yearsExperience !== undefined) updates.yearsExperience = yearsExperience;
+      if (education !== undefined) updates.education = normalizeNullableString(education);
+      if (languages !== undefined) updates.languages = normalizeNullableString(languages);
+      if (summary !== undefined) updates.summary = normalizeNullableString(summary);
+      if (standardizedProfile !== undefined) updates.standardizedProfile = normalizeNullableString(standardizedProfile);
+      if (parseStatus !== undefined) updates.parseStatus = parseStatus;
+      if (parseConfidence !== undefined) updates.parseConfidence = parseConfidence;
+      if (parseReviewRequired !== undefined) updates.parseReviewRequired = parseReviewRequired;
+      if (parseProvider !== undefined) updates.parseProvider = normalizeNullableString(parseProvider);
+      if (parsedSkills !== undefined) updates.parsedSkills = parsedSkills;
+      if (parsedExperience !== undefined) updates.parsedExperience = parsedExperience;
+      if (parsedEducation !== undefined) updates.parsedEducation = parsedEducation;
+
+      const [candidate] = await db
+        .update(candidatesTable)
+        .set(updates)
+        .where(eq(candidatesTable.id, id))
+        .returning();
+
+      const [role] = await db
+        .select({ title: jobRolesTable.title })
+        .from(jobRolesTable)
+        .where(eq(jobRolesTable.id, candidate.roleId));
+
+      const [vendorCompany] = await db
+        .select({ name: companiesTable.name })
+        .from(companiesTable)
+        .where(eq(companiesTable.id, candidate.vendorCompanyId));
+
+      res.json(formatCandidate(candidate, role?.title ?? "", vendorCompany?.name ?? ""));
+    } catch (err) {
+      console.error(err);
+      Errors.internal(res);
+    }
+  },
+);
+
+router.post(
+  "/:id/withdraw",
+  requireAuth,
+  requireRole("vendor"),
+  validate(WithdrawCandidateSchema),
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const access = await resolveCandidateAccess(req, res, id);
+      if (!access) return;
+
+      if (!["submitted", "screening"].includes(access.status)) {
+        Errors.forbidden(
+          res,
+          "Only candidates in submitted or screening can be withdrawn by the vendor.",
+        );
+        return;
+      }
+
+      const actorName = await getActorName(req.user!.userId);
+      const [candidate] = await db
+        .update(candidatesTable)
+        .set({ status: "withdrawn", updatedAt: new Date() })
+        .where(eq(candidatesTable.id, id))
+        .returning();
+
+      try {
+        await db.insert(candidateStatusHistoryTable).values({
+          candidateId: candidate.id,
+          previousStatus: access.status,
+          nextStatus: "withdrawn",
+          reason: req.body.reason?.trim() || "Candidate withdrawn by vendor",
+          changedByUserId: req.user!.userId,
+          changedByName: actorName,
+        });
+      } catch (historyError) {
+        if (!isUndefinedRelationError(historyError)) {
+          throw historyError;
+        }
+        console.warn("candidate_status_history table is missing; withdraw history entry skipped");
+      }
+
+      const [role] = await db
+        .select({ title: jobRolesTable.title })
+        .from(jobRolesTable)
+        .where(eq(jobRolesTable.id, candidate.roleId));
+
+      const [vendorCompany] = await db
+        .select({ name: companiesTable.name })
+        .from(companiesTable)
+        .where(eq(companiesTable.id, candidate.vendorCompanyId));
+
+      res.json(formatCandidate(candidate, role?.title ?? "", vendorCompany?.name ?? ""));
     } catch (err) {
       console.error(err);
       Errors.internal(res);

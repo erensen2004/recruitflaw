@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+const TagsInputSchema = z.union([
+  z.string().max(500),
+  z.array(z.string().max(200)).max(100),
+]);
+
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
 export const LoginSchema = z.object({
@@ -19,7 +24,7 @@ export const CreateCandidateSchema = z.object({
   cvUrl: z.string().max(2048).nullable().optional(),
   originalCvFileName: z.string().max(500).nullable().optional(),
   originalCvMimeType: z.string().max(100).nullable().optional(),
-  tags: z.string().max(500).nullable().optional(),
+  tags: TagsInputSchema.nullable().optional(),
   currentTitle: z.string().max(200).nullable().optional(),
   location: z.string().max(200).nullable().optional(),
   yearsExperience: z.number().int().min(0).max(80).nullable().optional(),
@@ -54,6 +59,52 @@ export const CreateCandidateSchema = z.object({
 
 export const CandidateStatusSchema = z.object({
   status: z.enum(["submitted", "screening", "interview", "offer", "hired", "rejected"]),
+  reason: z.string().max(1000).nullable().optional(),
+});
+
+export const UpdateCandidateSchema = z.object({
+  firstName: z.string().min(1).max(100).optional(),
+  lastName: z.string().min(1).max(100).optional(),
+  email: z.string().email().optional(),
+  phone: z.string().max(50).nullable().optional(),
+  expectedSalary: z.number().positive().nullable().optional(),
+  cvUrl: z.string().max(2048).nullable().optional(),
+  originalCvFileName: z.string().max(500).nullable().optional(),
+  originalCvMimeType: z.string().max(100).nullable().optional(),
+  tags: TagsInputSchema.nullable().optional(),
+  currentTitle: z.string().max(200).nullable().optional(),
+  location: z.string().max(200).nullable().optional(),
+  yearsExperience: z.number().int().min(0).max(80).nullable().optional(),
+  education: z.string().max(5000).nullable().optional(),
+  languages: z.string().max(1000).nullable().optional(),
+  summary: z.string().max(5000).nullable().optional(),
+  standardizedProfile: z.string().max(10000).nullable().optional(),
+  parseStatus: z.enum(["not_started", "processing", "parsed", "partial", "failed"]).optional(),
+  parseConfidence: z.number().int().min(0).max(100).nullable().optional(),
+  parseReviewRequired: z.boolean().optional(),
+  parseProvider: z.string().max(100).nullable().optional(),
+  parsedSkills: z.array(z.string().max(200)).max(100).nullable().optional(),
+  parsedExperience: z.array(
+    z.object({
+      company: z.string().max(200).nullable().optional(),
+      title: z.string().max(200).nullable().optional(),
+      startDate: z.string().max(50).nullable().optional(),
+      endDate: z.string().max(50).nullable().optional(),
+      highlights: z.array(z.string().max(500)).max(20).nullable().optional(),
+    }),
+  ).max(50).nullable().optional(),
+  parsedEducation: z.array(
+    z.object({
+      institution: z.string().max(300).nullable().optional(),
+      degree: z.string().max(300).nullable().optional(),
+      fieldOfStudy: z.string().max(300).nullable().optional(),
+      startDate: z.string().max(50).nullable().optional(),
+      endDate: z.string().max(50).nullable().optional(),
+    }),
+  ).max(50).nullable().optional(),
+});
+
+export const WithdrawCandidateSchema = z.object({
   reason: z.string().max(1000).nullable().optional(),
 });
 

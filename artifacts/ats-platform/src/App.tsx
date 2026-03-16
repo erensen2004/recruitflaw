@@ -22,6 +22,7 @@ import ClientTimesheets from "@/pages/client/timesheets";
 import VendorPositions from "@/pages/vendor/positions";
 import VendorSubmitCandidate from "@/pages/vendor/submit-candidate";
 import VendorCandidates from "@/pages/vendor/candidates";
+import VendorCandidateDetail from "@/pages/vendor/candidate-detail";
 import VendorContracts from "@/pages/vendor/contracts";
 import VendorTimesheets from "@/pages/vendor/timesheets";
 
@@ -61,6 +62,7 @@ function Router() {
       <Route path="/vendor/positions" component={VendorPositions} />
       <Route path="/vendor/submit/:roleId" component={VendorSubmitCandidate} />
       <Route path="/vendor/candidates" component={VendorCandidates} />
+      <Route path="/vendor/candidates/:id" component={VendorCandidateDetail} />
       <Route path="/vendor/contracts" component={VendorContracts} />
       <Route path="/vendor/timesheets" component={VendorTimesheets} />
 

@@ -46,6 +46,10 @@ export async function resolveCandidateAccess(
       Errors.forbidden(res);
       return null;
     }
+    if (row.status === "withdrawn") {
+      Errors.notFound(res, "Candidate not found");
+      return null;
+    }
     return row;
   }
 

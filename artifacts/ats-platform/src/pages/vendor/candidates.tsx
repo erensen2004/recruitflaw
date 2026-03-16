@@ -13,6 +13,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListCandidatesQueryKey } from "@workspace/api-client-react";
 import { getErrorMessage, parseResumeFileWithFallback, type ParsedCandidateProfile } from "@/lib/resume-parse";
+import { uploadResumeFile } from "@/lib/resume-upload";
+import { Link } from "wouter";
 
 function cleanSnapshotText(value?: string | null) {
   if (!value) return null;
@@ -97,35 +99,7 @@ export default function VendorCandidates() {
   const uploadCv = async (file: File): Promise<string | null> => {
     try {
       const token = localStorage.getItem("ats_token");
-      const res = await fetch("/api/storage/uploads/request-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
-      });
-      if (!res.ok) {
-        throw new Error(await getErrorMessage(res));
-      }
-
-      const { uploadURL, objectPath } = await res.json();
-      const uploadHeaders: Record<string, string> = { "Content-Type": file.type };
-      if (token && uploadURL.startsWith("/api/")) {
-        uploadHeaders.Authorization = `Bearer ${token}`;
-      }
-      const uploadRes = await fetch(uploadURL, { method: "PUT", headers: uploadHeaders, body: file });
-      if (!uploadRes.ok) {
-        throw new Error("File upload failed");
-      }
-
-      const confirmRes = await fetch("/api/storage/uploads/confirm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ objectPath }),
-      });
-      if (!confirmRes.ok) {
-        throw new Error(await getErrorMessage(confirmRes));
-      }
-
-      return objectPath;
+      return await uploadResumeFile(file, { token, maxAttempts: 3 });
     } catch (error) {
       toast({
         title: "CV upload failed",
@@ -271,14 +245,15 @@ export default function VendorCandidates() {
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">CV</th>
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Date Submitted</th>
+                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {isLoading ? (
-                <tr><td colSpan={7} className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-slate-400" /></td></tr>
+                <tr><td colSpan={8} className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-slate-400" /></td></tr>
               ) : candidates?.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-12 text-center">
+                  <td colSpan={8} className="p-12 text-center">
                     <UserCircle className="w-12 h-12 mx-auto mb-3 text-slate-300" />
                     <p className="text-slate-500 font-medium">No candidates yet</p>
                     <p className="text-sm text-slate-400 mt-1">Click &quot;Add Candidate&quot; to submit your first candidate and start tracking their pipeline.</p>
@@ -327,6 +302,14 @@ export default function VendorCandidates() {
                     </td>
                     <td className="px-6 py-4"><StatusBadge status={c.status} /></td>
                     <td className="px-6 py-4 text-sm text-slate-600">{format(new Date(c.submittedAt), "MMM d, yyyy")}</td>
+                    <td className="px-6 py-4">
+                      <Link
+                        href={`/vendor/candidates/${c.id}`}
+                        className="inline-flex min-h-8 items-center justify-center rounded-lg px-3 text-xs font-medium text-slate-700 transition-all duration-150 hover:-translate-y-0.5 hover:bg-slate-100 hover:text-primary active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                      >
+                        Details
+                      </Link>
+                    </td>
                   </tr>
                 );
               })}

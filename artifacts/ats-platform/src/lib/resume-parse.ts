@@ -228,6 +228,14 @@ function createCanvas(viewport: { width: number; height: number }) {
 
 async function runTesseractOcr(image: HTMLCanvasElement | File, onProgress?: ProgressCallback) {
   const { createWorker } = await import("tesseract.js");
+  const originalConsoleError = console.error;
+  console.error = (...args: unknown[]) => {
+    const firstArg = typeof args[0] === "string" ? args[0] : "";
+    if (/estimating resolution/i.test(firstArg)) {
+      return;
+    }
+    originalConsoleError(...args);
+  };
   const worker = await createWorker("eng", 1, {
     logger: (message) => {
       if (typeof message?.progress === "number" && onProgress) {
@@ -241,6 +249,7 @@ async function runTesseractOcr(image: HTMLCanvasElement | File, onProgress?: Pro
     return data.text.replace(/\s+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   } finally {
     await worker.terminate();
+    console.error = originalConsoleError;
   }
 }
 

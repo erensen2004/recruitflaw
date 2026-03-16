@@ -27,7 +27,7 @@ export const candidatesTable = pgTable("candidates", {
   email: text("email").notNull(),
   phone: text("phone"),
   expectedSalary: numeric("expected_salary", { precision: 10, scale: 2 }),
-  status: text("status", { enum: ["submitted", "screening", "interview", "offer", "hired", "rejected"] }).notNull().default("submitted"),
+  status: text("status", { enum: ["submitted", "screening", "interview", "offer", "hired", "rejected", "withdrawn"] }).notNull().default("submitted"),
   roleId: integer("role_id").notNull().references(() => jobRolesTable.id),
   vendorCompanyId: integer("vendor_company_id").notNull().references(() => companiesTable.id),
   cvUrl: text("cv_url"),
