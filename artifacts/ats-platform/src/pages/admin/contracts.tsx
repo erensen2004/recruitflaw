@@ -4,7 +4,7 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FileText, Plus, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -64,7 +64,12 @@ export default function AdminContracts() {
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-md rounded-2xl">
-            <DialogHeader><DialogTitle>Create Contract</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle>Create Contract</DialogTitle>
+              <DialogDescription>
+                Create a contract for a hired candidate by choosing the placement dates and agreed daily rate.
+              </DialogDescription>
+            </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4 mt-4">
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Hired Candidate</label>

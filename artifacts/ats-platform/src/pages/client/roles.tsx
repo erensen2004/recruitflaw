@@ -5,7 +5,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Briefcase, Plus, Loader2, Users, MapPin, DollarSign, Wifi } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
@@ -93,7 +93,12 @@ export default function ClientRoles() {
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-2xl rounded-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>Open New Position</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle>Open New Position</DialogTitle>
+              <DialogDescription>
+                Create a role request with the salary range, skills, and hiring details your team wants vendors to work against.
+              </DialogDescription>
+            </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4 mt-4">
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Job Title *</label>

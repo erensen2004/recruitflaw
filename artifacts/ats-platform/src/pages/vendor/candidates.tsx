@@ -4,7 +4,7 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UserCircle, Loader2, Plus, FileText, Upload, Tag, Sparkles } from "lucide-react";
 import { format } from "date-fns";
@@ -332,6 +332,9 @@ export default function VendorCandidates() {
         <DialogContent className="sm:max-w-xl rounded-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add Candidate</DialogTitle>
+            <DialogDescription>
+              Select an open position, upload the candidate's resume, and review the normalized fields before submitting.
+            </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4 mt-2">
             <div className="space-y-2">

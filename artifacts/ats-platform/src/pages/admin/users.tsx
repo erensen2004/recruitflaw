@@ -4,7 +4,7 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Users, Plus, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -63,7 +63,12 @@ export default function AdminUsers() {
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-md rounded-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>Create New User</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle>Create New User</DialogTitle>
+              <DialogDescription>
+                Create an admin, client, or vendor user and optionally attach them to the correct company.
+              </DialogDescription>
+            </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4 mt-4">
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Full Name</label>

@@ -4,7 +4,7 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Plus, Clock } from "lucide-react";
 import { motion } from "framer-motion";
@@ -90,6 +90,9 @@ export default function VendorTimesheets() {
         <DialogContent className="rounded-2xl">
           <DialogHeader>
             <DialogTitle>Submit Timesheet</DialogTitle>
+            <DialogDescription>
+              Choose an active contract and submit the total working days for the selected month and year.
+            </DialogDescription>
           </DialogHeader>
           <form onSubmit={(e) => {
             e.preventDefault();

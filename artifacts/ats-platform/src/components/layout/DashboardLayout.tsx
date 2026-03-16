@@ -35,16 +35,20 @@ export function DashboardLayout({ children, allowedRoles }: { children: React.Re
   const [location, setLocation] = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { data: user, isLoading, error } = useGetMe();
-  const isUnauthorized = Boolean(error || !user || !allowedRoles.includes(user?.role ?? ""));
+  const token = typeof localStorage !== "undefined" ? localStorage.getItem("ats_token") : null;
+  const errorStatus = typeof error === "object" && error && "status" in error ? (error as { status?: number }).status : undefined;
+  const isForbiddenForRole = Boolean(user && !allowedRoles.includes(user.role));
+  const shouldRedirectToLogin = !isLoading && (!token || errorStatus === 401 || isForbiddenForRole);
 
   useEffect(() => {
     setIsMobileMenuOpen(false);
   }, [location]);
 
   useEffect(() => {
-    if (isLoading || !isUnauthorized) return;
+    if (!shouldRedirectToLogin) return;
+    localStorage.removeItem("ats_token");
     setLocation("/login");
-  }, [isLoading, isUnauthorized, setLocation]);
+  }, [setLocation, shouldRedirectToLogin]);
 
   if (isLoading) {
     return (
@@ -54,7 +58,27 @@ export function DashboardLayout({ children, allowedRoles }: { children: React.Re
     );
   }
 
-  if (isUnauthorized || !user) {
+  if (error && token && errorStatus !== 401 && !user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-6">
+        <div className="max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+          <h1 className="text-lg font-semibold text-slate-900">Workspace could not be loaded</h1>
+          <p className="mt-2 text-sm text-slate-500">
+            We could not refresh your session data. Please try again.
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="mt-4 inline-flex items-center justify-center rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-primary/90"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (shouldRedirectToLogin || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />

@@ -1,22 +1,32 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { useLogin } from "@workspace/api-client-react";
+import { useLogin, getGetMeQueryKey } from "@workspace/api-client-react";
 import { Briefcase, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const { mutate: login, isPending } = useLogin({
     mutation: {
       onSuccess: (data) => {
         localStorage.setItem("ats_token", data.token);
+        queryClient.setQueryData(getGetMeQueryKey(), {
+          id: data.user.id,
+          email: data.user.email,
+          name: data.user.name,
+          role: data.user.role,
+          companyId: data.user.companyId ?? null,
+          companyName: data.user.companyName ?? null,
+        });
         setLocation(`/${data.user.role}`);
       },
       onError: (error: Error) => {
