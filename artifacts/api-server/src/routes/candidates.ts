@@ -16,6 +16,15 @@ import { Errors } from "../lib/errors.js";
 
 const router = Router();
 
+function isUndefinedRelationError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: string }).code === "42P01",
+  );
+}
+
 function splitCsv(value: unknown): string[] {
   if (typeof value !== "string") return [];
   return value
@@ -261,6 +270,11 @@ router.get("/:id/history", requireAuth, async (req, res) => {
       })),
     );
   } catch (err) {
+    if (isUndefinedRelationError(err)) {
+      console.warn("candidate_status_history table is missing; returning empty history");
+      res.json([]);
+      return;
+    }
     console.error(err);
     Errors.internal(res);
   }
@@ -428,14 +442,21 @@ router.post(
         })
         .returning();
 
-      await db.insert(candidateStatusHistoryTable).values({
-        candidateId: candidate.id,
-        previousStatus: null,
-        nextStatus: "submitted",
-        reason: "Candidate submitted by vendor",
-        changedByUserId: req.user!.userId,
-        changedByName: actorName,
-      });
+      try {
+        await db.insert(candidateStatusHistoryTable).values({
+          candidateId: candidate.id,
+          previousStatus: null,
+          nextStatus: "submitted",
+          reason: "Candidate submitted by vendor",
+          changedByUserId: req.user!.userId,
+          changedByName: actorName,
+        });
+      } catch (historyError) {
+        if (!isUndefinedRelationError(historyError)) {
+          throw historyError;
+        }
+        console.warn("candidate_status_history table is missing; submission history entry skipped");
+      }
 
       const [vendorCompany] = await db
         .select({ name: companiesTable.name })
@@ -470,14 +491,21 @@ router.patch(
         .where(eq(candidatesTable.id, id))
         .returning();
 
-      await db.insert(candidateStatusHistoryTable).values({
-        candidateId: candidate.id,
-        previousStatus: access.status,
-        nextStatus: status,
-        reason: reason?.trim() || null,
-        changedByUserId: req.user!.userId,
-        changedByName: actorName,
-      });
+      try {
+        await db.insert(candidateStatusHistoryTable).values({
+          candidateId: candidate.id,
+          previousStatus: access.status,
+          nextStatus: status,
+          reason: reason?.trim() || null,
+          changedByUserId: req.user!.userId,
+          changedByName: actorName,
+        });
+      } catch (historyError) {
+        if (!isUndefinedRelationError(historyError)) {
+          throw historyError;
+        }
+        console.warn("candidate_status_history table is missing; status history entry skipped");
+      }
 
       const [role] = await db
         .select({ title: jobRolesTable.title })

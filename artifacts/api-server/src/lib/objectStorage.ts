@@ -524,7 +524,7 @@ function isBlobNotFoundError(error: unknown): boolean {
   return (
     candidate.status === 404 ||
     candidate.code === "not_found" ||
-    /not found/i.test(candidate.message || "")
+    /not found|does not exist|requested blob does not exist/i.test(candidate.message || "")
   );
 }
 

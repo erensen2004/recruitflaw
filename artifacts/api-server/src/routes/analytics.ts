@@ -15,6 +15,15 @@ import { Errors } from "../lib/errors.js";
 
 const router = Router();
 
+function isUndefinedRelationError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: string }).code === "42P01",
+  );
+}
+
 router.get("/", requireAuth, requireRole("admin"), async (_req, res) => {
   try {
 
@@ -85,19 +94,35 @@ router.get("/", requireAuth, requireRole("admin"), async (_req, res) => {
       .orderBy(desc(candidatesTable.submittedAt))
       .limit(5);
 
-    const recentStatusChanges = await db
-      .select({
-        candidateId: candidateStatusHistoryTable.candidateId,
-        candidateName: sql<string>`${candidatesTable.firstName} || ' ' || ${candidatesTable.lastName}`,
-        actorName: candidateStatusHistoryTable.changedByName,
-        previousStatus: candidateStatusHistoryTable.previousStatus,
-        nextStatus: candidateStatusHistoryTable.nextStatus,
-        createdAt: candidateStatusHistoryTable.createdAt,
-      })
-      .from(candidateStatusHistoryTable)
-      .leftJoin(candidatesTable, eq(candidateStatusHistoryTable.candidateId, candidatesTable.id))
-      .orderBy(desc(candidateStatusHistoryTable.createdAt))
-      .limit(5);
+    let recentStatusChanges: Array<{
+      candidateId: number;
+      candidateName: string | null;
+      actorName: string;
+      previousStatus: string | null;
+      nextStatus: string;
+      createdAt: Date;
+    }> = [];
+
+    try {
+      recentStatusChanges = await db
+        .select({
+          candidateId: candidateStatusHistoryTable.candidateId,
+          candidateName: sql<string>`${candidatesTable.firstName} || ' ' || ${candidatesTable.lastName}`,
+          actorName: candidateStatusHistoryTable.changedByName,
+          previousStatus: candidateStatusHistoryTable.previousStatus,
+          nextStatus: candidateStatusHistoryTable.nextStatus,
+          createdAt: candidateStatusHistoryTable.createdAt,
+        })
+        .from(candidateStatusHistoryTable)
+        .leftJoin(candidatesTable, eq(candidateStatusHistoryTable.candidateId, candidatesTable.id))
+        .orderBy(desc(candidateStatusHistoryTable.createdAt))
+        .limit(5);
+    } catch (historyError) {
+      if (!isUndefinedRelationError(historyError)) {
+        throw historyError;
+      }
+      console.warn("candidate_status_history table is missing; recent status changes omitted from analytics");
+    }
 
     const recentNotes = await db
       .select({
