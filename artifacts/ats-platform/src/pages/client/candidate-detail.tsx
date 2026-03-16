@@ -46,6 +46,39 @@ interface Note {
   createdAt: string;
 }
 
+function cleanSnapshotText(value?: string | null) {
+  if (!value) return null;
+  const normalized = value
+    .replace(/\b(?:null|undefined)\b/gi, "")
+    .replace(/\s*\|\s*\|+/g, " | ")
+    .replace(/^\s*\|\s*|\s*\|\s*$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  if (!normalized || /^(not found|n\/a)$/i.test(normalized)) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function syncUpdatedCandidate(queryClient: ReturnType<typeof useQueryClient>, updatedCandidate: any) {
+  queryClient.setQueriesData({ queryKey: getGetCandidateQueryKey(updatedCandidate.id) }, updatedCandidate);
+  queryClient.setQueriesData(
+    {
+      predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === "/api/candidates",
+    },
+    (current: unknown) =>
+      Array.isArray(current)
+        ? current.map((candidate) =>
+            candidate && typeof candidate === "object" && (candidate as { id?: number }).id === updatedCandidate.id
+              ? { ...(candidate as Record<string, unknown>), ...updatedCandidate }
+              : candidate,
+          )
+        : current,
+  );
+}
+
 function getParseBadge(parseStatus: string, confidence?: number | null, reviewRequired?: boolean) {
   if (parseStatus === "parsed" && !reviewRequired) {
     return {
@@ -75,8 +108,8 @@ export default function ClientCandidateDetail() {
   const { data: history = [], isLoading: historyLoading } = useListCandidateHistory(candidateId);
   const { mutate: updateStatus, isPending: updatingStatus } = useUpdateCandidateStatus({
     mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetCandidateQueryKey(candidateId) });
+      onSuccess: (updatedCandidate) => {
+        syncUpdatedCandidate(queryClient, updatedCandidate);
         queryClient.invalidateQueries({ queryKey: getListCandidateHistoryQueryKey(candidateId) });
         toast({ title: "Status updated" });
       },
@@ -99,6 +132,9 @@ export default function ClientCandidateDetail() {
     () => getParseBadge(candidate?.parseStatus ?? "failed", candidate?.parseConfidence, candidate?.parseReviewRequired),
     [candidate?.parseConfidence, candidate?.parseReviewRequired, candidate?.parseStatus],
   );
+  const cleanSummary = cleanSnapshotText(candidate?.summary);
+  const cleanStandardizedProfile = cleanSnapshotText(candidate?.standardizedProfile);
+  const cleanLanguages = cleanSnapshotText(candidate?.languages);
 
   const fetchNotes = async () => {
     setLoadingNotes(true);
@@ -278,12 +314,14 @@ export default function ClientCandidateDetail() {
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="rounded-2xl bg-emerald-50/70 p-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Summary</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-800">{candidate.summary || "Summary not available yet."}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-800">
+                    {cleanSummary || (candidate.parseReviewRequired ? "Summary needs a quick recruiter review." : "Summary not available yet.")}
+                  </p>
                 </div>
                 <div className="rounded-2xl bg-emerald-50/70 p-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Standardized profile</p>
                   <pre className="mt-2 whitespace-pre-wrap font-sans text-sm leading-6 text-slate-800">
-                    {candidate.standardizedProfile || "Standardized profile not available yet."}
+                    {cleanStandardizedProfile || "Standardized profile will appear once the parsed sections are strong enough."}
                   </pre>
                 </div>
               </div>
@@ -336,11 +374,15 @@ export default function ClientCandidateDetail() {
                       ))}
                     </div>
                   ) : (
-                    <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">No structured education extracted yet.</div>
+                    <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">
+                      {candidate.parseReviewRequired ? "Education needs a quick manual review." : "No structured education extracted yet."}
+                    </div>
                   )}
                   <div className="mt-3 rounded-xl bg-slate-50 p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Languages</p>
-                    <p className="mt-1 text-sm text-slate-700">{candidate.languages || "Not found"}</p>
+                    <p className="mt-1 text-sm text-slate-700">
+                      {cleanLanguages || (candidate.parseReviewRequired ? "Needs review" : "Not available")}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -364,10 +406,10 @@ export default function ClientCandidateDetail() {
                         data: { status: statusValue, reason: reason?.trim() || undefined },
                       });
                     }}
-                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
+                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-all hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] ${
                       candidate.status === statusValue
-                        ? "border-primary bg-primary text-white"
-                        : "border-slate-200 text-slate-600 hover:border-primary hover:text-primary"
+                        ? "border-primary bg-primary text-white shadow-sm"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-primary hover:bg-primary/5 hover:text-primary"
                     }`}
                   >
                     {STATUS_LABELS[statusValue]}

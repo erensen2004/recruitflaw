@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useListCandidates, useUpdateCandidateStatus, useGetRole } from "@workspace/api-client-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -7,7 +8,7 @@ import { useRoute, Link } from "wouter";
 import { format } from "date-fns";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListCandidatesQueryKey } from "@workspace/api-client-react";
-import { formatCurrency, getPrivateObjectUrl } from "@/lib/utils";
+import { cn, formatCurrency, getPrivateObjectUrl } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
 function getParseBadge(parseStatus: string, reviewRequired: boolean) {
@@ -20,21 +21,50 @@ function getParseBadge(parseStatus: string, reviewRequired: boolean) {
   return { label: "Manual", className: "bg-slate-100 text-slate-700" };
 }
 
+function syncUpdatedCandidate(queryClient: ReturnType<typeof useQueryClient>, updatedCandidate: any) {
+  queryClient.setQueriesData(
+    {
+      predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === "/api/candidates",
+    },
+    (current: unknown) =>
+      Array.isArray(current)
+        ? current.map((candidate) =>
+            candidate && typeof candidate === "object" && (candidate as { id?: number }).id === updatedCandidate.id
+              ? { ...(candidate as Record<string, unknown>), ...updatedCandidate }
+              : candidate,
+          )
+        : current,
+  );
+  queryClient.setQueriesData(
+    {
+      predicate: (query) =>
+        Array.isArray(query.queryKey) &&
+        typeof query.queryKey[0] === "string" &&
+        query.queryKey[0] === `/api/candidates/${updatedCandidate.id}`,
+    },
+    updatedCandidate,
+  );
+}
+
 export default function ClientRoleCandidates() {
   const [, params] = useRoute("/client/roles/:id/candidates");
   const roleId = Number(params?.id);
 
   const { data: role } = useGetRole(roleId);
   const { data: candidates, isLoading } = useListCandidates({ roleId });
+  const [pendingCandidateId, setPendingCandidateId] = useState<number | null>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { mutate: updateStatus } = useUpdateCandidateStatus({
+  const { mutate: updateStatus, isPending: updatingStatus } = useUpdateCandidateStatus({
     mutation: {
-      onSuccess: () => {
+      onSuccess: (updatedCandidate) => {
+        setPendingCandidateId(null);
+        syncUpdatedCandidate(queryClient, updatedCandidate);
         queryClient.invalidateQueries({ queryKey: getListCandidatesQueryKey({ roleId }) });
         toast({ title: "Candidate status updated" });
       },
       onError: (error: Error) => {
+        setPendingCandidateId(null);
         toast({
           title: "Status update failed",
           description: error.message || "Please try again.",
@@ -102,15 +132,15 @@ export default function ClientRoleCandidates() {
                   <td className="px-6 py-4 text-slate-600 font-medium">{c.vendorCompanyName}</td>
                   <td className="px-6 py-4 text-slate-600">{c.expectedSalary ? formatCurrency(c.expectedSalary) : '—'}</td>
                   <td className="px-6 py-4">
-                    {c.cvUrl ? (
-                      <a
-                        href={getPrivateObjectUrl(c.cvUrl) ?? "#"}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-                      >
-                        <FileText className="w-4 h-4" /> View CV
-                      </a>
+                      {c.cvUrl ? (
+                        <a
+                          href={getPrivateObjectUrl(c.cvUrl) ?? "#"}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-all hover:text-primary/80 hover:underline active:scale-[0.98]"
+                        >
+                          <FileText className="w-4 h-4" /> View CV
+                        </a>
                     ) : (
                       <span className="text-slate-400 text-sm">—</span>
                     )}
@@ -122,10 +152,17 @@ export default function ClientRoleCandidates() {
                       value={c.status}
                       onValueChange={(v: any) => {
                         const reason = window.prompt("Optional reason for this status change:");
+                        setPendingCandidateId(c.id);
                         updateStatus({ id: c.id, data: { status: v, reason: reason?.trim() || undefined } });
                       }}
+                      disabled={updatingStatus && pendingCandidateId === c.id}
                     >
-                      <SelectTrigger className="h-9 rounded-lg">
+                      <SelectTrigger
+                        className={cn(
+                          "h-9 rounded-lg transition-all",
+                          updatingStatus && pendingCandidateId === c.id && "border-primary/50 bg-primary/5 text-primary",
+                        )}
+                      >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>

@@ -42,7 +42,7 @@ export default function VendorPositions() {
                 Required: {role.skills || 'Not specified'}
                </span>
               <Link href={`/vendor/submit/${role.id}`}>
-                <Button className="rounded-lg shadow-sm group-hover:bg-primary/90 transition-colors">
+                <Button className="rounded-lg shadow-sm group-hover:bg-primary/90 transition-colors hover-elevate active-elevate-2">
                   Submit Candidate <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               </Link>

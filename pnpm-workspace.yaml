@@ -34,6 +34,7 @@ onlyBuiltDependencies:
   - core-js
   - esbuild
   - msw
+  - tesseract.js
   - unrs-resolver
 
 overrides:

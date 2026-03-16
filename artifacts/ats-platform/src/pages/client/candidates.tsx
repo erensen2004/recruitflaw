@@ -167,14 +167,14 @@ export default function ClientCandidates() {
                     <td className="px-5 py-4">
                       {c.cvUrl ? (
                         <a href={getPrivateObjectUrl(c.cvUrl) ?? "#"} target="_blank" rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-xs text-primary hover:underline font-medium">
+                          className="inline-flex items-center gap-1 text-xs font-medium text-primary transition-all hover:text-primary/80 hover:underline active:scale-[0.98]">
                           <FileText className="w-3.5 h-3.5" /> View
                         </a>
                       ) : <span className="text-slate-300 text-xs">—</span>}
                     </td>
                     <td className="px-5 py-4">
                       <Link href={`/client/candidates/${c.id}`}>
-                        <Button variant="ghost" size="sm" className="rounded-lg gap-1">
+                        <Button variant="ghost" size="sm" className="rounded-lg gap-1 hover-elevate active-elevate-2">
                           <Eye className="w-3.5 h-3.5" /> Details
                         </Button>
                       </Link>

@@ -16,6 +16,28 @@ const DEFAULT_OPENROUTER_MODELS = [
   "liquid/lfm-2.5-1.2b-instruct:free",
 ];
 
+const NULLISH_STRINGS = new Set([
+  "null",
+  "undefined",
+  "n/a",
+  "na",
+  "none",
+  "not found",
+  "unknown",
+  "-",
+  "—",
+]);
+
+const SECTION_HEADINGS = {
+  skills: ["skills", "technical skills", "core skills", "competencies", "yetkinlikler", "beceriler"],
+  experience: ["experience", "work experience", "professional experience", "employment", "work history", "deneyim"],
+  education: ["education", "academic background", "qualifications", "egitim", "öğrenim"],
+  languages: ["languages", "language", "diller", "dil"],
+  summary: ["summary", "profile", "objective", "professional summary", "about", "özet", "profil"],
+} as const;
+
+const ALL_SECTION_HEADINGS = Object.values(SECTION_HEADINGS).flat() as string[];
+
 type ParsedExperienceItem = {
   company: string | null;
   title: string | null;
@@ -244,7 +266,18 @@ function extractJsonObject(raw: string): Record<string, unknown> {
 function normalizeString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
-  return trimmed ? trimmed : null;
+  if (!trimmed) return null;
+  if (NULLISH_STRINGS.has(trimmed.toLowerCase())) return null;
+  return trimmed;
+}
+
+function normalizePhone(value: unknown): string | null {
+  const normalized = normalizeString(value);
+  if (!normalized) return null;
+  const hasPlus = normalized.includes("+");
+  const digits = normalized.replace(/\D/g, "");
+  if (digits.length < 8 || digits.length > 15) return null;
+  return hasPlus ? `+${digits}` : digits;
 }
 
 function normalizeStringList(value: unknown): string[] {
@@ -317,8 +350,74 @@ function deriveStatus(candidate: ParsedCandidate): ParsedCandidate["parseStatus"
   return "parsed";
 }
 
+function sanitizeStandardizedProfile(value: string | null): string | null {
+  const normalized = normalizeString(value);
+  if (!normalized) return null;
+  const parts = normalized
+    .split(/\||\n/)
+    .map((part) => normalizeString(part))
+    .filter((part): part is string => Boolean(part))
+    .filter((part) => !NULLISH_STRINGS.has(part.toLowerCase()));
+  if (!parts.length) return null;
+  return Array.from(new Set(parts)).join(" | ");
+}
+
+function buildFallbackSummary(candidate: ParsedCandidate): string | null {
+  const parts: string[] = [];
+  if (candidate.currentTitle) parts.push(candidate.currentTitle);
+  if (candidate.yearsExperience != null) parts.push(`with ${candidate.yearsExperience} years of experience`);
+  if (candidate.parsedSkills.length) parts.push(`skilled in ${candidate.parsedSkills.slice(0, 5).join(", ")}`);
+  if (candidate.location) parts.push(`based in ${candidate.location}`);
+  if (!parts.length) return null;
+  const sentence = parts.join(" ");
+  return sentence.charAt(0).toUpperCase() + sentence.slice(1) + ".";
+}
+
+function extractLikelyTitle(lines: string[]): string | null {
+  const titleKeywords =
+    /\b(operator|engineer|developer|manager|specialist|technician|analyst|consultant|designer|coordinator|welder|machinist|accountant|assistant|tora|cnc)\b/i;
+
+  for (const line of lines.slice(0, 8)) {
+    if (!line || /@|http|linkedin|github|\d{5,}/i.test(line)) continue;
+    const normalized = normalizeHeading(line);
+    if (ALL_SECTION_HEADINGS.includes(normalized)) continue;
+    if (titleKeywords.test(line)) {
+      return normalizeString(line);
+    }
+  }
+
+  const fallback = normalizeString(lines[1]);
+  if (fallback && !/@|http|\d{5,}/.test(fallback)) {
+    return fallback;
+  }
+
+  return null;
+}
+
+function extractLanguagesFromBody(text: string): string | null {
+  const knownLanguages = [
+    "English",
+    "Turkish",
+    "German",
+    "French",
+    "Arabic",
+    "Russian",
+    "Spanish",
+  ];
+  const matches = knownLanguages.filter((language) => new RegExp(`\\b${language}\\b`, "i").test(text));
+  return matches.length ? Array.from(new Set(matches)).join(", ") : null;
+}
+
+function extractEducationFromBody(lines: string[]): string | null {
+  const educationKeywords =
+    /\b(university|college|institute|school|bachelor|master|degree|diploma|lise|üniversite|faculty)\b/i;
+  const matches = lines.filter((line) => educationKeywords.test(line)).slice(0, 3);
+  return matches.length ? matches.join(" | ") : null;
+}
+
 function buildStandardizedProfile(candidate: ParsedCandidate): string | null {
-  if (candidate.standardizedProfile) return candidate.standardizedProfile;
+  const provided = sanitizeStandardizedProfile(candidate.standardizedProfile);
+  if (provided) return provided;
   const headline = candidate.currentTitle || [candidate.firstName, candidate.lastName].filter(Boolean).join(" ") || null;
   const contact = [candidate.email, candidate.phone].filter(Boolean).join(" | ") || null;
   const location = candidate.location || null;
@@ -338,6 +437,212 @@ function buildStandardizedProfile(candidate: ParsedCandidate): string | null {
   return sections.length ? sections.join("\n") : null;
 }
 
+function hasUsefulSignals(candidate: ParsedCandidate): boolean {
+  return Boolean(
+    candidate.firstName ||
+      candidate.lastName ||
+      candidate.email ||
+      candidate.phone ||
+      candidate.currentTitle ||
+      candidate.summary ||
+      candidate.parsedSkills.length ||
+      candidate.parsedExperience.length ||
+      candidate.parsedEducation.length,
+  );
+}
+
+function normalizeHeading(line: string): string {
+  return line.toLowerCase().replace(/[:\-\u2022]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function getDocumentLines(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+function getSectionLines(lines: string[], headings: readonly string[], maxLines = 12): string[] {
+  const startIndex = lines.findIndex((line) => {
+    const normalized = normalizeHeading(line);
+    return headings.some((heading) => normalized === heading || normalized.startsWith(`${heading} `));
+  });
+  if (startIndex === -1) return [];
+
+  const collected: string[] = [];
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    const normalized = normalizeHeading(line);
+    const isAnotherHeading = ALL_SECTION_HEADINGS.some(
+      (heading) => normalized === heading || normalized.startsWith(`${heading} `),
+    );
+    if (isAnotherHeading) break;
+    collected.push(line);
+    if (collected.length >= maxLines) break;
+  }
+  return collected;
+}
+
+function extractName(lines: string[]): { firstName: string | null; lastName: string | null } {
+  for (const line of lines.slice(0, 6)) {
+    if (/@|http|\d/.test(line)) continue;
+    const tokens = line.split(/\s+/).filter(Boolean);
+    if (tokens.length < 2 || tokens.length > 4) continue;
+    const looksLikeName = tokens.every((token) => /^[A-ZÇĞİÖŞÜ][A-Za-zÇĞİÖŞÜçğıöşü'`.-]+$/.test(token) || /^[A-ZÇĞİÖŞÜ]{2,}$/.test(token));
+    if (!looksLikeName) continue;
+    return {
+      firstName: tokens[0] ?? null,
+      lastName: tokens.slice(1).join(" ") || null,
+    };
+  }
+  return { firstName: null, lastName: null };
+}
+
+function extractHeuristicCandidate(cvText: string): ParsedCandidate {
+  const lines = getDocumentLines(cvText);
+  const normalizedText = cvText.replace(/\u00a0/g, " ").trim();
+  const { firstName, lastName } = extractName(lines);
+  const email = normalizedText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] ?? null;
+  const phone = normalizePhone(
+    normalizedText
+      .match(/(?:\+?\d[\d\s().-]{8,}\d)/)?.[0]
+      ?.replace(/\s{2,}/g, " ")
+      .trim() ?? null,
+  );
+  const yearsExperience =
+    toNumber(normalizedText.match(/(\d{1,2})\+?\s+(?:years?|yrs?)/i)?.[1] ?? null) ??
+    toNumber(normalizedText.match(/experience[^.\n]{0,20}(\d{1,2})/i)?.[1] ?? null);
+  const skillsLines = getSectionLines(lines, SECTION_HEADINGS.skills);
+  const languagesLines = getSectionLines(lines, SECTION_HEADINGS.languages, 6);
+  const educationLines = getSectionLines(lines, SECTION_HEADINGS.education, 6);
+  const summaryLines = getSectionLines(lines, SECTION_HEADINGS.summary, 5);
+  const experienceLines = getSectionLines(lines, SECTION_HEADINGS.experience, 14);
+
+  const currentTitle = extractLikelyTitle(lines);
+
+  const parsedSkills = normalizeStringList(
+    skillsLines
+      .join(", ")
+      .replace(/[•·]/g, ",")
+      .replace(/\s{2,}/g, " "),
+  );
+
+  const languages =
+    normalizeString(
+      languagesLines
+        .join(", ")
+        .replace(/[•·]/g, ",")
+        .replace(/\s{2,}/g, " "),
+    ) ?? extractLanguagesFromBody(normalizedText);
+
+  const education = normalizeString(educationLines.join(" | ")) ?? extractEducationFromBody(lines);
+  const summary = normalizeString(summaryLines.join(" "));
+  const parsedExperience = experienceLines.length
+    ? [
+        {
+          title: normalizeString(experienceLines[0]) ?? currentTitle,
+          company: normalizeString(experienceLines[1]),
+          startDate: normalizeString(
+            experienceLines.join(" ").match(/\b(?:19|20)\d{2}\b(?:\s*[-–]\s*\b(?:19|20)\d{2}\b|[-–]\s*present|\s*present)?/i)?.[0] ?? null,
+          ),
+          endDate: null,
+          highlights: experienceLines.slice(2, 7).map((line) => line.replace(/^[•\-–]\s*/, "")).filter(Boolean),
+        },
+      ]
+    : [];
+
+  const parsedEducation = educationLines.length
+    ? [
+        {
+          institution: normalizeString(educationLines[0]),
+          degree: normalizeString(educationLines[1]),
+          fieldOfStudy: normalizeString(educationLines[2]),
+          startDate: null,
+          endDate: null,
+        },
+      ]
+    : [];
+
+  const location =
+    normalizeString(
+      normalizedText.match(/\b(?:Istanbul|İstanbul|Ankara|Izmir|İzmir|Bursa|Kocaeli|Antalya|Adana|Konya|Turkey|Türkiye|Remote)\b/i)?.[0] ??
+        null,
+    ) ??
+    normalizeString(lines.find((line) => /^location[:\s-]/i.test(line))?.replace(/^location[:\s-]*/i, "") ?? null);
+
+  const candidate = createEmptyParse("heuristic", "Structured extraction fell back to resume text heuristics.");
+  candidate.firstName = firstName;
+  candidate.lastName = lastName;
+  candidate.email = email;
+  candidate.phone = phone;
+  candidate.currentTitle = currentTitle;
+  candidate.location = location;
+  candidate.skills = parsedSkills.length ? parsedSkills.join(", ") : null;
+  candidate.parsedSkills = parsedSkills;
+  candidate.education = education;
+  candidate.languages = languages;
+  candidate.summary = summary;
+  candidate.yearsExperience = yearsExperience;
+  candidate.parsedExperience = parsedExperience;
+  candidate.parsedEducation = parsedEducation;
+  candidate.parseConfidence = Math.min(
+    78,
+    (candidate.firstName || candidate.lastName ? 20 : 0) +
+      (candidate.email ? 20 : 0) +
+      (candidate.phone ? 12 : 0) +
+      (candidate.currentTitle ? 8 : 0) +
+      (candidate.parsedSkills.length ? 8 : 0) +
+      (candidate.summary ? 5 : 0) +
+      (candidate.parsedExperience.length ? 3 : 0) +
+      (candidate.parsedEducation.length ? 2 : 0),
+  );
+  candidate.parseStatus = hasUsefulSignals(candidate) ? "partial" : "failed";
+  candidate.parseReviewRequired = true;
+  candidate.standardizedProfile = buildStandardizedProfile(candidate);
+  if (!candidate.summary) {
+    candidate.summary = buildFallbackSummary(candidate);
+  }
+  return candidate;
+}
+
+function mergeParsedCandidates(primary: ParsedCandidate, fallback: ParsedCandidate): ParsedCandidate {
+  const merged: ParsedCandidate = {
+    ...fallback,
+    ...primary,
+    firstName: primary.firstName ?? fallback.firstName,
+    lastName: primary.lastName ?? fallback.lastName,
+    email: primary.email ?? fallback.email,
+    phone: primary.phone ?? fallback.phone,
+    skills: primary.skills ?? fallback.skills,
+    expectedSalary: primary.expectedSalary ?? fallback.expectedSalary,
+    currentTitle: primary.currentTitle ?? fallback.currentTitle,
+    location: primary.location ?? fallback.location,
+    yearsExperience: primary.yearsExperience ?? fallback.yearsExperience,
+    education: primary.education ?? fallback.education,
+    languages: primary.languages ?? fallback.languages,
+    summary: primary.summary ?? fallback.summary,
+    standardizedProfile: sanitizeStandardizedProfile(primary.standardizedProfile) ?? buildStandardizedProfile({ ...fallback, ...primary }),
+    parsedSkills: primary.parsedSkills.length ? primary.parsedSkills : fallback.parsedSkills,
+    parsedExperience: primary.parsedExperience.length ? primary.parsedExperience : fallback.parsedExperience,
+    parsedEducation: primary.parsedEducation.length ? primary.parsedEducation : fallback.parsedEducation,
+    parseConfidence: Math.max(primary.parseConfidence ?? 0, fallback.parseConfidence ?? 0),
+    parseReviewRequired: primary.parseReviewRequired || fallback.parseReviewRequired,
+    parseStatus:
+      primary.parseStatus === "parsed"
+        ? "parsed"
+        : primary.parseStatus === "partial" || fallback.parseStatus === "partial"
+          ? "partial"
+          : fallback.parseStatus,
+    warnings: Array.from(new Set([...fallback.warnings, ...primary.warnings])),
+  };
+
+  if (!merged.summary) {
+    merged.summary = buildFallbackSummary(merged);
+  }
+
+  return merged;
+}
+
 function normalizeParsedCandidate(parsed: Record<string, unknown>, provider: string | null): ParsedCandidate {
   const parsedSkills = normalizeStringList(parsed.parsedSkills ?? parsed.skills);
   const parsedExperience = normalizeExperience(parsed.parsedExperience ?? parsed.experience);
@@ -348,7 +653,7 @@ function normalizeParsedCandidate(parsed: Record<string, unknown>, provider: str
     firstName: normalizeString(parsed.firstName),
     lastName: normalizeString(parsed.lastName),
     email: normalizeString(parsed.email),
-    phone: normalizeString(parsed.phone),
+    phone: normalizePhone(parsed.phone),
     skills: normalizeString(parsed.skills) ?? (parsedSkills.length ? parsedSkills.join(", ") : null),
     expectedSalary: toNumber(parsed.expectedSalary),
     currentTitle: normalizeString(parsed.currentTitle),
@@ -357,7 +662,7 @@ function normalizeParsedCandidate(parsed: Record<string, unknown>, provider: str
     education: normalizeString(parsed.education),
     languages: normalizeString(parsed.languages),
     summary: normalizeString(parsed.summary),
-    standardizedProfile: normalizeString(parsed.standardizedProfile),
+    standardizedProfile: sanitizeStandardizedProfile(normalizeString(parsed.standardizedProfile)),
     parsedSkills,
     parsedExperience,
     parsedEducation,
@@ -384,6 +689,9 @@ function normalizeParsedCandidate(parsed: Record<string, unknown>, provider: str
     candidate.parseConfidence = score;
   }
 
+  if (!candidate.summary) {
+    candidate.summary = buildFallbackSummary(candidate);
+  }
   candidate.standardizedProfile = buildStandardizedProfile(candidate);
   candidate.parseStatus = deriveStatus(candidate);
   return candidate;
@@ -493,7 +801,7 @@ async function parseWithGeminiDocument(params: {
 }): Promise<ParsedCandidate> {
   const gemini = getGeminiClient();
   if (!gemini) {
-    return createEmptyParse(null, "Gemini is not configured.");
+    throw new Error("Gemini is not configured.");
   }
 
   const model = gemini.genAI.getGenerativeModel({ model: gemini.model });
@@ -534,7 +842,7 @@ async function parseWithGeminiDocument(params: {
 async function parseWithGeminiText(cvText: string): Promise<ParsedCandidate> {
   const gemini = getGeminiClient();
   if (!gemini) {
-    return createEmptyParse(null, "Gemini is not configured.");
+    throw new Error("Gemini is not configured.");
   }
 
   const model = gemini.genAI.getGenerativeModel({ model: gemini.model });
@@ -584,6 +892,8 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
   try {
     const fileName = decodeHeaderFileName(req.headers["x-file-name"]);
     const kind = detectDocumentKind(req.headers["content-type"], fileName);
+    const directGeminiAvailable = Boolean(getGeminiClient());
+    const textProviderAvailable = Boolean(getAiClientConfig());
 
     if (kind === "json") {
       const bodyValidation = CvParseBodySchema.safeParse(req.body);
@@ -592,14 +902,25 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
         return;
       }
 
+      const heuristicCandidate = extractHeuristicCandidate(bodyValidation.data.cvText);
       try {
-        const parsed = finalizeResponse(await parseWithGeminiText(bodyValidation.data.cvText));
+        if (!directGeminiAvailable) throw new Error("Gemini is not configured.");
+        const parsed = finalizeResponse(
+          mergeParsedCandidates(await parseWithGeminiText(bodyValidation.data.cvText), heuristicCandidate),
+        );
         res.json(parsed);
       } catch (geminiError) {
         console.warn("[CV Parse] Gemini text path failed, using fallback text provider.", geminiError);
-        res.json(finalizeResponse(await parseWithOpenAiText(bodyValidation.data.cvText), [
-          "Primary AI parser was unavailable, so a fallback text parser was used.",
-        ]));
+        if (textProviderAvailable) {
+          res.json(
+            finalizeResponse(
+              mergeParsedCandidates(await parseWithOpenAiText(bodyValidation.data.cvText), heuristicCandidate),
+              ["A fallback text parser was used for this resume."],
+            ),
+          );
+          return;
+        }
+        res.json(finalizeResponse(heuristicCandidate, ["Resume text heuristics were used because AI parsing is unavailable."]));
       }
       return;
     }
@@ -636,6 +957,7 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
 
     if (kind === "pdf" || kind === "image") {
       try {
+        if (!directGeminiAvailable) throw new Error("Gemini is not configured.");
         const parsed = await parseWithGeminiDocument({
           buffer,
           mimeType: req.headers["content-type"] || (kind === "pdf" ? "application/pdf" : "image/jpeg"),
@@ -645,7 +967,7 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
         return;
       } catch (geminiError) {
         console.warn("[CV Parse] Gemini document path failed.", geminiError);
-        warnings.push("Primary document parser could not read the file directly.");
+        warnings.push("The server could not read this resume directly.");
       }
     }
 
@@ -681,17 +1003,25 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
       return;
     }
 
+    const heuristicCandidate = extractHeuristicCandidate(extractedText);
+
     try {
+      if (!directGeminiAvailable) throw new Error("Gemini is not configured.");
       const parsed = await parseWithGeminiText(extractedText);
-      res.json(finalizeResponse(parsed, warnings));
+      res.json(finalizeResponse(mergeParsedCandidates(parsed, heuristicCandidate), warnings));
       return;
     } catch (geminiTextError) {
       console.warn("[CV Parse] Gemini text fallback failed.", geminiTextError);
-      warnings.push("Primary AI parser was unavailable, so a fallback text parser was used.");
+      warnings.push("A fallback text parser was used for this resume.");
     }
 
-    const fallback = await parseWithOpenAiText(extractedText);
-    res.json(finalizeResponse(fallback, warnings));
+    if (textProviderAvailable) {
+      const fallback = await parseWithOpenAiText(extractedText);
+      res.json(finalizeResponse(mergeParsedCandidates(fallback, heuristicCandidate), warnings));
+      return;
+    }
+
+    res.json(finalizeResponse(heuristicCandidate, [...warnings, "Resume text heuristics were used because no AI provider is configured."]));
   } catch (err) {
     console.error("CV parse error:", err);
     Errors.internal(res, "CV parsing failed");

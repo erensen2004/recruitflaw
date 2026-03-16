@@ -8,53 +8,22 @@ import { Loader2, ArrowLeft, Send, FileText, Upload, Sparkles, Tag } from "lucid
 import { useRoute, Link, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { validateResumeFile } from "@/lib/utils";
+import { getErrorMessage, parseResumeFileWithFallback, parseResumeText, type ParsedCandidateProfile } from "@/lib/resume-parse";
 
-type ParsedCandidateProfile = {
-  firstName?: string | null;
-  lastName?: string | null;
-  email?: string | null;
-  phone?: string | null;
-  skills?: string | null;
-  expectedSalary?: number | null;
-  currentTitle?: string | null;
-  location?: string | null;
-  yearsExperience?: number | null;
-  education?: string | null;
-  languages?: string | null;
-  summary?: string | null;
-  standardizedProfile?: string | null;
-  parsedSkills?: string[];
-  parsedExperience?: Array<{
-    company?: string | null;
-    title?: string | null;
-    startDate?: string | null;
-    endDate?: string | null;
-    highlights?: string[];
-  }>;
-  parsedEducation?: Array<{
-    institution?: string | null;
-    degree?: string | null;
-    fieldOfStudy?: string | null;
-    startDate?: string | null;
-    endDate?: string | null;
-  }>;
-  parseStatus?: "not_started" | "processing" | "parsed" | "partial" | "failed";
-  parseConfidence?: number | null;
-  parseReviewRequired?: boolean;
-  parseProvider?: string | null;
-  warnings?: string[];
-};
+function cleanSnapshotText(value?: string | null) {
+  if (!value) return null;
+  const normalized = value
+    .replace(/\b(?:null|undefined)\b/gi, "")
+    .replace(/\s*\|\s*\|+/g, " | ")
+    .replace(/^\s*\|\s*|\s*\|\s*$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 
-async function getErrorMessage(response: Response): Promise<string> {
-  try {
-    const data = await response.json();
-    if (typeof data?.message === "string" && data.message.trim()) return data.message;
-    if (typeof data?.error === "string" && data.error.trim()) return data.error;
-  } catch {
-    // Ignore JSON parsing failures and fall back to status text.
+  if (!normalized || /^(not found|n\/a)$/i.test(normalized)) {
+    return null;
   }
 
-  return `${response.status} ${response.statusText}`.trim() || "Unknown error";
+  return normalized;
 }
 
 export default function VendorSubmitCandidate() {
@@ -73,7 +42,23 @@ export default function VendorSubmitCandidate() {
   const [cvText, setCvText] = useState("");
   const [showCvParse, setShowCvParse] = useState(false);
   const [parsing, setParsing] = useState(false);
+  const [parseProgress, setParseProgress] = useState("");
   const [parsedProfile, setParsedProfile] = useState<ParsedCandidateProfile | null>(null);
+
+  const snapshotFields = parsedProfile
+    ? [
+        { label: "Current Title", value: cleanSnapshotText(parsedProfile.currentTitle) },
+        { label: "Location", value: cleanSnapshotText(parsedProfile.location) },
+        {
+          label: "Experience",
+          value: parsedProfile.yearsExperience != null ? `${parsedProfile.yearsExperience} years` : null,
+        },
+        { label: "Languages", value: cleanSnapshotText(parsedProfile.languages) },
+      ].filter((field): field is { label: string; value: string } => Boolean(field.value))
+    : [];
+  const snapshotEducation = cleanSnapshotText(parsedProfile?.education);
+  const snapshotSummary = cleanSnapshotText(parsedProfile?.summary);
+  const snapshotProfile = cleanSnapshotText(parsedProfile?.standardizedProfile);
 
   const { mutate: submit, isPending } = useSubmitCandidate({
     mutation: {
@@ -150,27 +135,14 @@ export default function VendorSubmitCandidate() {
     }
 
     setParsing(true);
+    setParseProgress("Reading resume and preparing normalized profile…");
     try {
       const token = localStorage.getItem("ats_token");
-      const res = await fetch("/api/cv-parse", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": file.type || "application/octet-stream",
-          "X-File-Name": encodeURIComponent(file.name),
-        },
-        body: file,
+      const parsed = await parseResumeFileWithFallback({
+        file,
+        token,
+        onProgress: setParseProgress,
       });
-      if (!res.ok) {
-        toast({
-          title: "PDF parsing failed",
-          description: await getErrorMessage(res),
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const parsed: ParsedCandidateProfile = await res.json();
       applyParsedProfile(parsed);
       toast({
         title: parsed.parseReviewRequired ? "Resume parsed with review suggested" : "Resume parsed successfully",
@@ -186,6 +158,7 @@ export default function VendorSubmitCandidate() {
       });
     } finally {
       setParsing(false);
+      setParseProgress("");
     }
   };
 
@@ -196,23 +169,10 @@ export default function VendorSubmitCandidate() {
     }
 
     setParsing(true);
+    setParseProgress("Normalizing pasted resume text…");
     try {
       const token = localStorage.getItem("ats_token");
-      const res = await fetch("/api/cv-parse", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ cvText }),
-      });
-      if (!res.ok) {
-        toast({
-          title: "CV parsing failed",
-          description: await getErrorMessage(res),
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const parsed: ParsedCandidateProfile = await res.json();
+      const parsed = await parseResumeText(token, cvText);
       applyParsedProfile(parsed);
       toast({ title: "CV parsed successfully!", description: "Fields pre-filled from CV." });
       setShowCvParse(false);
@@ -224,6 +184,7 @@ export default function VendorSubmitCandidate() {
       });
     } finally {
       setParsing(false);
+      setParseProgress("");
     }
   };
 
@@ -312,40 +273,43 @@ export default function VendorSubmitCandidate() {
             <p className="mt-2 text-sm text-emerald-800">
               Different CV layouts are converted into one recruiter-friendly intake format before submission.
             </p>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-xl bg-white/80 p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Current Title</div>
-                <div className="mt-1 text-sm text-slate-800">{parsedProfile.currentTitle || "Not found"}</div>
-              </div>
-              <div className="rounded-xl bg-white/80 p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Location</div>
-                <div className="mt-1 text-sm text-slate-800">{parsedProfile.location || "Not found"}</div>
-              </div>
-              <div className="rounded-xl bg-white/80 p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Experience</div>
-                <div className="mt-1 text-sm text-slate-800">
-                  {parsedProfile.yearsExperience != null ? `${parsedProfile.yearsExperience} years` : "Not found"}
-                </div>
-              </div>
-              <div className="rounded-xl bg-white/80 p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Languages</div>
-                <div className="mt-1 text-sm text-slate-800">{parsedProfile.languages || "Not found"}</div>
-              </div>
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-slate-600">
+              Parse quality {parsedProfile.parseConfidence ?? 0}% • {parsedProfile.parseReviewRequired ? "Review suggested" : "Ready"}
             </div>
-            <div className="mt-3 rounded-xl bg-white/80 p-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Education</div>
-              <div className="mt-1 text-sm text-slate-800">{parsedProfile.education || "Not found"}</div>
-            </div>
-            <div className="mt-3 rounded-xl bg-white/80 p-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Summary</div>
-              <div className="mt-1 text-sm text-slate-800">{parsedProfile.summary || "Not found"}</div>
-            </div>
-            <div className="mt-3 rounded-xl bg-white/80 p-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Standardized Profile</div>
-              <pre className="mt-1 whitespace-pre-wrap font-sans text-sm text-slate-800">
-                {parsedProfile.standardizedProfile || "Not found"}
-              </pre>
-            </div>
+            {snapshotFields.length ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {snapshotFields.map((field) => (
+                  <div key={field.label} className="rounded-xl bg-white/80 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{field.label}</div>
+                    <div className="mt-1 text-sm text-slate-800">{field.value}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                Contact details were extracted, but some sections still need a quick recruiter review.
+              </div>
+            )}
+            {snapshotEducation ? (
+              <div className="mt-3 rounded-xl bg-white/80 p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Education</div>
+                <div className="mt-1 text-sm text-slate-800">{snapshotEducation}</div>
+              </div>
+            ) : null}
+            {snapshotSummary ? (
+              <div className="mt-3 rounded-xl bg-white/80 p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Summary</div>
+                <div className="mt-1 text-sm text-slate-800">{snapshotSummary}</div>
+              </div>
+            ) : null}
+            {snapshotProfile ? (
+              <div className="mt-3 rounded-xl bg-white/80 p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Standardized Profile</div>
+                <pre className="mt-1 whitespace-pre-wrap font-sans text-sm text-slate-800">
+                  {snapshotProfile}
+                </pre>
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -366,9 +330,9 @@ export default function VendorSubmitCandidate() {
               type="button"
               onClick={handleParseCV}
               disabled={parsing}
-              className="rounded-xl bg-violet-600 hover:bg-violet-700 text-white"
+              className="rounded-xl bg-violet-600 text-white hover:bg-violet-700 hover-elevate active-elevate-2"
             >
-              {parsing ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Parsing...</> : <><Sparkles className="w-4 h-4 mr-2" />Parse & Fill</>}
+              {parsing ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />{parseProgress || "Parsing…"}</> : <><Sparkles className="w-4 h-4 mr-2" />Parse & Fill</>}
             </Button>
           </div>
         )}
@@ -461,7 +425,7 @@ export default function VendorSubmitCandidate() {
                     <span className="text-slate-400 font-normal">({(cvFile.size / 1024).toFixed(0)} KB)</span>
                   </div>
                   <div className="text-xs text-slate-500">
-                    {parsing ? "Resume is being parsed automatically..." : "Fields are auto-filled after resume analysis."}
+                    {parsing ? parseProgress || "Resume is being parsed automatically…" : "Fields are auto-filled after resume analysis."}
                   </div>
                   {parsedProfile?.parseReviewRequired ? (
                     <div className="text-xs text-amber-700">Some extracted fields may need a quick manual review.</div>
@@ -475,9 +439,9 @@ export default function VendorSubmitCandidate() {
                       void parsePdfCv(cvFile);
                     }}
                     disabled={parsing}
-                    className="rounded-lg gap-2"
+                    className="rounded-lg gap-2 hover-elevate active-elevate-2"
                   >
-                    {parsing ? <><Loader2 className="w-3 h-3 animate-spin" />Parsing resume...</> : <><Sparkles className="w-3 h-3" />Parse Again</>}
+                    {parsing ? <><Loader2 className="w-3 h-3 animate-spin" />{parseProgress || "Parsing resume…"}</> : <><Sparkles className="w-3 h-3" />Parse Again</>}
                   </Button>
                 </div>
               ) : (
@@ -490,7 +454,7 @@ export default function VendorSubmitCandidate() {
             </div>
           </div>
 
-          <Button disabled={parsing || isPending || uploading} type="submit" className="w-full h-12 rounded-xl mt-4 text-base shadow-md">
+          <Button disabled={parsing || isPending || uploading} type="submit" className="w-full h-12 rounded-xl mt-4 text-base shadow-md hover-elevate active-elevate-2">
             {parsing ? (
               <><Loader2 className="w-5 h-5 animate-spin mr-2" />Parsing CV...</>
             ) : isPending || uploading ? (

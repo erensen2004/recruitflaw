@@ -200,7 +200,7 @@ export default function ClientRoles() {
                 {role.candidateCount} Candidates
               </div>
               <Link href={`/client/roles/${role.id}/candidates`}>
-                <Button variant="ghost" size="sm" className="rounded-lg">View Details</Button>
+                <Button variant="ghost" size="sm" className="rounded-lg hover-elevate active-elevate-2">View Details</Button>
               </Link>
             </div>
           </div>

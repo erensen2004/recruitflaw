@@ -12,53 +12,22 @@ import { formatCurrency, getPrivateObjectUrl, validateResumeFile } from "@/lib/u
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListCandidatesQueryKey } from "@workspace/api-client-react";
+import { getErrorMessage, parseResumeFileWithFallback, type ParsedCandidateProfile } from "@/lib/resume-parse";
 
-type ParsedCandidateProfile = {
-  firstName?: string | null;
-  lastName?: string | null;
-  email?: string | null;
-  phone?: string | null;
-  skills?: string | null;
-  expectedSalary?: number | null;
-  currentTitle?: string | null;
-  location?: string | null;
-  yearsExperience?: number | null;
-  education?: string | null;
-  languages?: string | null;
-  summary?: string | null;
-  standardizedProfile?: string | null;
-  parsedSkills?: string[];
-  parsedExperience?: Array<{
-    company?: string | null;
-    title?: string | null;
-    startDate?: string | null;
-    endDate?: string | null;
-    highlights?: string[];
-  }>;
-  parsedEducation?: Array<{
-    institution?: string | null;
-    degree?: string | null;
-    fieldOfStudy?: string | null;
-    startDate?: string | null;
-    endDate?: string | null;
-  }>;
-  parseStatus?: "not_started" | "processing" | "parsed" | "partial" | "failed";
-  parseConfidence?: number | null;
-  parseReviewRequired?: boolean;
-  parseProvider?: string | null;
-  warnings?: string[];
-};
+function cleanSnapshotText(value?: string | null) {
+  if (!value) return null;
+  const normalized = value
+    .replace(/\b(?:null|undefined)\b/gi, "")
+    .replace(/\s*\|\s*\|+/g, " | ")
+    .replace(/^\s*\|\s*|\s*\|\s*$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 
-async function getErrorMessage(response: Response): Promise<string> {
-  try {
-    const data = await response.json();
-    if (typeof data?.message === "string" && data.message.trim()) return data.message;
-    if (typeof data?.error === "string" && data.error.trim()) return data.error;
-  } catch {
-    // Ignore JSON parsing failures and fall back to status text.
+  if (!normalized || /^(not found|n\/a)$/i.test(normalized)) {
+    return null;
   }
 
-  return `${response.status} ${response.statusText}`.trim() || "Unknown error";
+  return normalized;
 }
 
 export default function VendorCandidates() {
@@ -68,11 +37,27 @@ export default function VendorCandidates() {
   const [cvFile, setCvFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [parsing, setParsing] = useState(false);
+  const [parseProgress, setParseProgress] = useState("");
   const [tags, setTags] = useState("");
   const [parsedProfile, setParsedProfile] = useState<ParsedCandidateProfile | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  const snapshotFields = parsedProfile
+    ? [
+        { label: "Current Title", value: cleanSnapshotText(parsedProfile.currentTitle) },
+        { label: "Location", value: cleanSnapshotText(parsedProfile.location) },
+        {
+          label: "Experience",
+          value: parsedProfile.yearsExperience != null ? `${parsedProfile.yearsExperience} years` : null,
+        },
+        { label: "Languages", value: cleanSnapshotText(parsedProfile.languages) },
+      ].filter((field): field is { label: string; value: string } => Boolean(field.value))
+    : [];
+  const snapshotEducation = cleanSnapshotText(parsedProfile?.education);
+  const snapshotSummary = cleanSnapshotText(parsedProfile?.summary);
+  const snapshotProfile = cleanSnapshotText(parsedProfile?.standardizedProfile);
 
   const publishedRoles = roles?.filter(r => r.status === "published") || [];
   const [formData, setFormData] = useState({
@@ -84,6 +69,7 @@ export default function VendorCandidates() {
     setCvFile(null);
     setParsedProfile(null);
     setParsing(false);
+    setParseProgress("");
     setUploading(false);
     if (fileRef.current) {
       fileRef.current.value = "";
@@ -154,27 +140,14 @@ export default function VendorCandidates() {
     }
 
     setParsing(true);
+    setParseProgress("Reading resume and preparing normalized profile…");
     try {
       const token = localStorage.getItem("ats_token");
-      const res = await fetch("/api/cv-parse", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": file.type || "application/octet-stream",
-          "X-File-Name": encodeURIComponent(file.name),
-        },
-        body: file,
+      const parsed = await parseResumeFileWithFallback({
+        file,
+        token,
+        onProgress: setParseProgress,
       });
-      if (!res.ok) {
-        toast({
-          title: "CV parsing failed",
-          description: await getErrorMessage(res),
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const parsed: ParsedCandidateProfile = await res.json();
       setParsedProfile(parsed);
       setFormData(prev => ({
         ...prev,
@@ -201,6 +174,7 @@ export default function VendorCandidates() {
       });
     } finally {
       setParsing(false);
+      setParseProgress("");
     }
   };
 
@@ -266,7 +240,7 @@ export default function VendorCandidates() {
           <h1 className="text-3xl font-bold text-slate-900">My Candidates</h1>
           <p className="text-slate-500 mt-1">Track the pipeline status of candidates you submitted</p>
         </div>
-        <Button className="rounded-xl shadow-md h-11 px-6" onClick={() => setIsOpen(true)}>
+        <Button className="rounded-xl shadow-md h-11 px-6 hover-elevate active-elevate-2" onClick={() => setIsOpen(true)}>
           <Plus className="w-4 h-4 mr-2" />
           Add Candidate
         </Button>
@@ -330,7 +304,7 @@ export default function VendorCandidates() {
                           href={getPrivateObjectUrl(c.cvUrl) ?? "#"}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+                          className="inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-all hover:text-primary/80 hover:underline active:scale-[0.98]"
                         >
                           <FileText className="w-4 h-4" /> View CV
                         </a>
@@ -449,7 +423,7 @@ export default function VendorCandidates() {
                       <FileText className="w-4 h-4" /> {cvFile.name}
                     </div>
                     <div className="inline-flex items-center gap-2 rounded-lg bg-violet-50 px-3 py-2 text-xs font-medium text-violet-700">
-                      {parsing ? <><Loader2 className="w-3 h-3 animate-spin" />Reading resume and preparing normalized profile...</> : <><Sparkles className="w-3 h-3" />Resume uploaded. Candidate fields will be normalized automatically.</>}
+                      {parsing ? <><Loader2 className="w-3 h-3 animate-spin" />{parseProgress || "Reading resume and preparing normalized profile…"}</> : <><Sparkles className="w-3 h-3" />Resume uploaded. Candidate fields will be normalized automatically.</>}
                     </div>
                     {parsedProfile?.parseReviewRequired ? (
                       <div className="text-xs text-amber-700">
@@ -472,46 +446,49 @@ export default function VendorCandidates() {
                   <Sparkles className="w-4 h-4" />
                   Standardized CV Snapshot
                 </div>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-xl bg-white/80 p-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Current Title</div>
-                    <div className="mt-1 text-sm text-slate-800">{parsedProfile.currentTitle || "Not found"}</div>
-                  </div>
-                  <div className="rounded-xl bg-white/80 p-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Location</div>
-                    <div className="mt-1 text-sm text-slate-800">{parsedProfile.location || "Not found"}</div>
-                  </div>
-                  <div className="rounded-xl bg-white/80 p-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Experience</div>
-                    <div className="mt-1 text-sm text-slate-800">
-                      {parsedProfile.yearsExperience != null ? `${parsedProfile.yearsExperience} years` : "Not found"}
-                    </div>
-                  </div>
-                  <div className="rounded-xl bg-white/80 p-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Languages</div>
-                    <div className="mt-1 text-sm text-slate-800">{parsedProfile.languages || "Not found"}</div>
-                  </div>
+                <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-slate-600">
+                  Parse quality {parsedProfile.parseConfidence ?? 0}% • {parsedProfile.parseReviewRequired ? "Review suggested" : "Ready"}
                 </div>
-                <div className="mt-3 rounded-xl bg-white/80 p-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Education</div>
-                  <div className="mt-1 text-sm text-slate-800">{parsedProfile.education || "Not found"}</div>
-                </div>
-                <div className="mt-3 rounded-xl bg-white/80 p-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Summary</div>
-                  <div className="mt-1 text-sm text-slate-800">{parsedProfile.summary || "Not found"}</div>
-                </div>
-                <div className="mt-3 rounded-xl bg-white/80 p-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Standardized Profile</div>
-                  <pre className="mt-1 whitespace-pre-wrap font-sans text-sm text-slate-800">
-                    {parsedProfile.standardizedProfile || "Not found"}
-                  </pre>
-                </div>
+                {snapshotFields.length ? (
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {snapshotFields.map((field) => (
+                      <div key={field.label} className="rounded-xl bg-white/80 p-3">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{field.label}</div>
+                        <div className="mt-1 text-sm text-slate-800">{field.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    Contact details were extracted, but some resume sections still need review.
+                  </div>
+                )}
+                {snapshotEducation ? (
+                  <div className="mt-3 rounded-xl bg-white/80 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Education</div>
+                    <div className="mt-1 text-sm text-slate-800">{snapshotEducation}</div>
+                  </div>
+                ) : null}
+                {snapshotSummary ? (
+                  <div className="mt-3 rounded-xl bg-white/80 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Summary</div>
+                    <div className="mt-1 text-sm text-slate-800">{snapshotSummary}</div>
+                  </div>
+                ) : null}
+                {snapshotProfile ? (
+                  <div className="mt-3 rounded-xl bg-white/80 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Standardized Profile</div>
+                    <pre className="mt-1 whitespace-pre-wrap font-sans text-sm text-slate-800">
+                      {snapshotProfile}
+                    </pre>
+                  </div>
+                ) : null}
               </div>
             )}
 
             <div className="flex gap-3 pt-2">
-              <Button type="button" variant="outline" onClick={() => setIsOpen(false)} className="flex-1 h-11 rounded-xl">Cancel</Button>
-              <Button type="submit" disabled={parsing || isPending || uploading} className="flex-1 h-11 rounded-xl">
+              <Button type="button" variant="outline" onClick={() => setIsOpen(false)} className="flex-1 h-11 rounded-xl hover-elevate active-elevate-2">Cancel</Button>
+              <Button type="submit" disabled={parsing || isPending || uploading} className="flex-1 h-11 rounded-xl hover-elevate active-elevate-2">
                 {(parsing || isPending || uploading) ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit Candidate"}
               </Button>
             </div>
