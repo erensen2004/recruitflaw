@@ -89,7 +89,11 @@ export default function VendorSubmitCandidate() {
       }
 
       const { uploadURL, objectPath } = await res.json();
-      const uploadRes = await fetch(uploadURL, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+      const uploadHeaders: Record<string, string> = { "Content-Type": file.type };
+      if (token && uploadURL.startsWith("/api/")) {
+        uploadHeaders.Authorization = `Bearer ${token}`;
+      }
+      const uploadRes = await fetch(uploadURL, { method: "PUT", headers: uploadHeaders, body: file });
       if (!uploadRes.ok) {
         throw new Error("File upload failed");
       }
