@@ -302,4 +302,32 @@ router.patch(
   }
 );
 
+router.delete(
+  "/:id",
+  requireAuth,
+  requireRole("admin", "client"),
+  async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const access = await resolveRoleAccess(req, res, id);
+      if (!access) return;
+
+      const candidateCount = await getCandidateCount(id);
+      if (candidateCount > 0) {
+        Errors.badRequest(
+          res,
+          "This role already has submitted candidates, so it cannot be deleted.",
+        );
+        return;
+      }
+
+      await db.delete(jobRolesTable).where(eq(jobRolesTable.id, id));
+      res.status(204).end();
+    } catch (err) {
+      console.error(err);
+      Errors.internal(res);
+    }
+  }
+);
+
 export default router;

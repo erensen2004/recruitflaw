@@ -77,19 +77,25 @@ export class ObjectNotFoundError extends Error {
 export class ObjectStorageService {
   constructor() {}
 
+  private getEnv(name: string): string {
+    return process.env[name]?.trim() || "";
+  }
+
   isLocalBackend(): boolean {
-    return process.env.STORAGE_BACKEND === LOCAL_STORAGE_BACKEND;
+    return this.getEnv("STORAGE_BACKEND") === LOCAL_STORAGE_BACKEND;
   }
 
   isBlobBackend(): boolean {
+    const storageBackend = this.getEnv("STORAGE_BACKEND");
+    const blobToken = this.getEnv("BLOB_READ_WRITE_TOKEN");
     return (
-      process.env.STORAGE_BACKEND === VERCEL_BLOB_BACKEND ||
-      (!process.env.STORAGE_BACKEND && Boolean(process.env.BLOB_READ_WRITE_TOKEN))
+      storageBackend === VERCEL_BLOB_BACKEND ||
+      (!storageBackend && Boolean(blobToken))
     );
   }
 
   getLocalStorageRoot(): string {
-    return process.env.LOCAL_STORAGE_DIR || path.resolve(process.cwd(), ".local-storage");
+    return this.getEnv("LOCAL_STORAGE_DIR") || path.resolve(process.cwd(), ".local-storage");
   }
 
   async ensureLocalStorageRoot(): Promise<void> {
@@ -413,7 +419,7 @@ export class ObjectStorageService {
   }
 
   getPublicObjectSearchPaths(): Array<string> {
-    const pathsStr = process.env.PUBLIC_OBJECT_SEARCH_PATHS || "";
+    const pathsStr = this.getEnv("PUBLIC_OBJECT_SEARCH_PATHS");
     const paths = Array.from(
       new Set(
         pathsStr
@@ -432,7 +438,7 @@ export class ObjectStorageService {
   }
 
   getBlobPublicPrefixes(): Array<string> {
-    const pathsStr = process.env.PUBLIC_OBJECT_SEARCH_PATHS || "";
+    const pathsStr = this.getEnv("PUBLIC_OBJECT_SEARCH_PATHS");
     return Array.from(
       new Set(
         pathsStr
@@ -444,7 +450,7 @@ export class ObjectStorageService {
   }
 
   getPrivateObjectDir(): string {
-    const dir = process.env.PRIVATE_OBJECT_DIR || "";
+    const dir = this.getEnv("PRIVATE_OBJECT_DIR");
     if (!dir) {
       throw new Error(
         "PRIVATE_OBJECT_DIR not set. Create a bucket in 'Object Storage' " +
@@ -469,7 +475,7 @@ export class ObjectStorageService {
   }
 
   private getBlobToken(): string {
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
+    const token = this.getEnv("BLOB_READ_WRITE_TOKEN");
     if (!token) {
       throw new Error(
         "BLOB_READ_WRITE_TOKEN not set. Connect a Vercel Blob store and expose the token.",
