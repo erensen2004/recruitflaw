@@ -40,6 +40,8 @@ import { getPrivateObjectUrl } from "@/lib/utils";
 import { invalidateCandidateQueries, syncCandidateAcrossCaches } from "@/lib/candidate-query";
 import {
   formatTurkishLira,
+  getCandidateCompleteness,
+  getCandidateDecisionGuidance,
   getStatusReasonDescription,
   getStatusReasonTitle,
   parseCandidateTags,
@@ -344,6 +346,8 @@ export default function ClientCandidateDetail() {
   const backHref = isAdminRoute || me?.role === "admin" ? "/admin/candidates" : "/client/candidates";
   const normalizedProfileCards = buildNormalizedProfileCards(candidate);
   const adminReviewSignals = buildAdminReviewSignals(candidate);
+  const completenessScore = getCandidateCompleteness(candidate);
+  const decisionGuidance = getCandidateDecisionGuidance(candidate);
 
   const submitStatusUpdate = (statusValue: (typeof STATUSES)[number], reason?: string) => {
     if (updatingStatus || candidate.status === statusValue) return;
@@ -542,6 +546,40 @@ export default function ClientCandidateDetail() {
                     <p className="mt-1 text-sm font-semibold text-slate-800">{value}</p>
                   </div>
                 ))}
+              </div>
+
+              <div className="mt-5 grid gap-4 xl:grid-cols-[1.05fr,0.95fr]">
+                <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Profile completeness</p>
+                      <p className="mt-2 text-3xl font-bold text-slate-900">{completenessScore}%</p>
+                    </div>
+                    <div className="h-16 w-16 rounded-full border-4 border-primary/15 bg-white flex items-center justify-center text-sm font-bold text-primary shadow-sm">
+                      {completenessScore}
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                    {[
+                      { label: "Contact", ready: Boolean(candidate.email && candidate.phone) },
+                      { label: "Compensation", ready: candidate.expectedSalary != null },
+                      { label: "Languages", ready: Boolean(cleanLanguages) },
+                      { label: "Structured experience", ready: candidate.parsedExperience.length > 0 },
+                      { label: "Structured education", ready: candidate.parsedEducation.length > 0 },
+                      { label: "Recruiter summary", ready: Boolean(cleanSummary) },
+                    ].map((item) => (
+                      <div key={item.label} className={`rounded-xl px-3 py-2 text-sm font-medium ${item.ready ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                        {item.ready ? "✓" : "•"} {item.label}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className={`rounded-2xl border p-5 ${getSignalClasses(decisionGuidance.tone)}`}>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em]">Decision guidance</p>
+                  <p className="mt-2 text-lg font-bold">{decisionGuidance.label}</p>
+                  <p className="mt-3 text-sm leading-6">{decisionGuidance.body}</p>
+                </div>
               </div>
 
               {parsedSkills.length > 0 ? (

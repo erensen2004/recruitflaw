@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { useListCandidates, useUpdateCandidateStatus } from "@workspace/api-client-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { UserCircle, Loader2, FileText, AlertTriangle, Eye, CheckCircle2, XCircle } from "lucide-react";
+import { UserCircle, Loader2, FileText, AlertTriangle, Eye, CheckCircle2, XCircle, Search } from "lucide-react";
 import { format } from "date-fns";
 import { getPrivateObjectUrl } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -21,14 +21,17 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { invalidateCandidateQueries, syncCandidateAcrossCaches } from "@/lib/candidate-query";
 import {
+  getCandidateCompleteness,
   getStatusReasonDescription,
   getStatusReasonTitle,
   parseCandidateTags,
   requiresStatusReason,
 } from "@/lib/candidate-display";
+import { Input } from "@/components/ui/input";
 
 const CANDIDATE_STATUSES = ["submitted", "screening", "interview", "offer", "hired", "rejected"] as const;
 type CandidateStatusValue = (typeof CANDIDATE_STATUSES)[number];
+type ReviewTab = "all" | "pending" | "normalize" | "ready";
 
 function getParseBadge(parseStatus: string, reviewRequired: boolean) {
   if (parseStatus === "parsed" && !reviewRequired) {
@@ -41,13 +44,21 @@ function getParseBadge(parseStatus: string, reviewRequired: boolean) {
 }
 
 export default function AdminCandidates() {
+  const [activeTab, setActiveTab] = useState<ReviewTab>("all");
+  const [search, setSearch] = useState("");
+  const [hasCv, setHasCv] = useState("all");
   const [pendingCandidateId, setPendingCandidateId] = useState<number | null>(null);
   const [statusReasonOpen, setStatusReasonOpen] = useState(false);
   const [statusReasonTarget, setStatusReasonTarget] = useState<CandidateStatusValue | null>(null);
   const [statusReasonCandidateId, setStatusReasonCandidateId] = useState<number | null>(null);
   const [statusReasonText, setStatusReasonText] = useState("");
   const [statusReasonError, setStatusReasonError] = useState("");
-  const { data: candidates, isLoading } = useListCandidates();
+  const deferredSearch = useDeferredValue(search.trim());
+  const { data: candidates, isLoading } = useListCandidates({
+    search: deferredSearch || undefined,
+    reviewRequired: activeTab === "normalize" ? true : undefined,
+    hasCv: hasCv === "all" ? undefined : hasCv === "yes",
+  });
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { mutate: updateStatus, isPending: updatingStatus } = useUpdateCandidateStatus({
@@ -74,6 +85,16 @@ export default function AdminCandidates() {
     pendingApproval: candidates?.filter((candidate) => candidate.status === "pending_approval").length ?? 0,
     reviewSuggested: candidates?.filter((candidate) => candidate.parseReviewRequired).length ?? 0,
   };
+  const filteredCandidates = useMemo(() => {
+    if (!candidates) return [];
+
+    return candidates.filter((candidate) => {
+      if (activeTab === "pending") return candidate.status === "pending_approval";
+      if (activeTab === "normalize") return candidate.parseReviewRequired;
+      if (activeTab === "ready") return candidate.status !== "pending_approval" && !candidate.parseReviewRequired;
+      return true;
+    });
+  }, [activeTab, candidates]);
 
   const submitStatusUpdate = (candidateId: number, status: CandidateStatusValue, reason?: string) => {
     const currentCandidate = candidates?.find((candidate) => candidate.id === candidateId);
@@ -147,6 +168,49 @@ export default function AdminCandidates() {
             </div>
           ))}
         </div>
+
+        <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-wrap gap-2">
+            {[
+              { key: "all", label: "All queue" },
+              { key: "pending", label: "Awaiting approval" },
+              { key: "normalize", label: "Needs normalization" },
+              { key: "ready", label: "Ready to publish" },
+            ].map((tab) => (
+              <Button
+                key={tab.key}
+                type="button"
+                variant={activeTab === tab.key ? "default" : "outline"}
+                className="rounded-full"
+                onClick={() => setActiveTab(tab.key as ReviewTab)}
+              >
+                {tab.label}
+              </Button>
+            ))}
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="relative min-w-[260px]">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search candidate, role, company..."
+                className="h-11 rounded-xl pl-11"
+              />
+            </div>
+            <Select value={hasCv} onValueChange={setHasCv}>
+              <SelectTrigger className="h-11 min-w-[160px] rounded-xl">
+                <SelectValue placeholder="CV availability" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All CV states</SelectItem>
+                <SelectItem value="yes">Has CV</SelectItem>
+                <SelectItem value="no">Missing CV</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -166,9 +230,9 @@ export default function AdminCandidates() {
             <tbody className="divide-y divide-slate-100">
               {isLoading ? (
                 <tr><td colSpan={7} className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-slate-400" /></td></tr>
-              ) : candidates?.length === 0 ? (
+              ) : filteredCandidates.length === 0 ? (
                 <tr><td colSpan={7} className="p-12 text-center text-slate-500">No candidates found.</td></tr>
-              ) : candidates?.map(c => (
+              ) : filteredCandidates.map(c => (
                 <tr key={c.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
@@ -190,6 +254,9 @@ export default function AdminCandidates() {
                               </span>
                             ) : null;
                           })()}
+                          <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                            {getCandidateCompleteness(c)}% complete
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -228,9 +295,9 @@ export default function AdminCandidates() {
                         size="sm"
                         className="rounded-xl gap-1.5 border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-400 hover:bg-emerald-100"
                         disabled={updatingStatus && pendingCandidateId === c.id}
-                        onClick={() => requestStatusUpdate(c.id, "submitted")}
+                        onClick={() => requestStatusUpdate(c.id, c.status === "pending_approval" ? "screening" : "submitted")}
                       >
-                        <CheckCircle2 className="h-3.5 w-3.5" /> Approve
+                        <CheckCircle2 className="h-3.5 w-3.5" /> {c.status === "pending_approval" ? "Approve" : "Re-approve"}
                       </Button>
                       <Button
                         type="button"
