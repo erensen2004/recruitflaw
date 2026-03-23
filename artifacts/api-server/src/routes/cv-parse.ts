@@ -362,15 +362,148 @@ function sanitizeStandardizedProfile(value: string | null): string | null {
   return Array.from(new Set(parts)).join(" | ");
 }
 
+function dedupeList(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const value of values) {
+    const normalized = normalizeString(value);
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(normalized);
+  }
+
+  return result;
+}
+
+function splitLooseList(value: string | null): string[] {
+  const normalized = normalizeString(value);
+  if (!normalized) return [];
+  return normalized
+    .split(/,|\/|\||•|·/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function formatNaturalList(values: string[], conjunction = "and"): string {
+  if (values.length <= 1) return values[0] ?? "";
+  if (values.length === 2) return `${values[0]} ${conjunction} ${values[1]}`;
+  return `${values.slice(0, -1).join(", ")}, ${conjunction} ${values.at(-1)}`;
+}
+
+function formatExperienceYears(yearsExperience: number | null): string | null {
+  if (yearsExperience == null || yearsExperience <= 0) return null;
+  return yearsExperience === 1 ? "1 year" : `${yearsExperience} years`;
+}
+
+function getPrimaryTitle(candidate: ParsedCandidate): string | null {
+  return (
+    normalizeString(candidate.currentTitle) ??
+    candidate.parsedExperience.map((item) => normalizeString(item.title)).find(Boolean) ??
+    null
+  );
+}
+
+function getSummarySkills(candidate: ParsedCandidate): string[] {
+  return dedupeList([
+    ...candidate.parsedSkills,
+    ...splitLooseList(candidate.skills),
+  ]).slice(0, 5);
+}
+
+function getExperienceHighlights(candidate: ParsedCandidate): string[] {
+  return dedupeList(
+    candidate.parsedExperience.flatMap((item) =>
+      (item.highlights ?? [])
+        .map((highlight) => normalizeString(highlight))
+        .filter((highlight): highlight is string => Boolean(highlight))
+        .filter((highlight) => highlight.length >= 8),
+    ),
+  ).slice(0, 3);
+}
+
+function getEducationSummary(candidate: ParsedCandidate): string | null {
+  const parsed = dedupeList(
+    candidate.parsedEducation.flatMap((item) =>
+      [item.degree, item.fieldOfStudy, item.institution].filter((value): value is string => Boolean(value)),
+    ),
+  );
+
+  if (parsed.length) {
+    return formatNaturalList(parsed.slice(0, 2));
+  }
+
+  return normalizeString(candidate.education);
+}
+
+function getLanguagesSummary(candidate: ParsedCandidate): string[] {
+  return dedupeList(splitLooseList(candidate.languages)).slice(0, 3);
+}
+
+function buildProfessionalSummary(candidate: ParsedCandidate): string | null {
+  const title = getPrimaryTitle(candidate);
+  const years = formatExperienceYears(candidate.yearsExperience);
+  const location = normalizeString(candidate.location);
+  const skills = getSummarySkills(candidate);
+  const education = getEducationSummary(candidate);
+  const languages = getLanguagesSummary(candidate);
+  const highlights = getExperienceHighlights(candidate);
+  const existingSummary = normalizeString(candidate.summary);
+  const sentences: string[] = [];
+
+  if (title) {
+    let intro = title;
+    if (years) {
+      intro += ` with ${years} of experience`;
+    } else if (candidate.parsedExperience.length) {
+      intro += " with relevant hands-on experience";
+    }
+    if (location) {
+      intro += ` based in ${location}`;
+    }
+    sentences.push(`${intro}.`);
+  } else if (years && location) {
+    sentences.push(`Candidate based in ${location} with ${years} of relevant experience.`);
+  } else if (years) {
+    sentences.push(`Candidate with ${years} of relevant experience.`);
+  } else if (location) {
+    sentences.push(`Candidate based in ${location}.`);
+  }
+
+  if (skills.length) {
+    sentences.push(`Core strengths include ${formatNaturalList(skills.slice(0, 4))}.`);
+  } else if (highlights.length) {
+    sentences.push(`Background includes ${formatNaturalList(highlights.slice(0, 2))}.`);
+  }
+
+  if (education && languages.length) {
+    sentences.push(`Education includes ${education}, and languages include ${formatNaturalList(languages)}.`);
+  } else if (education) {
+    sentences.push(`Education includes ${education}.`);
+  } else if (languages.length) {
+    sentences.push(`Languages include ${formatNaturalList(languages)}.`);
+  } else if (!skills.length && candidate.parsedExperience.length) {
+    const experienceTitles = dedupeList(
+      candidate.parsedExperience.flatMap((item) =>
+        [item.title, item.company].filter((value): value is string => Boolean(value)),
+      ),
+    ).slice(0, 2);
+    if (experienceTitles.length) {
+      sentences.push(`Recent experience includes ${formatNaturalList(experienceTitles)}.`);
+    }
+  }
+
+  if (!sentences.length) {
+    return existingSummary;
+  }
+
+  return sentences.join(" ");
+}
+
 function buildFallbackSummary(candidate: ParsedCandidate): string | null {
-  const parts: string[] = [];
-  if (candidate.currentTitle) parts.push(candidate.currentTitle);
-  if (candidate.yearsExperience != null) parts.push(`with ${candidate.yearsExperience} years of experience`);
-  if (candidate.parsedSkills.length) parts.push(`skilled in ${candidate.parsedSkills.slice(0, 5).join(", ")}`);
-  if (candidate.location) parts.push(`based in ${candidate.location}`);
-  if (!parts.length) return null;
-  const sentence = parts.join(" ");
-  return sentence.charAt(0).toUpperCase() + sentence.slice(1) + ".";
+  return buildProfessionalSummary(candidate);
 }
 
 function extractLikelyTitle(lines: string[]): string | null {
@@ -871,6 +1004,7 @@ function finalizeResponse(candidate: ParsedCandidate, extraWarnings: string[] = 
   const dedupedWarnings = Array.from(new Set(mergedWarnings));
   const normalized = {
     ...candidate,
+    summary: buildProfessionalSummary(candidate) ?? normalizeString(candidate.summary),
     warnings: dedupedWarnings,
     standardizedProfile: buildStandardizedProfile(candidate),
   };
