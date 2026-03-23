@@ -1,30 +1,32 @@
+import { lazy, Suspense } from "react";
 import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import NotFound from "@/pages/not-found";
-import Login from "@/pages/login";
 
-import AdminCompanies from "@/pages/admin/companies";
-import AdminUsers from "@/pages/admin/users";
-import AdminRoles from "@/pages/admin/roles";
-import AdminCandidates from "@/pages/admin/candidates";
-import AdminContracts from "@/pages/admin/contracts";
-import AdminTimesheets from "@/pages/admin/timesheets";
-import AdminAnalytics from "@/pages/admin/analytics";
+const NotFound = lazy(() => import("@/pages/not-found"));
+const Login = lazy(() => import("@/pages/login"));
 
-import ClientRoles from "@/pages/client/roles";
-import ClientRoleCandidates from "@/pages/client/role-candidates";
-import ClientCandidates from "@/pages/client/candidates";
-import ClientCandidateDetail from "@/pages/client/candidate-detail";
-import ClientTimesheets from "@/pages/client/timesheets";
+const AdminCompanies = lazy(() => import("@/pages/admin/companies"));
+const AdminUsers = lazy(() => import("@/pages/admin/users"));
+const AdminRoles = lazy(() => import("@/pages/admin/roles"));
+const AdminCandidates = lazy(() => import("@/pages/admin/candidates"));
+const AdminContracts = lazy(() => import("@/pages/admin/contracts"));
+const AdminTimesheets = lazy(() => import("@/pages/admin/timesheets"));
+const AdminAnalytics = lazy(() => import("@/pages/admin/analytics"));
 
-import VendorPositions from "@/pages/vendor/positions";
-import VendorSubmitCandidate from "@/pages/vendor/submit-candidate";
-import VendorCandidates from "@/pages/vendor/candidates";
-import VendorCandidateDetail from "@/pages/vendor/candidate-detail";
-import VendorContracts from "@/pages/vendor/contracts";
-import VendorTimesheets from "@/pages/vendor/timesheets";
+const ClientRoles = lazy(() => import("@/pages/client/roles"));
+const ClientRoleCandidates = lazy(() => import("./pages/client/role-candidates"));
+const ClientCandidates = lazy(() => import("@/pages/client/candidates"));
+const ClientCandidateDetail = lazy(() => import("@/pages/client/candidate-detail"));
+const ClientTimesheets = lazy(() => import("@/pages/client/timesheets"));
+
+const VendorPositions = lazy(() => import("@/pages/vendor/positions"));
+const VendorSubmitCandidate = lazy(() => import("@/pages/vendor/submit-candidate"));
+const VendorCandidates = lazy(() => import("@/pages/vendor/candidates"));
+const VendorCandidateDetail = lazy(() => import("@/pages/vendor/candidate-detail"));
+const VendorContracts = lazy(() => import("@/pages/vendor/contracts"));
+const VendorTimesheets = lazy(() => import("@/pages/vendor/timesheets"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -60,6 +62,7 @@ function Router() {
 
       <Route path="/vendor" component={() => <Redirect to="/vendor/positions" />} />
       <Route path="/vendor/positions" component={VendorPositions} />
+      <Route path="/vendor/positions/:roleId" component={VendorSubmitCandidate} />
       <Route path="/vendor/submit/:roleId" component={VendorSubmitCandidate} />
       <Route path="/vendor/candidates" component={VendorCandidates} />
       <Route path="/vendor/candidates/:id" component={VendorCandidateDetail} />
@@ -72,12 +75,25 @@ function Router() {
   );
 }
 
+function RouteFallback() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-6 text-center">
+      <div className="space-y-2">
+        <p className="text-lg font-semibold text-slate-900">Loading workspace</p>
+        <p className="text-sm text-slate-500">Preparing the next screen...</p>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Router />
+          <Suspense fallback={<RouteFallback />}>
+            <Router />
+          </Suspense>
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

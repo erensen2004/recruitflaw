@@ -8,7 +8,16 @@ import {
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Loader2,
   ArrowLeft,
@@ -16,6 +25,7 @@ import {
   Tag,
   MessageSquare,
   Download,
+  Pencil,
   ShieldCheck,
   Sparkles,
   MapPin,
@@ -26,8 +36,14 @@ import { useRoute, Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { getPrivateObjectUrl } from "@/lib/utils";
-import { exportStandardizedCandidatePdf } from "@/lib/standardized-cv";
 import { invalidateCandidateQueries, syncCandidateAcrossCaches } from "@/lib/candidate-query";
+import {
+  formatTurkishLira,
+  getStatusReasonDescription,
+  getStatusReasonTitle,
+  parseCandidateTags,
+  requiresStatusReason,
+} from "@/lib/candidate-display";
 
 const STATUSES = ["submitted", "screening", "interview", "offer", "hired", "rejected"] as const;
 const STATUS_LABELS: Record<string, string> = {
@@ -91,6 +107,27 @@ export default function ClientCandidateDetail() {
   const queryClient = useQueryClient();
   const { data: me } = useGetMe();
   const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+  const [statusReasonOpen, setStatusReasonOpen] = useState(false);
+  const [statusReasonTarget, setStatusReasonTarget] = useState<(typeof STATUSES)[number] | null>(null);
+  const [statusReasonText, setStatusReasonText] = useState("");
+  const [statusReasonError, setStatusReasonError] = useState("");
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [editForm, setEditForm] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    expectedSalary: "",
+    currentTitle: "",
+    location: "",
+    summary: "",
+    standardizedProfile: "",
+    education: "",
+    languages: "",
+    tags: "",
+  });
 
   const { data: candidate, isLoading } = useGetCandidate(candidateId);
   const { data: history = [], isLoading: historyLoading } = useListCandidateHistory(candidateId);
@@ -121,6 +158,10 @@ export default function ClientCandidateDetail() {
   const parseBadge = useMemo(
     () => getParseBadge(candidate?.parseStatus ?? "failed", candidate?.parseConfidence, candidate?.parseReviewRequired),
     [candidate?.parseConfidence, candidate?.parseReviewRequired, candidate?.parseStatus],
+  );
+  const { visibleTags, englishLevel } = useMemo(
+    () => parseCandidateTags(candidate?.tags),
+    [candidate?.tags],
   );
   const cleanSummary = cleanSnapshotText(candidate?.summary);
   const cleanStandardizedProfile = cleanSnapshotText(candidate?.standardizedProfile);
@@ -153,6 +194,24 @@ export default function ClientCandidateDetail() {
       fetchNotes();
     }
   }, [candidateId]);
+
+  useEffect(() => {
+    if (!candidate) return;
+    setEditForm({
+      firstName: candidate.firstName ?? "",
+      lastName: candidate.lastName ?? "",
+      email: candidate.email ?? "",
+      phone: candidate.phone ?? "",
+      expectedSalary: candidate.expectedSalary != null ? String(candidate.expectedSalary) : "",
+      currentTitle: candidate.currentTitle ?? "",
+      location: candidate.location ?? "",
+      summary: candidate.summary ?? "",
+      standardizedProfile: candidate.standardizedProfile ?? "",
+      education: candidate.education ?? "",
+      languages: candidate.languages ?? "",
+      tags: candidate.tags ?? "",
+    });
+  }, [candidate]);
 
   const handleAddNote = async () => {
     if (!noteText.trim()) return;
@@ -197,17 +256,114 @@ export default function ClientCandidateDetail() {
     );
   }
 
-  const tags = candidate.tags ? candidate.tags.split(",").map((tag) => tag.trim()).filter(Boolean) : [];
-  const parsedSkills = candidate.parsedSkills?.length ? candidate.parsedSkills : tags;
+  const parsedSkills = candidate.parsedSkills?.length ? candidate.parsedSkills : visibleTags;
   const backHref = isAdminRoute || me?.role === "admin" ? "/admin/candidates" : "/client/candidates";
 
-  const handleStatusUpdate = (statusValue: (typeof STATUSES)[number]) => {
+  const submitStatusUpdate = (statusValue: (typeof STATUSES)[number], reason?: string) => {
     if (updatingStatus || candidate.status === statusValue) return;
     setPendingStatus(statusValue);
     updateStatus({
       id: candidateId,
-      data: { status: statusValue },
+      data: { status: statusValue, ...(reason ? { reason } : {}) },
     });
+  };
+
+  const handleStatusUpdate = (statusValue: (typeof STATUSES)[number]) => {
+    if (updatingStatus || candidate.status === statusValue) return;
+    if (requiresStatusReason(statusValue)) {
+      setStatusReasonTarget(statusValue);
+      setStatusReasonText("");
+      setStatusReasonError("");
+      setStatusReasonOpen(true);
+      return;
+    }
+
+    submitStatusUpdate(statusValue);
+  };
+
+  const closeStatusReasonDialog = () => {
+    setStatusReasonOpen(false);
+    setStatusReasonTarget(null);
+    setStatusReasonText("");
+    setStatusReasonError("");
+  };
+
+  const saveStatusReason = () => {
+    if (!statusReasonTarget) return;
+    const reason = statusReasonText.trim();
+    if (!reason) {
+      setStatusReasonError(`${getStatusReasonTitle(statusReasonTarget)} is required.`);
+      return;
+    }
+
+    closeStatusReasonDialog();
+    submitStatusUpdate(statusReasonTarget, reason);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!candidate || !isAdminRoute) return;
+
+    setSavingProfile(true);
+    try {
+      const token = localStorage.getItem("ats_token");
+      const response = await fetch(`/api/candidates/${candidateId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          firstName: editForm.firstName.trim(),
+          lastName: editForm.lastName.trim(),
+          email: editForm.email.trim().toLowerCase(),
+          phone: editForm.phone.trim() || null,
+          expectedSalary: editForm.expectedSalary ? Number(editForm.expectedSalary) : null,
+          currentTitle: editForm.currentTitle.trim() || null,
+          location: editForm.location.trim() || null,
+          summary: editForm.summary.trim() || null,
+          standardizedProfile: editForm.standardizedProfile.trim() || null,
+          education: editForm.education.trim() || null,
+          languages: editForm.languages.trim() || null,
+          tags: editForm.tags.trim() || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || "Candidate profile could not be updated");
+      }
+
+      const updatedCandidate = await response.json();
+      syncCandidateAcrossCaches(queryClient, updatedCandidate);
+      await invalidateCandidateQueries(queryClient, candidateId);
+      setEditDialogOpen(false);
+      toast({ title: "Candidate profile updated" });
+    } catch (error) {
+      toast({
+        title: "Profile update failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const handleExportStandardizedCv = async () => {
+    if (exportingPdf) return;
+    setExportingPdf(true);
+    try {
+      const { exportStandardizedCandidatePdf } = await import("@/lib/standardized-cv");
+      await exportStandardizedCandidatePdf(candidate);
+    } catch (error) {
+      toast({
+        title: "Export failed",
+        description: error instanceof Error ? error.message : "The standardized CV could not be generated.",
+        variant: "destructive",
+      });
+    } finally {
+      setExportingPdf(false);
+    }
   };
 
   return (
@@ -246,6 +402,16 @@ export default function ClientCandidateDetail() {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  {isAdminRoute ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-xl gap-2"
+                      onClick={() => setEditDialogOpen(true)}
+                    >
+                      <Pencil className="h-4 w-4" /> Edit Normalized Fields
+                    </Button>
+                  ) : null}
                   {candidate.cvUrl ? (
                     <Button asChild variant="outline" size="sm" className="rounded-xl gap-2">
                       <a href={getPrivateObjectUrl(candidate.cvUrl) ?? "#"} target="_blank" rel="noreferrer">
@@ -257,9 +423,11 @@ export default function ClientCandidateDetail() {
                     variant="outline"
                     size="sm"
                     className="rounded-xl gap-2"
-                    onClick={() => exportStandardizedCandidatePdf(candidate)}
+                    disabled={exportingPdf}
+                    onClick={handleExportStandardizedCv}
                   >
-                    <Download className="h-4 w-4" /> Download Standardized CV
+                    {exportingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                    Download Standardized CV
                   </Button>
                 </div>
               </div>
@@ -267,11 +435,12 @@ export default function ClientCandidateDetail() {
               <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {[
                   { label: "Role", value: candidate.roleTitle },
-                  { label: "Vendor", value: candidate.vendorCompanyName },
+                  { label: "Company", value: candidate.vendorCompanyName },
                   { label: "Phone", value: candidate.phone || "Not provided" },
+                  { label: "English level", value: englishLevel || "Not provided" },
                   {
                     label: "Expected Salary",
-                    value: candidate.expectedSalary ? `$${candidate.expectedSalary.toLocaleString()}` : "Not provided",
+                    value: formatTurkishLira(candidate.expectedSalary),
                   },
                   {
                     label: "Parse Provider",
@@ -313,15 +482,15 @@ export default function ClientCandidateDetail() {
 
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="rounded-2xl bg-emerald-50/70 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Summary</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recruiter-ready summary</p>
                   <p className="mt-2 text-sm leading-6 text-slate-800">
-                    {cleanSummary || (candidate.parseReviewRequired ? "Summary needs a quick recruiter review." : "Summary not available yet.")}
+                    {cleanSummary || (candidate.parseReviewRequired ? "Awaiting admin approval for the final summary." : "Summary not available yet.")}
                   </p>
                 </div>
                 <div className="rounded-2xl bg-emerald-50/70 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Standardized profile</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Admin-normalized profile</p>
                   <pre className="mt-2 whitespace-pre-wrap font-sans text-sm leading-6 text-slate-800">
-                    {cleanStandardizedProfile || "Standardized profile will appear once the parsed sections are strong enough."}
+                    {cleanStandardizedProfile || "The standardized profile will appear after admin review and normalization."}
                   </pre>
                 </div>
               </div>
@@ -392,7 +561,7 @@ export default function ClientCandidateDetail() {
           <div className="space-y-6">
             <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-lg shadow-black/5">
               <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-slate-900">
-                <ShieldCheck className="h-5 w-5 text-primary" /> Status workflow
+                <ShieldCheck className="h-5 w-5 text-primary" /> Admin-approved status workflow
               </h2>
               <div className="flex flex-wrap gap-2">
                 {STATUSES.map((statusValue) => (
@@ -408,11 +577,14 @@ export default function ClientCandidateDetail() {
                           ? "border-primary/40 bg-primary/10 text-primary shadow-sm"
                           : "border-slate-200 bg-white text-slate-600 hover:border-primary hover:bg-primary/5 hover:text-primary hover:shadow-sm"
                     }`}
-                  >
-                    {pendingStatus === statusValue ? "Updating..." : STATUS_LABELS[statusValue]}
-                  </button>
+                    >
+                      {pendingStatus === statusValue ? "Updating..." : STATUS_LABELS[statusValue]}
+                    </button>
                 ))}
               </div>
+              <p className="mt-3 text-xs text-slate-500">
+                Interview and rejection steps require a short note so the admin-approved workflow stays documented.
+              </p>
 
               <div className="mt-6">
                 <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700">
@@ -444,14 +616,14 @@ export default function ClientCandidateDetail() {
 
             <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-lg shadow-black/5">
               <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-slate-900">
-                <MessageSquare className="h-5 w-5 text-primary" /> Recruiter notes
+                <MessageSquare className="h-5 w-5 text-primary" /> Shared notes & activity
               </h2>
 
               <div className="mb-4 flex gap-3">
                 <Textarea
                   value={noteText}
                   onChange={(event) => setNoteText(event.target.value)}
-                  placeholder="Add a note about this candidate..."
+                  placeholder="Add a shared note for the admin and client review team..."
                   rows={3}
                   className="flex-1 resize-none rounded-xl"
                 />
@@ -477,12 +649,117 @@ export default function ClientCandidateDetail() {
                     </div>
                   ))
                 ) : (
-                  <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">No notes yet.</div>
+                  <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">No shared notes yet.</div>
                 )}
               </div>
             </div>
           </div>
         </div>
+
+        <Dialog open={statusReasonOpen} onOpenChange={(open) => (open ? setStatusReasonOpen(true) : closeStatusReasonDialog())}>
+          <DialogContent className="sm:max-w-lg rounded-2xl">
+            <DialogHeader>
+              <DialogTitle>{getStatusReasonTitle(statusReasonTarget)}</DialogTitle>
+              <DialogDescription>{getStatusReasonDescription(statusReasonTarget)}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Textarea
+                value={statusReasonText}
+                onChange={(event) => {
+                  setStatusReasonText(event.target.value);
+                  if (statusReasonError) setStatusReasonError("");
+                }}
+                rows={5}
+                className="resize-none rounded-xl"
+                placeholder={
+                  statusReasonTarget === "rejected"
+                    ? "Example: Rejected due to missing role-specific experience and inconsistent availability."
+                    : "Example: Strong technical background, ready for a structured interview with the client team."
+                }
+              />
+              {statusReasonError ? <p className="text-sm text-rose-600">{statusReasonError}</p> : null}
+            </div>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button type="button" variant="outline" className="rounded-xl" onClick={closeStatusReasonDialog}>
+                Cancel
+              </Button>
+              <Button type="button" className="rounded-xl" onClick={saveStatusReason}>
+                Save & update status
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+          <DialogContent className="sm:max-w-3xl rounded-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Edit normalized candidate profile</DialogTitle>
+              <DialogDescription>
+                Finalize the candidate record before approving it into the client-facing pipeline.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm font-semibold">First Name</label>
+                <Input value={editForm.firstName} onChange={(e) => setEditForm((current) => ({ ...current, firstName: e.target.value }))} className="h-11 rounded-xl" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold">Last Name</label>
+                <Input value={editForm.lastName} onChange={(e) => setEditForm((current) => ({ ...current, lastName: e.target.value }))} className="h-11 rounded-xl" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold">Email</label>
+                <Input type="email" value={editForm.email} onChange={(e) => setEditForm((current) => ({ ...current, email: e.target.value }))} className="h-11 rounded-xl" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold">Phone</label>
+                <Input value={editForm.phone} onChange={(e) => setEditForm((current) => ({ ...current, phone: e.target.value }))} className="h-11 rounded-xl" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold">Expected Salary (TL)</label>
+                <Input type="number" value={editForm.expectedSalary} onChange={(e) => setEditForm((current) => ({ ...current, expectedSalary: e.target.value }))} className="h-11 rounded-xl" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold">Current Title</label>
+                <Input value={editForm.currentTitle} onChange={(e) => setEditForm((current) => ({ ...current, currentTitle: e.target.value }))} className="h-11 rounded-xl" />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <label className="text-sm font-semibold">Location</label>
+                <Input value={editForm.location} onChange={(e) => setEditForm((current) => ({ ...current, location: e.target.value }))} className="h-11 rounded-xl" />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <label className="text-sm font-semibold">Tags / Skills</label>
+                <Input value={editForm.tags} onChange={(e) => setEditForm((current) => ({ ...current, tags: e.target.value }))} className="h-11 rounded-xl" />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <label className="text-sm font-semibold">Summary</label>
+                <Textarea value={editForm.summary} onChange={(e) => setEditForm((current) => ({ ...current, summary: e.target.value }))} rows={4} className="rounded-xl resize-none" />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <label className="text-sm font-semibold">Standardized Profile</label>
+                <Textarea value={editForm.standardizedProfile} onChange={(e) => setEditForm((current) => ({ ...current, standardizedProfile: e.target.value }))} rows={4} className="rounded-xl resize-none" />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <label className="text-sm font-semibold">Education</label>
+                <Textarea value={editForm.education} onChange={(e) => setEditForm((current) => ({ ...current, education: e.target.value }))} rows={3} className="rounded-xl resize-none" />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <label className="text-sm font-semibold">Languages</label>
+                <Input value={editForm.languages} onChange={(e) => setEditForm((current) => ({ ...current, languages: e.target.value }))} className="h-11 rounded-xl" />
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button type="button" variant="outline" className="rounded-xl" onClick={() => setEditDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="button" className="rounded-xl" disabled={savingProfile} onClick={handleSaveProfile}>
+                {savingProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />}
+                Save profile
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );
