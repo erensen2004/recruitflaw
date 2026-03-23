@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { getCompanyDisplayName } from "@/lib/candidate-display";
 
 const SIDEBAR_NAV = {
   admin: [
@@ -87,6 +88,7 @@ export function DashboardLayout({ children, allowedRoles }: { children: React.Re
   }
 
   const navItems = SIDEBAR_NAV[user.role as keyof typeof SIDEBAR_NAV] || [];
+  const accountLabel = getCompanyDisplayName(user.companyName, user.role === "admin" ? "Admin workspace" : null);
 
   const handleLogout = () => {
     localStorage.removeItem("ats_token");
@@ -109,7 +111,7 @@ export function DashboardLayout({ children, allowedRoles }: { children: React.Re
           </div>
           <div className="overflow-hidden">
             <p className="text-sm font-medium text-white truncate">{user.name}</p>
-            <p className="text-xs text-sidebar-foreground/70 truncate">{user.role}</p>
+            <p className="text-xs text-sidebar-foreground/70 truncate">{accountLabel}</p>
           </div>
         </div>
       </div>
@@ -196,13 +198,13 @@ export function DashboardLayout({ children, allowedRoles }: { children: React.Re
       </AnimatePresence>
 
       {/* Main Content */}
-      <main className="flex-1 md:ml-72 min-h-screen flex flex-col mt-16 md:mt-0">
-        <div className="flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full">
+      <main className="flex-1 min-w-0 md:ml-72 min-h-screen flex flex-col mt-16 md:mt-0">
+        <div className="flex-1 min-w-0 p-4 md:p-8 max-w-7xl mx-auto w-full">
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
-            className="h-full"
+            className="h-full min-w-0"
           >
             {children}
           </motion.div>
