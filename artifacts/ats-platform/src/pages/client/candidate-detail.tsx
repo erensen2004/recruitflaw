@@ -4,6 +4,7 @@ import {
   useListCandidateHistory,
   useUpdateCandidateStatus,
   useGetMe,
+  type Candidate,
 } from "@workspace/api-client-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -55,6 +56,8 @@ const STATUS_LABELS: Record<string, string> = {
   rejected: "Rejected",
 };
 
+type ReviewSignalTone = "emerald" | "amber" | "blue" | "slate";
+
 interface Note {
   id: number;
   authorName: string;
@@ -95,6 +98,87 @@ function getParseBadge(parseStatus: string, confidence?: number | null, reviewRe
     label: "Manual review needed",
     className: "bg-slate-100 text-slate-700",
   };
+}
+
+function buildNormalizedProfileCards(candidate: Candidate) {
+  const profileCards = [
+    { label: "Headline", value: candidate.currentTitle || `${candidate.firstName} ${candidate.lastName}` },
+    {
+      label: "Contact",
+      value: [candidate.email, candidate.phone].filter(Boolean).join("  •  ") || "Awaiting verified contact details",
+    },
+    { label: "Location", value: candidate.location || "Location pending admin normalization" },
+    {
+      label: "Experience",
+      value:
+        candidate.yearsExperience != null
+          ? `${candidate.yearsExperience} years`
+          : candidate.parsedExperience[0]?.title || "Experience depth needs review",
+    },
+    {
+      label: "Skills",
+      value:
+        candidate.parsedSkills?.length
+          ? candidate.parsedSkills.slice(0, 6).join(", ")
+          : candidate.tags || "Skills pending structured review",
+    },
+    {
+      label: "Education",
+      value:
+        candidate.education ||
+        candidate.parsedEducation.map((item) => [item.degree, item.institution].filter(Boolean).join(" • ")).filter(Boolean).slice(0, 1)[0] ||
+        "Education not finalized",
+    },
+    {
+      label: "Languages",
+      value: cleanSnapshotText(candidate.languages) || "Language coverage pending review",
+    },
+    {
+      label: "Submitted By",
+      value: candidate.vendorCompanyName || "Vendor company not linked",
+    },
+  ];
+
+  return profileCards.filter((item) => item.value);
+}
+
+function buildAdminReviewSignals(candidate: Candidate) {
+  return [
+    {
+      label: "Parse confidence",
+      value: candidate.parseConfidence != null ? `${candidate.parseConfidence}%` : "Manual review",
+      tone: (
+        candidate.parseConfidence != null && candidate.parseConfidence >= 80
+          ? "emerald"
+          : candidate.parseConfidence != null && candidate.parseConfidence >= 60
+            ? "amber"
+            : "slate"
+      ) as ReviewSignalTone,
+    },
+    {
+      label: "Review state",
+      value: candidate.parseReviewRequired ? "Admin review recommended" : "Ready for client-facing review",
+      tone: (candidate.parseReviewRequired ? "amber" : "emerald") as ReviewSignalTone,
+    },
+    {
+      label: "Client visibility",
+      value: candidate.status === "pending_approval" ? "Held for admin approval" : "Visible in approved pipeline",
+      tone: (candidate.status === "pending_approval" ? "slate" : "blue") as ReviewSignalTone,
+    },
+  ];
+}
+
+function getSignalClasses(tone: ReviewSignalTone) {
+  switch (tone) {
+    case "emerald":
+      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    case "amber":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "blue":
+      return "border-sky-200 bg-sky-50 text-sky-800";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-800";
+  }
 }
 
 export default function ClientCandidateDetail() {
@@ -258,6 +342,8 @@ export default function ClientCandidateDetail() {
 
   const parsedSkills = candidate.parsedSkills?.length ? candidate.parsedSkills : visibleTags;
   const backHref = isAdminRoute || me?.role === "admin" ? "/admin/candidates" : "/client/candidates";
+  const normalizedProfileCards = buildNormalizedProfileCards(candidate);
+  const adminReviewSignals = buildAdminReviewSignals(candidate);
 
   const submitStatusUpdate = (statusValue: (typeof STATUSES)[number], reason?: string) => {
     if (updatingStatus || candidate.status === statusValue) return;
@@ -474,28 +560,69 @@ export default function ClientCandidateDetail() {
               ) : null}
             </div>
 
-            <div className="rounded-2xl border border-emerald-100 bg-white p-8 shadow-lg shadow-black/5">
-              <div className="mb-5 flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-emerald-600" />
-                <h2 className="text-lg font-bold text-slate-900">Recruiter-ready profile snapshot</h2>
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="rounded-2xl bg-emerald-50/70 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recruiter-ready summary</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-800">
-                    {cleanSummary || (candidate.parseReviewRequired ? "Awaiting admin approval for the final summary." : "Summary not available yet.")}
-                  </p>
+            <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-[1px] shadow-2xl shadow-slate-900/10">
+              <div className="rounded-[calc(1.5rem-1px)] bg-white p-8">
+                <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-5 w-5 text-emerald-600" />
+                      <h2 className="text-lg font-bold text-slate-900">Admin review console</h2>
+                    </div>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+                      This is the normalized candidate brief the client sees after the admin team verifies the profile, polishes the summary, and approves the final pipeline record.
+                    </p>
+                  </div>
+                  {isAdminRoute ? (
+                    <div className="rounded-2xl border border-primary/10 bg-primary/5 px-4 py-3 text-sm text-slate-700">
+                      <p className="font-semibold text-primary">Admin authority active</p>
+                      <p className="mt-1 text-slate-500">You can finalize the normalized record before the client-facing handoff.</p>
+                    </div>
+                  ) : null}
                 </div>
-                <div className="rounded-2xl bg-emerald-50/70 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Admin-normalized profile</p>
-                  <pre className="mt-2 whitespace-pre-wrap font-sans text-sm leading-6 text-slate-800">
-                    {cleanStandardizedProfile || "The standardized profile will appear after admin review and normalization."}
-                  </pre>
-                </div>
-              </div>
 
-              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                <div className="grid gap-3 md:grid-cols-3">
+                  {adminReviewSignals.map((signal) => (
+                    <div key={signal.label} className={`rounded-2xl border p-4 ${getSignalClasses(signal.tone)}`}>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">{signal.label}</p>
+                      <p className="mt-2 text-sm font-semibold">{signal.value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-5 grid gap-4 xl:grid-cols-[1.15fr,0.85fr]">
+                  <div className="rounded-2xl bg-emerald-50/70 p-5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recruiter-ready summary</p>
+                    <p className="mt-3 text-sm leading-7 text-slate-800">
+                      {cleanSummary || (candidate.parseReviewRequired ? "Awaiting admin approval for the final summary." : "Summary not available yet.")}
+                    </p>
+                    <div className="mt-4 rounded-2xl border border-white/70 bg-white/80 p-4 text-sm text-slate-600">
+                      <p className="font-semibold text-slate-800">Why this matters</p>
+                      <p className="mt-1 leading-6">
+                        A strong summary gives the client a fast, polished briefing instead of forcing them to read the raw CV first.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Admin-normalized profile</p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      {normalizedProfileCards.map((item) => (
+                        <div key={item.label} className="rounded-2xl border border-white/80 bg-white p-4 shadow-sm shadow-slate-200/40">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
+                          <p className="mt-2 text-sm leading-6 text-slate-800">{item.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {cleanStandardizedProfile ? (
+                      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Compact export line</p>
+                        <p className="mt-2 text-sm leading-6 text-slate-700">{cleanStandardizedProfile}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-4 lg:grid-cols-2">
                 <div className="rounded-2xl border border-slate-100 p-4">
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Experience</p>
                   {candidate.parsedExperience.length ? (
@@ -553,6 +680,7 @@ export default function ClientCandidateDetail() {
                       {cleanLanguages || (candidate.parseReviewRequired ? "Needs review" : "Not available")}
                     </p>
                   </div>
+                </div>
                 </div>
               </div>
             </div>

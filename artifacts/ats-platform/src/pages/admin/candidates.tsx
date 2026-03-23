@@ -4,6 +4,15 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { UserCircle, Loader2, FileText, AlertTriangle, Eye, CheckCircle2, XCircle } from "lucide-react";
 import { format } from "date-fns";
 import { getPrivateObjectUrl } from "@/lib/utils";
@@ -11,22 +20,33 @@ import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { invalidateCandidateQueries, syncCandidateAcrossCaches } from "@/lib/candidate-query";
+import {
+  getStatusReasonDescription,
+  getStatusReasonTitle,
+  parseCandidateTags,
+  requiresStatusReason,
+} from "@/lib/candidate-display";
 
 const CANDIDATE_STATUSES = ["submitted", "screening", "interview", "offer", "hired", "rejected"] as const;
 type CandidateStatusValue = (typeof CANDIDATE_STATUSES)[number];
 
 function getParseBadge(parseStatus: string, reviewRequired: boolean) {
   if (parseStatus === "parsed" && !reviewRequired) {
-    return { label: "Parsed", className: "bg-emerald-100 text-emerald-700" };
+    return { label: "Admin-ready", className: "bg-emerald-100 text-emerald-700" };
   }
   if (parseStatus === "partial" || reviewRequired) {
-    return { label: "Review", className: "bg-amber-100 text-amber-700" };
+    return { label: "Admin review", className: "bg-amber-100 text-amber-700" };
   }
-  return { label: "Manual", className: "bg-slate-100 text-slate-700" };
+  return { label: "Manual intake", className: "bg-slate-100 text-slate-700" };
 }
 
 export default function AdminCandidates() {
   const [pendingCandidateId, setPendingCandidateId] = useState<number | null>(null);
+  const [statusReasonOpen, setStatusReasonOpen] = useState(false);
+  const [statusReasonTarget, setStatusReasonTarget] = useState<CandidateStatusValue | null>(null);
+  const [statusReasonCandidateId, setStatusReasonCandidateId] = useState<number | null>(null);
+  const [statusReasonText, setStatusReasonText] = useState("");
+  const [statusReasonError, setStatusReasonError] = useState("");
   const { data: candidates, isLoading } = useListCandidates();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -49,18 +69,84 @@ export default function AdminCandidates() {
     },
   });
 
-  const handleStatusUpdate = (candidateId: number, status: CandidateStatusValue) => {
+  const queueStats = {
+    total: candidates?.length ?? 0,
+    pendingApproval: candidates?.filter((candidate) => candidate.status === "pending_approval").length ?? 0,
+    reviewSuggested: candidates?.filter((candidate) => candidate.parseReviewRequired).length ?? 0,
+  };
+
+  const submitStatusUpdate = (candidateId: number, status: CandidateStatusValue, reason?: string) => {
     const currentCandidate = candidates?.find((candidate) => candidate.id === candidateId);
     if (updatingStatus || currentCandidate?.status === status) return;
     setPendingCandidateId(candidateId);
-    updateStatus({ id: candidateId, data: { status } });
+    updateStatus({ id: candidateId, data: { status, ...(reason ? { reason } : {}) } });
+  };
+
+  const requestStatusUpdate = (candidateId: number, status: CandidateStatusValue) => {
+    if (updatingStatus) return;
+    const currentCandidate = candidates?.find((candidate) => candidate.id === candidateId);
+    if (currentCandidate?.status === status) return;
+    if (requiresStatusReason(status)) {
+      setStatusReasonCandidateId(candidateId);
+      setStatusReasonTarget(status);
+      setStatusReasonText("");
+      setStatusReasonError("");
+      setStatusReasonOpen(true);
+      return;
+    }
+
+    submitStatusUpdate(candidateId, status);
+  };
+
+  const closeStatusReasonDialog = () => {
+    setStatusReasonOpen(false);
+    setStatusReasonTarget(null);
+    setStatusReasonCandidateId(null);
+    setStatusReasonText("");
+    setStatusReasonError("");
+  };
+
+  const saveStatusReason = () => {
+    if (!statusReasonTarget || statusReasonCandidateId == null) return;
+    const reason = statusReasonText.trim();
+    if (!reason) {
+      setStatusReasonError(`${getStatusReasonTitle(statusReasonTarget)} is required.`);
+      return;
+    }
+
+    closeStatusReasonDialog();
+    submitStatusUpdate(statusReasonCandidateId, statusReasonTarget, reason);
   };
 
   return (
     <DashboardLayout allowedRoles={["admin"]}>
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-slate-900">All Candidates</h1>
-        <p className="text-slate-500 mt-1">Platform-wide candidate overview</p>
+        <p className="text-slate-500 mt-1">Review pending candidate submissions, normalize the profile where needed, then approve them into the client-facing pipeline.</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          {[
+            {
+              label: "Total queue",
+              value: queueStats.total,
+              tone: "border-slate-200 bg-slate-50 text-slate-800",
+            },
+            {
+              label: "Awaiting admin approval",
+              value: queueStats.pendingApproval,
+              tone: "border-amber-200 bg-amber-50 text-amber-800",
+            },
+            {
+              label: "Needs normalization",
+              value: queueStats.reviewSuggested,
+              tone: "border-sky-200 bg-sky-50 text-sky-800",
+            },
+          ].map((card) => (
+            <div key={card.label} className={`rounded-2xl border px-4 py-3 ${card.tone}`}>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">{card.label}</p>
+              <p className="mt-2 text-2xl font-bold">{card.value}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -70,7 +156,7 @@ export default function AdminCandidates() {
               <tr className="bg-slate-50/50 border-b border-slate-200">
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Candidate</th>
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Role</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Vendor</th>
+                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Company</th>
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">CV</th>
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Submitted</th>
@@ -96,6 +182,14 @@ export default function AdminCandidates() {
                           <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${getParseBadge(c.parseStatus, c.parseReviewRequired).className}`}>
                             {getParseBadge(c.parseStatus, c.parseReviewRequired).label}
                           </span>
+                          {(() => {
+                            const { englishLevel } = parseCandidateTags(c.tags);
+                            return englishLevel ? (
+                              <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
+                                English {englishLevel}
+                              </span>
+                            ) : null;
+                          })()}
                         </div>
                       </div>
                     </div>
@@ -134,9 +228,9 @@ export default function AdminCandidates() {
                         size="sm"
                         className="rounded-xl gap-1.5 border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-400 hover:bg-emerald-100"
                         disabled={updatingStatus && pendingCandidateId === c.id}
-                        onClick={() => handleStatusUpdate(c.id, "screening")}
+                        onClick={() => requestStatusUpdate(c.id, "submitted")}
                       >
-                        <CheckCircle2 className="h-3.5 w-3.5" /> Accept
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Approve
                       </Button>
                       <Button
                         type="button"
@@ -144,13 +238,13 @@ export default function AdminCandidates() {
                         size="sm"
                         className="rounded-xl gap-1.5 border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-400 hover:bg-rose-100"
                         disabled={updatingStatus && pendingCandidateId === c.id}
-                        onClick={() => handleStatusUpdate(c.id, "rejected")}
+                        onClick={() => requestStatusUpdate(c.id, "rejected")}
                       >
                         <XCircle className="h-3.5 w-3.5" /> Reject
                       </Button>
                       <Select
                         value={c.status}
-                        onValueChange={(value) => handleStatusUpdate(c.id, value as CandidateStatusValue)}
+                        onValueChange={(value) => requestStatusUpdate(c.id, value as CandidateStatusValue)}
                         disabled={updatingStatus && pendingCandidateId === c.id}
                       >
                         <SelectTrigger className="h-9 min-w-[140px] rounded-xl border-slate-200 bg-white">
@@ -171,8 +265,42 @@ export default function AdminCandidates() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
-      </div>
-    </DashboardLayout>
+
+        <Dialog open={statusReasonOpen} onOpenChange={(open) => (open ? setStatusReasonOpen(true) : closeStatusReasonDialog())}>
+          <DialogContent className="sm:max-w-lg rounded-2xl">
+            <DialogHeader>
+              <DialogTitle>{getStatusReasonTitle(statusReasonTarget)}</DialogTitle>
+              <DialogDescription>{getStatusReasonDescription(statusReasonTarget)}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Textarea
+                value={statusReasonText}
+                onChange={(event) => {
+                  setStatusReasonText(event.target.value);
+                  if (statusReasonError) setStatusReasonError("");
+                }}
+                rows={5}
+                className="resize-none rounded-xl"
+                placeholder={
+                  statusReasonTarget === "rejected"
+                    ? "Example: Candidate does not yet meet the role's core requirements."
+                    : "Example: Candidate is a strong match and should move to the screening stage."
+                }
+              />
+              {statusReasonError ? <p className="text-sm text-rose-600">{statusReasonError}</p> : null}
+            </div>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button type="button" variant="outline" className="rounded-xl" onClick={closeStatusReasonDialog}>
+                Cancel
+              </Button>
+              <Button type="button" className="rounded-xl" onClick={saveStatusReason}>
+                Save & update status
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </DashboardLayout>
   );
 }

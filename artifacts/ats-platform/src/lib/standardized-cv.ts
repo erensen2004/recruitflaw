@@ -1,4 +1,5 @@
 import type { Candidate, CandidateParsedEducation, CandidateParsedExperience } from "@workspace/api-client-react";
+import { formatTurkishLira, parseCandidateTags } from "@/lib/candidate-display";
 
 function sectionText(title: string, lines: string[]) {
   const body = lines.filter(Boolean).join("\n");
@@ -24,6 +25,7 @@ function educationToLines(education: CandidateParsedEducation[]) {
 }
 
 export async function exportStandardizedCandidatePdf(candidate: Candidate) {
+  const { englishLevel } = parseCandidateTags(candidate.tags);
   const { default: jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const maxWidth = 515;
@@ -52,30 +54,61 @@ export async function exportStandardizedCandidatePdf(candidate: Candidate) {
     y += split.length * 15 + 10;
   };
 
+  doc.setFillColor(15, 23, 42);
+  doc.roundedRect(40, 34, 515, 88, 18, 18, "F");
+  doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(22);
-  doc.text(`${candidate.firstName} ${candidate.lastName}`, 48, y);
-  y += 24;
+  doc.setFontSize(12);
+  doc.text("RecruitFlow Admin Standardized Candidate Brief", 58, 60);
+  doc.setFontSize(24);
+  doc.text(`${candidate.firstName} ${candidate.lastName}`, 58, 90);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  doc.setTextColor(226, 232, 240);
+  doc.text(candidate.currentTitle || "Normalized candidate profile", 58, 110, { maxWidth: 320 });
+
+  doc.setTextColor(15, 23, 42);
+  y = 148;
 
   const meta = [
-    candidate.currentTitle || null,
     candidate.location || null,
     candidate.email,
     candidate.phone || null,
+    candidate.vendorCompanyName ? `Submitted by ${candidate.vendorCompanyName}` : null,
   ].filter(Boolean);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(11);
-  doc.text(meta.join("  •  "), 48, y, { maxWidth });
-  y += 24;
 
-  writeBlock("Professional Summary", [candidate.summary || candidate.standardizedProfile || "Summary not available"]);
+  if (meta.length) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10.5);
+    doc.text(meta.join("  •  "), 48, y, { maxWidth });
+    y += 24;
+  }
+
+  const reviewLine = [
+    candidate.parseConfidence != null ? `Parse confidence ${candidate.parseConfidence}%` : null,
+    candidate.parseReviewRequired ? "Admin reviewed output recommended" : "Ready for client review",
+    candidate.expectedSalary != null ? `Expected salary ${formatTurkishLira(candidate.expectedSalary)}` : null,
+  ].filter(Boolean);
+  if (reviewLine.length) {
+    doc.setFillColor(239, 246, 255);
+    doc.roundedRect(48, y - 12, 515, 30, 12, 12, "F");
+    doc.setTextColor(30, 64, 175);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text(reviewLine.join("  •  "), 60, y + 6, { maxWidth: 490 });
+    doc.setTextColor(15, 23, 42);
+    y += 34;
+  }
+
+  writeBlock("Professional Summary", [candidate.summary || candidate.standardizedProfile || "Admin-normalized summary not available yet"]);
   writeBlock("Key Skills", [candidate.parsedSkills.length ? candidate.parsedSkills.join(", ") : candidate.tags || "Skills not available"], { compact: true });
   writeBlock("Experience", experienceToLines(candidate.parsedExperience));
   writeBlock("Education", educationToLines(candidate.parsedEducation));
   writeBlock("Additional Details", [
     candidate.languages ? `Languages: ${candidate.languages}` : "",
+    englishLevel ? `English level: ${englishLevel}` : "",
     candidate.yearsExperience != null ? `Years of experience: ${candidate.yearsExperience}` : "",
-    candidate.expectedSalary != null ? `Expected salary: $${candidate.expectedSalary.toLocaleString()}` : "",
+    candidate.expectedSalary != null ? `Expected salary: ${formatTurkishLira(candidate.expectedSalary)}` : "",
   ]);
 
   const safeName = `${candidate.firstName}_${candidate.lastName}`.replace(/\s+/g, "_");
