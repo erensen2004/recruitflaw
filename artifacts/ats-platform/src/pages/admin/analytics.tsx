@@ -1,7 +1,18 @@
 import { useMemo } from "react";
-import { useGetAnalytics } from "@workspace/api-client-react";
+import { Link } from "wouter";
+import { useGetAnalytics, useListCandidates, useListRoles } from "@workspace/api-client-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { Loader2, Users, Briefcase, Building2, UserCircle, TrendingUp, Activity } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  Briefcase,
+  Clock3,
+  Loader2,
+  Sparkles,
+  TrendingUp,
+  Users,
+} from "lucide-react";
+import { buildAdminWorkloadSnapshot, type AdminReviewActivity, type AdminReviewCandidate, type AdminReviewRole } from "@/lib/admin-review";
 
 const STATUS_COLORS: Record<string, string> = {
   submitted: "bg-blue-100 text-blue-700",
@@ -31,34 +42,85 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default function AdminAnalytics() {
   const { data, isLoading } = useGetAnalytics();
+  const { data: roles } = useListRoles();
+  const { data: candidates } = useListCandidates();
+
+  const reviewSnapshot = useMemo(
+    () =>
+      buildAdminWorkloadSnapshot(
+        (roles ?? []) as AdminReviewRole[],
+        (candidates ?? []) as AdminReviewCandidate[],
+        (data?.recentActivity ?? []) as AdminReviewActivity[],
+      ),
+    [candidates, data?.recentActivity, roles],
+  );
+
   const headlineStats = useMemo(
     () =>
       data
         ? [
             { label: "Total Candidates", value: data.totalCandidates, icon: Users, color: "text-blue-500", bg: "bg-blue-50" },
-            { label: "Interview Pipeline", value: data.interviewingCandidates, icon: Briefcase, color: "text-violet-500", bg: "bg-violet-50" },
-            { label: "Hired", value: data.hiredCandidates, icon: Building2, color: "text-green-500", bg: "bg-green-50" },
-            { label: "Rejected", value: data.rejectedCandidates, icon: UserCircle, color: "text-rose-500", bg: "bg-rose-50" },
+            {
+              label: "Review workload today",
+              value: reviewSnapshot.todayWorkload.total,
+              icon: Sparkles,
+              color: "text-fuchsia-500",
+              bg: "bg-fuchsia-50",
+            },
+            {
+              label: "Awaiting approvals",
+              value: reviewSnapshot.roleQueue.pendingApproval + reviewSnapshot.pendingCandidates,
+              icon: Clock3,
+              color: "text-amber-500",
+              bg: "bg-amber-50",
+            },
+            {
+              label: "Stuck items",
+              value: reviewSnapshot.stuckItems.length,
+              icon: AlertTriangle,
+              color: "text-rose-500",
+              bg: "bg-rose-50",
+            },
           ]
         : [],
-    [data],
+    [data, reviewSnapshot],
   );
+
+  const stuckRoles = reviewSnapshot.stuckItems.filter((item) => item.type === "role").slice(0, 4);
+  const stuckCandidates = reviewSnapshot.stuckItems.filter((item) => item.type === "candidate").slice(0, 4);
 
   return (
     <DashboardLayout allowedRoles={["admin"]}>
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-slate-900">Analytics</h1>
-        <p className="text-slate-500 mt-1">Platform-wide overview and metrics</p>
+        <p className="text-slate-500 mt-1">Platform-wide overview, review workload, and stuck-item visibility</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {[
+            { href: "/admin/roles", label: "Open review hub" },
+            { href: "/admin/candidates", label: "Open candidate queue" },
+            { href: "/admin/compare", label: "Open compare view" },
+          ].map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-primary hover:bg-primary/5 hover:text-primary hover:shadow-md active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            >
+              {item.label}
+            </Link>
+          ))}
+        </div>
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center p-16"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
+        <div className="flex justify-center p-16">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
       ) : !data ? (
         <div className="text-center text-slate-500 p-12">Failed to load analytics.</div>
       ) : (
         <div className="space-y-8">
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {headlineStats.map(stat => (
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
+            {headlineStats.map((stat) => (
               <div key={stat.label} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
                 <div className={`w-10 h-10 rounded-xl ${stat.bg} flex items-center justify-center mb-4`}>
                   <stat.icon className={`w-5 h-5 ${stat.color}`} />
@@ -67,6 +129,115 @@ export default function AdminAnalytics() {
                 <p className="text-sm text-slate-500 mt-1">{stat.label}</p>
               </div>
             ))}
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr,0.8fr]">
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
+              <div className="flex items-center justify-between gap-4">
+                <h2 className="font-bold text-slate-900 flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-primary" /> Today&apos;s review workload
+                </h2>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                  {reviewSnapshot.todayWorkload.total} touched today
+                </span>
+              </div>
+              <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  { label: "Submissions", value: reviewSnapshot.todayWorkload.submissionsToday, tone: "bg-blue-50 text-blue-700" },
+                  { label: "Status changes", value: reviewSnapshot.todayWorkload.statusChangesToday, tone: "bg-violet-50 text-violet-700" },
+                  { label: "Notes", value: reviewSnapshot.todayWorkload.notesToday, tone: "bg-emerald-50 text-emerald-700" },
+                  { label: "Role updates", value: reviewSnapshot.todayWorkload.roleUpdatesToday, tone: "bg-slate-50 text-slate-700" },
+                ].map((item) => (
+                  <div key={item.label} className={`rounded-2xl px-4 py-4 ${item.tone}`}>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">{item.label}</p>
+                    <p className="mt-2 text-2xl font-bold">{item.value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                {[
+                  { label: "Pending candidate approvals", value: reviewSnapshot.pendingCandidates },
+                  { label: "Needs normalization", value: reviewSnapshot.reviewSuggestedCandidates },
+                  { label: "Stuck roles", value: reviewSnapshot.roleQueue.stuckRoles },
+                  { label: "Ready candidates", value: reviewSnapshot.readyCandidates },
+                ].map((item) => (
+                  <div key={item.label} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                    <p className="text-sm text-slate-500">{item.label}</p>
+                    <p className="mt-1 text-xl font-bold text-slate-900">{item.value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
+              <h2 className="font-bold text-slate-900 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-primary" /> Stuck items
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">Items that have been waiting long enough to deserve an admin pass.</p>
+              <div className="mt-4 space-y-5">
+                {reviewSnapshot.stuckItems.length === 0 ? (
+                  <p className="text-sm text-slate-400">No stuck items right now.</p>
+                ) : (
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Roles</p>
+                      <div className="mt-3 space-y-3">
+                        {stuckRoles.length === 0 ? (
+                          <p className="text-sm text-slate-400">No stuck roles right now.</p>
+                        ) : (
+                          stuckRoles.map((item) => (
+                            <Link
+                              key={`${item.type}-${item.route}-${item.label}`}
+                              href={item.route}
+                              className="block rounded-2xl border border-white bg-white px-4 py-3 shadow-sm transition-colors hover:border-primary hover:bg-primary/5"
+                            >
+                              <div className="flex items-start justify-between gap-4">
+                                <div>
+                                  <p className="text-sm font-semibold text-slate-900">{item.label}</p>
+                                  <p className="mt-1 text-xs text-slate-500">{item.detail}</p>
+                                  <p className="mt-1 text-xs font-medium text-slate-400">{item.reason}</p>
+                                </div>
+                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">
+                                  {item.ageDays}d
+                                </span>
+                              </div>
+                            </Link>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Candidates</p>
+                      <div className="mt-3 space-y-3">
+                        {stuckCandidates.length === 0 ? (
+                          <p className="text-sm text-slate-400">No stuck candidates right now.</p>
+                        ) : (
+                          stuckCandidates.map((item) => (
+                            <Link
+                              key={`${item.type}-${item.route}-${item.label}`}
+                              href={item.route}
+                              className="block rounded-2xl border border-white bg-white px-4 py-3 shadow-sm transition-colors hover:border-primary hover:bg-primary/5"
+                            >
+                              <div className="flex items-start justify-between gap-4">
+                                <div>
+                                  <p className="text-sm font-semibold text-slate-900">{item.label}</p>
+                                  <p className="mt-1 text-xs text-slate-500">{item.detail}</p>
+                                  <p className="mt-1 text-xs font-medium text-slate-400">{item.reason}</p>
+                                </div>
+                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">
+                                  {item.ageDays}d
+                                </span>
+                              </div>
+                            </Link>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -82,7 +253,7 @@ export default function AdminAnalytics() {
             ))}
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
               <h2 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
                 <Users className="w-4 h-4 text-primary" /> Candidates by Status
@@ -90,7 +261,7 @@ export default function AdminAnalytics() {
               <div className="space-y-3">
                 {data.candidatesByStatus.length === 0 ? (
                   <p className="text-slate-400 text-sm">No data yet.</p>
-                ) : data.candidatesByStatus.map(s => (
+                ) : data.candidatesByStatus.map((s) => (
                   <div key={s.status} className="flex items-center justify-between">
                     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full capitalize ${STATUS_COLORS[s.status] || "bg-slate-100 text-slate-600"}`}>
                       {STATUS_LABELS[s.status] || s.status}
@@ -99,7 +270,7 @@ export default function AdminAnalytics() {
                       <div className="flex-1 bg-slate-100 rounded-full h-2">
                         <div
                           className="bg-primary h-2 rounded-full"
-                          style={{ width: `${data.totalCandidates ? (s.count / data.totalCandidates * 100) : 0}%` }}
+                          style={{ width: `${data.totalCandidates ? (s.count / data.totalCandidates) * 100 : 0}%` }}
                         />
                       </div>
                       <span className="text-sm font-bold text-slate-700 w-6 text-right">{s.count}</span>
@@ -116,7 +287,7 @@ export default function AdminAnalytics() {
               <div className="space-y-3">
                 {data.rolesByStatus.length === 0 ? (
                   <p className="text-slate-400 text-sm">No data yet.</p>
-                ) : data.rolesByStatus.map(s => (
+                ) : data.rolesByStatus.map((s) => (
                   <div key={s.status} className="flex items-center justify-between">
                     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full capitalize ${STATUS_COLORS[s.status] || "bg-slate-100 text-slate-600"}`}>
                       {STATUS_LABELS[s.status] || s.status}
@@ -125,7 +296,7 @@ export default function AdminAnalytics() {
                       <div className="flex-1 bg-slate-100 rounded-full h-2">
                         <div
                           className="bg-violet-500 h-2 rounded-full"
-                          style={{ width: `${data.totalRoles ? (s.count / data.totalRoles * 100) : 0}%` }}
+                          style={{ width: `${data.totalRoles ? (s.count / data.totalRoles) * 100 : 0}%` }}
                         />
                       </div>
                       <span className="text-sm font-bold text-slate-700 w-6 text-right">{s.count}</span>
@@ -155,7 +326,7 @@ export default function AdminAnalytics() {
                       <div className="bg-slate-100 rounded-full h-1.5">
                         <div
                           className="bg-primary h-1.5 rounded-full"
-                          style={{ width: `${data.topRoles[0].count ? (r.count / data.topRoles[0].count * 100) : 0}%` }}
+                          style={{ width: `${data.topRoles[0].count ? (r.count / data.topRoles[0].count) * 100 : 0}%` }}
                         />
                       </div>
                     </div>

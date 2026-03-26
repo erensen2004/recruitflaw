@@ -5,6 +5,13 @@ const TagsInputSchema = z.union([
   z.array(z.string().max(200)).max(100),
 ]);
 
+const NonEmptyOptionalStringSchema = z.string().trim().min(1);
+const CandidateStatusValueSchema = z.enum(["submitted", "screening", "interview", "offer", "hired", "rejected"]);
+const RoleWorkModeSchema = z.enum(["full-office", "hybrid", "full-remote"]);
+const RoleEmploymentTypeSchema = z.enum(["full-time", "part-time", "other"]);
+const LegacyRoleEmploymentTypeSchema = z.enum(["contract", "freelance"]);
+const RoleEmploymentTypeInputSchema = z.union([RoleEmploymentTypeSchema, LegacyRoleEmploymentTypeSchema]);
+
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
 export const LoginSchema = z.object({
@@ -18,8 +25,8 @@ export const CreateCandidateSchema = z.object({
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
   email: z.string().email(),
-  phone: z.string().max(50).nullable().optional(),
-  expectedSalary: z.number().positive().nullable().optional(),
+  phone: NonEmptyOptionalStringSchema.max(50),
+  expectedSalary: z.number().positive(),
   roleId: z.number().int().positive(),
   cvUrl: z.string().max(2048).nullable().optional(),
   originalCvFileName: z.string().max(500).nullable().optional(),
@@ -57,16 +64,36 @@ export const CreateCandidateSchema = z.object({
   ).max(50).nullable().optional(),
 });
 
-export const CandidateStatusSchema = z.object({
-  status: z.enum(["submitted", "screening", "interview", "offer", "hired", "rejected"]),
-  reason: z.string().max(1000).nullable().optional(),
+const CandidateStatusBaseSchema = z.object({
+  status: CandidateStatusValueSchema,
 });
+
+const ReviewThreadScopeTypeSchema = z.enum(["role", "candidate"]);
+const ReviewThreadVisibilitySchema = z.enum(["admin", "client", "vendor", "shared"]);
+const ReviewThreadStatusSchema = z.enum(["open", "resolved"]);
+
+const CandidateStatusWithOptionalReasonSchema = CandidateStatusBaseSchema.extend({
+  reason: z.string().trim().max(1000).nullable().optional(),
+});
+
+const CandidateStatusWithRequiredReasonSchema = CandidateStatusBaseSchema.extend({
+  reason: NonEmptyOptionalStringSchema.max(1000),
+});
+
+export const CandidateStatusSchema = z.union([
+  CandidateStatusWithOptionalReasonSchema.extend({ status: z.literal("submitted") }),
+  CandidateStatusWithOptionalReasonSchema.extend({ status: z.literal("screening") }),
+  CandidateStatusWithRequiredReasonSchema.extend({ status: z.literal("interview") }),
+  CandidateStatusWithOptionalReasonSchema.extend({ status: z.literal("offer") }),
+  CandidateStatusWithOptionalReasonSchema.extend({ status: z.literal("hired") }),
+  CandidateStatusWithRequiredReasonSchema.extend({ status: z.literal("rejected") }),
+]);
 
 export const UpdateCandidateSchema = z.object({
   firstName: z.string().min(1).max(100).optional(),
   lastName: z.string().min(1).max(100).optional(),
   email: z.string().email().optional(),
-  phone: z.string().max(50).nullable().optional(),
+  phone: NonEmptyOptionalStringSchema.max(50).nullable().optional(),
   expectedSalary: z.number().positive().nullable().optional(),
   cvUrl: z.string().max(2048).nullable().optional(),
   originalCvFileName: z.string().max(500).nullable().optional(),
@@ -117,9 +144,19 @@ export const CreateRoleSchema = z.object({
   salaryMin: z.number().nonnegative().nullable().optional(),
   salaryMax: z.number().nonnegative().nullable().optional(),
   location: z.string().max(200).nullable().optional(),
-  employmentType: z.enum(["full-time", "part-time", "contract", "freelance"]).nullable().optional(),
+  workMode: RoleWorkModeSchema.nullable().optional(),
+  employmentType: RoleEmploymentTypeInputSchema.nullable().optional(),
+  otherEmploymentTypeDescription: z.string().max(1000).nullable().optional(),
   isRemote: z.boolean().optional(),
   companyId: z.number().int().positive().optional(),
+}).superRefine((data, ctx) => {
+  if (data.employmentType === "other" && !data.otherEmploymentTypeDescription?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["otherEmploymentTypeDescription"],
+      message: "Other employment type description is required when employment type is other",
+    });
+  }
 });
 
 export const UpdateRoleSchema = z.object({
@@ -129,8 +166,18 @@ export const UpdateRoleSchema = z.object({
   salaryMin: z.number().nonnegative().nullable().optional(),
   salaryMax: z.number().nonnegative().nullable().optional(),
   location: z.string().max(200).nullable().optional(),
-  employmentType: z.enum(["full-time", "part-time", "contract", "freelance"]).nullable().optional(),
+  workMode: RoleWorkModeSchema.nullable().optional(),
+  employmentType: RoleEmploymentTypeInputSchema.nullable().optional(),
+  otherEmploymentTypeDescription: z.string().max(1000).nullable().optional(),
   isRemote: z.boolean().optional(),
+}).superRefine((data, ctx) => {
+  if (data.employmentType === "other" && !data.otherEmploymentTypeDescription?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["otherEmploymentTypeDescription"],
+      message: "Other employment type description is required when employment type is other",
+    });
+  }
 });
 
 export const RoleStatusSchema = z.object({
@@ -141,6 +188,23 @@ export const RoleStatusSchema = z.object({
 
 export const CreateNoteSchema = z.object({
   content: z.string().min(1).max(5000),
+});
+
+// ─── Review Threads ────────────────────────────────────────────────────────
+
+export const CreateReviewThreadSchema = z.object({
+  scopeType: ReviewThreadScopeTypeSchema,
+  scopeId: z.number().int().positive(),
+  visibility: ReviewThreadVisibilitySchema.optional(),
+  message: z.string().trim().min(1).max(5000),
+});
+
+export const AddReviewThreadMessageSchema = z.object({
+  message: z.string().trim().min(1).max(5000),
+});
+
+export const UpdateReviewThreadSchema = z.object({
+  status: ReviewThreadStatusSchema,
 });
 
 // ─── Contracts ───────────────────────────────────────────────────────────────

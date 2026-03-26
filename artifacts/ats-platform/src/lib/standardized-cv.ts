@@ -1,5 +1,5 @@
 import type { Candidate, CandidateParsedEducation, CandidateParsedExperience } from "@workspace/api-client-react";
-import { formatTurkishLira, parseCandidateTags } from "@/lib/candidate-display";
+import { formatTurkishLira, getCandidateExecutiveBrief, parseCandidateTags } from "@/lib/candidate-display";
 
 function sectionText(title: string, lines: string[]) {
   const body = lines.filter(Boolean).join("\n");
@@ -26,6 +26,7 @@ function educationToLines(education: CandidateParsedEducation[]) {
 
 export async function exportStandardizedCandidatePdf(candidate: Candidate) {
   const { englishLevel } = parseCandidateTags(candidate.tags);
+  const brief = getCandidateExecutiveBrief(candidate);
   const { default: jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const maxWidth = 515;
@@ -54,21 +55,47 @@ export async function exportStandardizedCandidatePdf(candidate: Candidate) {
     y += split.length * 15 + 10;
   };
 
+  const writeBulletBlock = (title: string, items: string[], opts?: { compact?: boolean }) => {
+    const lines = items.filter(Boolean);
+    if (!lines.length) return;
+    const titleHeight = 18;
+    const splitLines = lines.flatMap((item) => doc.splitTextToSize(`• ${item}`, maxWidth) as string[]);
+    ensurePage(titleHeight + splitLines.length * 15 + 14);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(opts?.compact ? 12 : 13);
+    doc.text(title, 48, y);
+    y += titleHeight;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10.5);
+    doc.text(splitLines, 48, y);
+    y += splitLines.length * 15 + 10;
+  };
+
   doc.setFillColor(15, 23, 42);
-  doc.roundedRect(40, 34, 515, 88, 18, 18, "F");
+  doc.roundedRect(40, 34, 515, 108, 18, 18, "F");
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.text("RecruitFlow Admin Standardized Candidate Brief", 58, 60);
-  doc.setFontSize(24);
-  doc.text(`${candidate.firstName} ${candidate.lastName}`, 58, 90);
-  doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
+  doc.text("RecruitFlow Executive Candidate Brief", 58, 58);
+  doc.setFontSize(23);
+  doc.text(`${candidate.firstName} ${candidate.lastName}`, 58, 88);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10.5);
   doc.setTextColor(226, 232, 240);
-  doc.text(candidate.currentTitle || "Normalized candidate profile", 58, 110, { maxWidth: 320 });
+  doc.text(candidate.currentTitle || candidate.roleTitle || "Normalized candidate profile", 58, 108, { maxWidth: 320 });
+  doc.setFontSize(9.5);
+  doc.text(candidate.roleTitle ? `Submitted for ${candidate.roleTitle}` : "Prepared from the parsed candidate profile", 58, 124, { maxWidth: 320 });
+  doc.setFillColor(30, 41, 59);
+  doc.roundedRect(422, 52, 116, 64, 14, 14, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.text(`${brief.fitScore}`, 438, 79);
+  doc.setFontSize(9.5);
+  doc.text(brief.fitLabel, 438, 94, { maxWidth: 82 });
 
   doc.setTextColor(15, 23, 42);
-  y = 148;
+  y = 166;
 
   const meta = [
     candidate.location || null,
@@ -100,7 +127,13 @@ export async function exportStandardizedCandidatePdf(candidate: Candidate) {
     y += 34;
   }
 
-  writeBlock("Professional Summary", [candidate.summary || candidate.standardizedProfile || "Admin-normalized summary not available yet"]);
+  writeBlock("Executive Summary", [
+    brief.fitSummary,
+    candidate.summary || candidate.standardizedProfile || "Admin-normalized summary not available yet.",
+  ]);
+  writeBulletBlock("Top Strengths", brief.strengths, { compact: true });
+  writeBulletBlock("Risk Flags", brief.riskFlags, { compact: true });
+  writeBulletBlock("Normalization Notes", brief.normalizationNotes, { compact: true });
   writeBlock("Key Skills", [candidate.parsedSkills.length ? candidate.parsedSkills.join(", ") : candidate.tags || "Skills not available"], { compact: true });
   writeBlock("Experience", experienceToLines(candidate.parsedExperience));
   writeBlock("Education", educationToLines(candidate.parsedEducation));
@@ -109,6 +142,7 @@ export async function exportStandardizedCandidatePdf(candidate: Candidate) {
     englishLevel ? `English level: ${englishLevel}` : "",
     candidate.yearsExperience != null ? `Years of experience: ${candidate.yearsExperience}` : "",
     candidate.expectedSalary != null ? `Expected salary: ${formatTurkishLira(candidate.expectedSalary)}` : "",
+    brief.adminReady ? "Admin-ready: yes" : "Admin-ready: needs review",
   ]);
 
   const safeName = `${candidate.firstName}_${candidate.lastName}`.replace(/\s+/g, "_");

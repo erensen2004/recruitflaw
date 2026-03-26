@@ -8,26 +8,16 @@ import { Loader2, ArrowLeft, Send, FileText, Upload, Sparkles, Tag } from "lucid
 import { useRoute, Link, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { validateResumeFile } from "@/lib/utils";
-import { getErrorMessage, parseResumeFileWithFallback, parseResumeText, type ParsedCandidateProfile } from "@/lib/resume-parse";
-
-function cleanSnapshotText(value?: string | null) {
-  if (!value) return null;
-  const normalized = value
-    .replace(/\b(?:null|undefined)\b/gi, "")
-    .replace(/\s*\|\s*\|+/g, " | ")
-    .replace(/^\s*\|\s*|\s*\|\s*$/g, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-
-  if (!normalized || /^(not found|n\/a)$/i.test(normalized)) {
-    return null;
-  }
-
-  return normalized;
-}
+import { composeCandidateTags, formatTurkishLira, parseCandidateTags } from "@/lib/candidate-display";
+import { parseResumeFileWithFallback, parseResumeText, type ParsedCandidateProfile } from "@/lib/resume-parse";
+import { getRoleSummaryLines } from "@/lib/role-display";
+import { uploadResumeFile } from "@/lib/resume-upload";
+import { ReviewThreadPanel } from "@/components/review-thread-panel";
 
 export default function VendorSubmitCandidate() {
-  const [, params] = useRoute("/vendor/submit/:roleId");
+  const [, submitParams] = useRoute("/vendor/submit/:roleId");
+  const [, positionParams] = useRoute("/vendor/positions/:roleId");
+  const params = submitParams ?? positionParams;
   const roleId = Number(params?.roleId);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -35,30 +25,19 @@ export default function VendorSubmitCandidate() {
 
   const { data: role, isLoading: roleLoading } = useGetRole(roleId);
   const [formData, setFormData] = useState({
-    firstName: "", lastName: "", email: "", phone: "", expectedSalary: "", tags: ""
+    firstName: "", lastName: "", email: "", phone: "", expectedSalary: "", englishLevel: "", tags: ""
   });
   const [cvFile, setCvFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [cvText, setCvText] = useState("");
   const [showCvParse, setShowCvParse] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [parseProgress, setParseProgress] = useState("");
   const [parsedProfile, setParsedProfile] = useState<ParsedCandidateProfile | null>(null);
 
-  const snapshotFields = parsedProfile
-    ? [
-        { label: "Current Title", value: cleanSnapshotText(parsedProfile.currentTitle) },
-        { label: "Location", value: cleanSnapshotText(parsedProfile.location) },
-        {
-          label: "Experience",
-          value: parsedProfile.yearsExperience != null ? `${parsedProfile.yearsExperience} years` : null,
-        },
-        { label: "Languages", value: cleanSnapshotText(parsedProfile.languages) },
-      ].filter((field): field is { label: string; value: string } => Boolean(field.value))
-    : [];
-  const snapshotEducation = cleanSnapshotText(parsedProfile?.education);
-  const snapshotSummary = cleanSnapshotText(parsedProfile?.summary);
-  const snapshotProfile = cleanSnapshotText(parsedProfile?.standardizedProfile);
+  const parsedTagsPreview = parseCandidateTags(formData.tags);
+  const roleSummary = role ? getRoleSummaryLines(role) : null;
 
   const { mutate: submit, isPending } = useSubmitCandidate({
     mutation: {
@@ -79,35 +58,7 @@ export default function VendorSubmitCandidate() {
   const uploadCv = async (file: File): Promise<string | null> => {
     try {
       const token = localStorage.getItem("ats_token");
-      const res = await fetch("/api/storage/uploads/request-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
-      });
-      if (!res.ok) {
-        throw new Error(await getErrorMessage(res));
-      }
-
-      const { uploadURL, objectPath } = await res.json();
-      const uploadHeaders: Record<string, string> = { "Content-Type": file.type };
-      if (token && uploadURL.startsWith("/api/")) {
-        uploadHeaders.Authorization = `Bearer ${token}`;
-      }
-      const uploadRes = await fetch(uploadURL, { method: "PUT", headers: uploadHeaders, body: file });
-      if (!uploadRes.ok) {
-        throw new Error("File upload failed");
-      }
-
-      const confirmRes = await fetch("/api/storage/uploads/confirm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ objectPath }),
-      });
-      if (!confirmRes.ok) {
-        throw new Error(await getErrorMessage(confirmRes));
-      }
-
-      return objectPath;
+      return await uploadResumeFile(file, { token, maxAttempts: 3 });
     } catch (error) {
       toast({
         title: "CV upload failed",
@@ -129,6 +80,26 @@ export default function VendorSubmitCandidate() {
       expectedSalary: parsed.expectedSalary ? String(parsed.expectedSalary) : prev.expectedSalary,
       tags: parsed.skills || prev.tags,
     }));
+  };
+
+  const handleFileSelection = async (file: File | null) => {
+    if (!file) {
+      setCvFile(null);
+      return;
+    }
+
+    const validationError = validateResumeFile(file);
+    if (validationError) {
+      toast({ title: "Invalid CV file", description: validationError, variant: "destructive" });
+      if (fileRef.current) {
+        fileRef.current.value = "";
+      }
+      setCvFile(null);
+      return;
+    }
+
+    setCvFile(file);
+    void parsePdfCv(file);
   };
 
   const parsePdfCv = async (file: File): Promise<void> => {
@@ -202,6 +173,30 @@ export default function VendorSubmitCandidate() {
       });
       return;
     }
+    if (!formData.expectedSalary.trim()) {
+      toast({
+        title: "Expected salary is required",
+        description: "Please enter the candidate's expected monthly salary in TL.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!formData.phone.trim()) {
+      toast({
+        title: "Phone number is required",
+        description: "Please enter the candidate's contact number before submitting.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!formData.englishLevel.trim()) {
+      toast({
+        title: "English level is required",
+        description: "Please enter a free-text English level before submitting.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setUploading(true);
     let cvUrl: string | undefined;
@@ -214,6 +209,7 @@ export default function VendorSubmitCandidate() {
       cvUrl = objectPath;
     }
     setUploading(false);
+    const englishLevel = formData.englishLevel.trim();
     submit({
       data: {
         ...formData,
@@ -223,7 +219,7 @@ export default function VendorSubmitCandidate() {
         cvUrl,
         originalCvFileName: cvFile?.name,
         originalCvMimeType: cvFile?.type || undefined,
-        tags: formData.tags || parsedProfile?.parsedSkills?.join(", ") || undefined,
+        tags: composeCandidateTags(formData.tags || parsedProfile?.parsedSkills?.join(", ") || "", englishLevel) || undefined,
         currentTitle: parsedProfile?.currentTitle || undefined,
         location: parsedProfile?.location || undefined,
         yearsExperience: parsedProfile?.yearsExperience ?? undefined,
@@ -249,11 +245,11 @@ export default function VendorSubmitCandidate() {
           <ArrowLeft className="w-4 h-4 mr-1" /> Back to Positions
         </Link>
 
-        <div className="mb-8 flex items-start justify-between">
+        <div className="mb-8 flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-slate-900">Submit Candidate</h1>
+            <h1 className="text-3xl font-bold text-slate-900">Role Details</h1>
             {roleLoading ? <Loader2 className="w-4 h-4 animate-spin mt-2" /> : (
-              <p className="text-slate-500 mt-1">For <span className="font-semibold text-primary">{role?.title}</span> at {role?.companyName}</p>
+              <p className="text-slate-500 mt-1">Review the role brief first, then submit a candidate from this detail screen.</p>
             )}
           </div>
           <Button
@@ -268,52 +264,73 @@ export default function VendorSubmitCandidate() {
           </Button>
         </div>
 
+        {role ? (
+          <div className="mb-6 rounded-2xl border border-slate-100 bg-white p-6 shadow-lg shadow-black/5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Position</div>
+                <h2 className="mt-1 text-2xl font-bold text-slate-900">{role.title}</h2>
+                <p className="mt-2 text-sm text-slate-500">{role.companyName}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                  {roleSummary?.workModeLabel || "Work mode not set"}
+                </span>
+                {roleSummary?.employmentTypeLabel ? (
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                    {roleSummary.employmentTypeLabel}
+                  </span>
+                ) : null}
+                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                  Max salary {role.salaryMax != null ? formatTurkishLira(role.salaryMax) : "Not provided"}
+                </span>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Role brief</p>
+                <p className="mt-2 text-sm leading-6 text-slate-700">
+                  {roleSummary?.descriptionBody || "The admin team will finalize the role brief before publication."}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Required skills</p>
+                <p className="mt-2 text-sm leading-6 text-slate-700">
+                  {role?.skills || "Not specified"}
+                </p>
+                {role?.location ? <p className="mt-3 text-sm font-medium text-slate-700">Location: {role.location}</p> : null}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {role ? (
+          <div className="mb-6">
+            <ReviewThreadPanel
+              scopeType="role"
+              scopeId={roleId}
+              actorRole="vendor"
+              title="Role clarification thread"
+              description="Keep vendor-side role questions and clarifications attached to this exact position instead of spreading them across calls or chat."
+            />
+          </div>
+        ) : null}
+
         {parsedProfile && (
           <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-5">
             <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
               <Sparkles className="w-4 h-4" />
-              Normalized Candidate Snapshot
+              Resume analyzed successfully
             </div>
             <p className="mt-2 text-sm text-emerald-800">
-              Different CV layouts are converted into one recruiter-friendly intake format before submission.
+              The form was pre-filled from the uploaded resume. The admin and client teams will see the full standardized output during review.
             </p>
             <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-slate-600">
               Parse quality {parsedProfile.parseConfidence ?? 0}% • {parsedProfile.parseReviewRequired ? "Review suggested" : "Ready"}
             </div>
-            {snapshotFields.length ? (
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                {snapshotFields.map((field) => (
-                  <div key={field.label} className="rounded-xl bg-white/80 p-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{field.label}</div>
-                    <div className="mt-1 text-sm text-slate-800">{field.value}</div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                Contact details were extracted, but some sections still need a quick recruiter review.
-              </div>
-            )}
-            {snapshotEducation ? (
-              <div className="mt-3 rounded-xl bg-white/80 p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Education</div>
-                <div className="mt-1 text-sm text-slate-800">{snapshotEducation}</div>
-              </div>
-            ) : null}
-            {snapshotSummary ? (
-              <div className="mt-3 rounded-xl bg-white/80 p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Summary</div>
-                <div className="mt-1 text-sm text-slate-800">{snapshotSummary}</div>
-              </div>
-            ) : null}
-            {snapshotProfile ? (
-              <div className="mt-3 rounded-xl bg-white/80 p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Standardized Profile</div>
-                <pre className="mt-1 whitespace-pre-wrap font-sans text-sm text-slate-800">
-                  {snapshotProfile}
-                </pre>
-              </div>
-            ) : null}
+            <div className="mt-4 rounded-xl border border-white/60 bg-white/70 p-3 text-sm text-emerald-900">
+              Review the contact details, salary, English level, and tags below before submitting the candidate.
+            </div>
           </div>
         )}
 
@@ -360,13 +377,34 @@ export default function VendorSubmitCandidate() {
 
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
             <div className="space-y-2">
-              <label className="text-sm font-semibold">Phone Number</label>
-              <Input value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} className="h-12 rounded-xl" />
+              <label className="text-sm font-semibold">Phone Number *</label>
+              <Input required type="tel" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} className="h-12 rounded-xl" />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-semibold">Expected Salary ($)</label>
-              <Input type="number" value={formData.expectedSalary} onChange={e => setFormData({ ...formData, expectedSalary: e.target.value })} className="h-12 rounded-xl" />
+              <label className="text-sm font-semibold">Expected Salary (TL)</label>
+              <Input
+                type="number"
+                min="1"
+                required
+                value={formData.expectedSalary}
+                onChange={e => setFormData({ ...formData, expectedSalary: e.target.value })}
+                placeholder="45000"
+                className="h-12 rounded-xl"
+              />
+              <p className="text-xs text-slate-500">Enter the expected monthly salary in Turkish Lira.</p>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-semibold">English Level</label>
+            <Input
+              required
+              value={formData.englishLevel}
+              onChange={e => setFormData({ ...formData, englishLevel: e.target.value })}
+              placeholder="B2, fluent, native, professional working proficiency..."
+              className="h-12 rounded-xl"
+            />
+            <p className="text-xs text-slate-500">Free-text field, stored with the candidate profile for client and admin review.</p>
           </div>
 
           <div className="space-y-2">
@@ -382,9 +420,14 @@ export default function VendorSubmitCandidate() {
             />
             {formData.tags && (
               <div className="flex flex-wrap gap-1 mt-1">
-                {formData.tags.split(",").map(t => t.trim()).filter(Boolean).map((tag, i) => (
+                {parsedTagsPreview.visibleTags.map((tag, i) => (
                   <span key={i} className="bg-primary/10 text-primary text-xs font-medium px-2 py-0.5 rounded-full">{tag}</span>
                 ))}
+                {formData.englishLevel.trim() ? (
+                  <span className="bg-sky-100 text-sky-700 text-xs font-medium px-2 py-0.5 rounded-full">
+                    English level: {formData.englishLevel.trim()}
+                  </span>
+                ) : null}
               </div>
             )}
           </div>
@@ -392,34 +435,33 @@ export default function VendorSubmitCandidate() {
           <div className="space-y-2">
             <label className="text-sm font-semibold">CV / Resume <span className="font-normal text-slate-400">(PDF, DOCX, or image, optional)</span></label>
             <div
-              className="border-2 border-dashed border-slate-200 rounded-xl p-6 text-center cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-colors"
+              className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${
+                isDragging ? "border-primary bg-primary/5" : "border-slate-200 hover:border-primary/50 hover:bg-primary/5"
+              }`}
               onClick={() => fileRef.current?.click()}
+              onDragOver={e => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsDragging(true);
+              }}
+              onDragLeave={e => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsDragging(false);
+              }}
+              onDrop={e => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsDragging(false);
+                void handleFileSelection(e.dataTransfer.files?.[0] ?? null);
+              }}
             >
               <input
                 ref={fileRef}
                 type="file"
                 accept=".pdf,.docx,.jpg,.jpeg,.png,.webp"
                 className="hidden"
-                onChange={e => {
-                  const file = e.target.files?.[0] || null;
-                  if (!file) {
-                    setCvFile(null);
-                    return;
-                  }
-
-                  const validationError = validateResumeFile(file);
-                  if (validationError) {
-                    toast({ title: "Invalid CV file", description: validationError, variant: "destructive" });
-                    if (fileRef.current) {
-                      fileRef.current.value = "";
-                    }
-                    setCvFile(null);
-                    return;
-                  }
-
-                  setCvFile(file);
-                  void parsePdfCv(file);
-                }}
+                onChange={e => void handleFileSelection(e.target.files?.[0] || null)}
               />
               {cvFile ? (
                 <div className="space-y-2">
@@ -451,8 +493,8 @@ export default function VendorSubmitCandidate() {
               ) : (
                 <div className="text-slate-400">
                   <Upload className="w-6 h-6 mx-auto mb-2" />
-                  <p className="text-sm">Click to upload CV (PDF, DOCX, or image)</p>
-                  <p className="text-xs mt-1">Candidate fields and standardized profile will be generated automatically.</p>
+                  <p className="text-sm">Drop a CV here or click to upload (PDF, DOCX, or image)</p>
+                  <p className="text-xs mt-1">Candidate fields will be normalized automatically before submission.</p>
                 </div>
               )}
             </div>
@@ -464,7 +506,7 @@ export default function VendorSubmitCandidate() {
             ) : isPending || uploading ? (
               <><Loader2 className="w-5 h-5 animate-spin mr-2" />{uploading ? "Uploading CV..." : "Submitting..."}</>
             ) : (
-              <><Send className="w-4 h-4 mr-2" />Submit Profile</>
+              <><Send className="w-4 h-4 mr-2" />Submit Candidate</>
             )}
           </Button>
         </form>

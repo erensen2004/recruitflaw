@@ -9,13 +9,23 @@ import { Errors } from "../lib/errors.js";
 
 const router = Router();
 
-type EmploymentTypeValue = "full-time" | "part-time" | "contract" | "freelance";
+type WorkModeValue = "full-office" | "hybrid" | "full-remote";
+type EmploymentTypeValue = "full-time" | "part-time" | "other" | "contract" | "freelance";
+
+function normalizeWorkMode(value: string | null | undefined): WorkModeValue | null {
+  if (!value) return null;
+  if (value === "full-office" || value === "hybrid" || value === "full-remote") return value;
+  if (value === "full office") return "full-office";
+  if (value === "full remote") return "full-remote";
+  if (value === "remote-friendly") return "full-remote";
+  return null;
+}
 
 function normalizeEmploymentType(value: string | null | undefined): EmploymentTypeValue | null {
   if (!value) return null;
   if (value === "full_time") return "full-time";
   if (value === "part_time") return "part-time";
-  if (value === "full-time" || value === "part-time" || value === "contract" || value === "freelance") {
+  if (value === "full-time" || value === "part-time" || value === "other" || value === "contract" || value === "freelance") {
     return value;
   }
   return null;
@@ -35,7 +45,10 @@ function formatRole(role: {
   companyId: number;
   createdAt: Date;
   updatedAt: Date;
+  workMode?: WorkModeValue | null;
+  otherEmploymentTypeDescription?: string | null;
 }, companyName: string, candidateCount: number) {
+  const workMode = role.workMode ?? (role.isRemote ? "full-remote" : "full-office");
   return {
     id: role.id,
     title: role.title,
@@ -45,6 +58,8 @@ function formatRole(role: {
     salaryMax: role.salaryMax ? Number(role.salaryMax) : null,
     location: role.location,
     employmentType: normalizeEmploymentType(role.employmentType),
+    workMode,
+    otherEmploymentTypeDescription: role.otherEmploymentTypeDescription ?? null,
     isRemote: role.isRemote,
     status: role.status,
     companyId: role.companyId,
@@ -60,6 +75,18 @@ async function getCandidateCount(roleId: number): Promise<number> {
     .select({ cnt: count() })
     .from(candidatesTable)
     .where(and(eq(candidatesTable.roleId, roleId), ne(candidatesTable.status, "withdrawn")));
+  return Number(cnt);
+}
+
+async function getVisibleCandidateCount(roleId: number, userRole: string): Promise<number> {
+  const conditions = [eq(candidatesTable.roleId, roleId), ne(candidatesTable.status, "withdrawn")];
+  if (userRole === "client") {
+    conditions.push(ne(candidatesTable.status, "pending_approval"));
+  }
+  const [{ cnt }] = await db
+    .select({ cnt: count() })
+    .from(candidatesTable)
+    .where(and(...conditions));
   return Number(cnt);
 }
 
@@ -93,10 +120,15 @@ router.get("/", requireAuth, async (req, res) => {
       rows = rows.filter((r) => r.status === "published");
     }
 
+    const candidateConditions = [ne(candidatesTable.status, "withdrawn")];
+    if (userRole === "client") {
+      candidateConditions.push(ne(candidatesTable.status, "pending_approval"));
+    }
+
     const candidateCounts = await db
       .select({ roleId: candidatesTable.roleId, cnt: count() })
       .from(candidatesTable)
-      .where(ne(candidatesTable.status, "withdrawn"))
+      .where(and(...candidateConditions))
       .groupBy(candidatesTable.roleId);
 
     const countMap = Object.fromEntries(candidateCounts.map((c) => [c.roleId, Number(c.cnt)]));
@@ -161,7 +193,7 @@ router.get("/:id", requireAuth, async (req, res) => {
       return;
     }
 
-    const candidateCount = await getCandidateCount(id);
+    const candidateCount = await getVisibleCandidateCount(id, userRole);
     res.json(formatRole({ ...row, isRemote: row.isRemote ?? false }, row.companyName ?? "", candidateCount));
   } catch (err) {
     console.error(err);
@@ -176,7 +208,18 @@ router.post(
   validate(CreateRoleSchema),
   async (req, res) => {
     try {
-      const { title, description, skills, salaryMin, salaryMax, location, employmentType, isRemote } = req.body;
+      const {
+        title,
+        description,
+        skills,
+        salaryMin,
+        salaryMax,
+        location,
+        employmentType,
+        workMode,
+        otherEmploymentTypeDescription,
+        isRemote,
+      } = req.body;
       const { role: userRole } = req.user!;
 
       const companyId =
@@ -187,6 +230,9 @@ router.post(
         return;
       }
 
+      const normalizedWorkMode = normalizeWorkMode(workMode ?? null);
+      const normalizedEmploymentType = normalizeEmploymentType(employmentType ?? null);
+
       const [role] = await db
         .insert(jobRolesTable)
         .values({
@@ -196,8 +242,8 @@ router.post(
           salaryMin: salaryMin != null ? String(salaryMin) : null,
           salaryMax: salaryMax != null ? String(salaryMax) : null,
           location: location ?? null,
-          employmentType: normalizeEmploymentType(employmentType ?? null),
-          isRemote: isRemote ?? false,
+          employmentType: normalizedEmploymentType,
+          isRemote: normalizedWorkMode ? normalizedWorkMode === "full-remote" : isRemote ?? false,
           status: "draft",
           companyId,
         })
@@ -208,7 +254,17 @@ router.post(
         .from(companiesTable)
         .where(eq(companiesTable.id, companyId));
 
-      res.status(201).json(formatRole(role, company?.name ?? "", 0));
+      res.status(201).json(
+        formatRole(
+          {
+            ...role,
+            workMode: normalizedWorkMode,
+            otherEmploymentTypeDescription: otherEmploymentTypeDescription ?? null,
+          },
+          company?.name ?? "",
+          0,
+        ),
+      );
     } catch (err) {
       console.error(err);
       Errors.internal(res);
@@ -227,7 +283,18 @@ router.patch(
       const access = await resolveRoleAccess(req, res, id);
       if (!access) return;
 
-      const { title, description, skills, salaryMin, salaryMax, location, employmentType, isRemote } = req.body;
+      const {
+        title,
+        description,
+        skills,
+        salaryMin,
+        salaryMax,
+        location,
+        employmentType,
+        workMode,
+        otherEmploymentTypeDescription,
+        isRemote,
+      } = req.body;
 
       const updates: Record<string, unknown> = { updatedAt: new Date() };
       if (title !== undefined) updates.title = title;
@@ -237,7 +304,15 @@ router.patch(
       if (salaryMax !== undefined) updates.salaryMax = salaryMax != null ? String(salaryMax) : null;
       if (location !== undefined) updates.location = location;
       if (employmentType !== undefined) updates.employmentType = normalizeEmploymentType(employmentType);
-      if (isRemote !== undefined) updates.isRemote = isRemote;
+      if (workMode !== undefined || isRemote !== undefined) {
+        const normalizedWorkMode = normalizeWorkMode(workMode ?? null);
+        updates.isRemote = normalizedWorkMode
+          ? normalizedWorkMode === "full-remote"
+          : isRemote ?? false;
+      }
+      if (req.user!.role === "client") {
+        updates.status = "draft";
+      }
 
       const [role] = await db
         .update(jobRolesTable)
@@ -251,7 +326,17 @@ router.patch(
         .where(eq(companiesTable.id, role.companyId));
 
       const candidateCount = await getCandidateCount(id);
-      res.json(formatRole(role, company?.name ?? "", candidateCount));
+      res.json(
+        formatRole(
+          {
+            ...role,
+            workMode: normalizeWorkMode(workMode ?? null),
+            otherEmploymentTypeDescription: otherEmploymentTypeDescription ?? null,
+          },
+          company?.name ?? "",
+          candidateCount,
+        ),
+      );
     } catch (err) {
       console.error(err);
       Errors.internal(res);
@@ -273,8 +358,8 @@ router.patch(
       const access = await resolveRoleAccess(req, res, id);
       if (!access) return;
 
-      if (userRole === "client" && status !== "pending_approval") {
-        Errors.forbidden(res, "Clients can only submit roles for approval");
+      if (userRole === "client" && status !== "pending_approval" && status !== "draft") {
+        Errors.forbidden(res, "Clients can only save roles as draft or send them for approval");
         return;
       }
 

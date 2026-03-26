@@ -136,8 +136,17 @@ export type JobRoleEmploymentType =
 export const JobRoleEmploymentType = {
   "full-time": "full-time",
   "part-time": "part-time",
+  other: "other",
   contract: "contract",
   freelance: "freelance",
+} as const;
+
+export type JobRoleWorkMode = (typeof JobRoleWorkMode)[keyof typeof JobRoleWorkMode];
+
+export const JobRoleWorkMode = {
+  "full-office": "full-office",
+  hybrid: "hybrid",
+  "full-remote": "full-remote",
 } as const;
 
 export type JobRoleStatus = (typeof JobRoleStatus)[keyof typeof JobRoleStatus];
@@ -158,6 +167,8 @@ export interface JobRole {
   salaryMax?: number | null;
   location?: string | null;
   employmentType?: JobRoleEmploymentType;
+  workMode?: JobRoleWorkMode;
+  otherEmploymentTypeDescription?: string | null;
   isRemote: boolean;
   status: JobRoleStatus;
   companyId: number;
@@ -173,8 +184,18 @@ export type CreateRoleRequestEmploymentType =
 export const CreateRoleRequestEmploymentType = {
   "full-time": "full-time",
   "part-time": "part-time",
+  other: "other",
   contract: "contract",
   freelance: "freelance",
+} as const;
+
+export type CreateRoleRequestWorkMode =
+  (typeof CreateRoleRequestWorkMode)[keyof typeof CreateRoleRequestWorkMode];
+
+export const CreateRoleRequestWorkMode = {
+  "full-office": "full-office",
+  hybrid: "hybrid",
+  "full-remote": "full-remote",
 } as const;
 
 export interface CreateRoleRequest {
@@ -185,6 +206,8 @@ export interface CreateRoleRequest {
   salaryMax?: number;
   location?: string;
   employmentType?: CreateRoleRequestEmploymentType;
+  workMode?: CreateRoleRequestWorkMode;
+  otherEmploymentTypeDescription?: string | null;
   isRemote?: boolean;
 }
 
@@ -194,8 +217,18 @@ export type UpdateRoleRequestEmploymentType =
 export const UpdateRoleRequestEmploymentType = {
   "full-time": "full-time",
   "part-time": "part-time",
+  other: "other",
   contract: "contract",
   freelance: "freelance",
+} as const;
+
+export type UpdateRoleRequestWorkMode =
+  (typeof UpdateRoleRequestWorkMode)[keyof typeof UpdateRoleRequestWorkMode];
+
+export const UpdateRoleRequestWorkMode = {
+  "full-office": "full-office",
+  hybrid: "hybrid",
+  "full-remote": "full-remote",
 } as const;
 
 export interface UpdateRoleRequest {
@@ -206,6 +239,8 @@ export interface UpdateRoleRequest {
   salaryMax?: number;
   location?: string;
   employmentType?: UpdateRoleRequestEmploymentType;
+  workMode?: UpdateRoleRequestWorkMode;
+  otherEmploymentTypeDescription?: string | null;
   isRemote?: boolean;
 }
 
@@ -227,6 +262,7 @@ export type CandidateStatus =
   (typeof CandidateStatus)[keyof typeof CandidateStatus];
 
 export const CandidateStatus = {
+  pending_approval: "pending_approval",
   submitted: "submitted",
   screening: "screening",
   interview: "interview",

@@ -5,6 +5,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -13,12 +14,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { UserCircle, Loader2, FileText, AlertTriangle, Eye, CheckCircle2, XCircle, Search } from "lucide-react";
+import { UserCircle, Loader2, FileText, AlertTriangle, Eye, CheckCircle2, XCircle, Search, Columns3, X } from "lucide-react";
 import { format } from "date-fns";
 import { getPrivateObjectUrl } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { invalidateCandidateQueries, syncCandidateAcrossCaches } from "@/lib/candidate-query";
 import {
   getCandidateCompleteness,
@@ -44,9 +45,11 @@ function getParseBadge(parseStatus: string, reviewRequired: boolean) {
 }
 
 export default function AdminCandidates() {
+  const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState<ReviewTab>("all");
   const [search, setSearch] = useState("");
   const [hasCv, setHasCv] = useState("all");
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<number[]>([]);
   const [pendingCandidateId, setPendingCandidateId] = useState<number | null>(null);
   const [statusReasonOpen, setStatusReasonOpen] = useState(false);
   const [statusReasonTarget, setStatusReasonTarget] = useState<CandidateStatusValue | null>(null);
@@ -95,6 +98,43 @@ export default function AdminCandidates() {
       return true;
     });
   }, [activeTab, candidates]);
+
+  const selectedCandidates = useMemo(
+    () => (candidates ?? []).filter((candidate) => selectedCandidateIds.includes(candidate.id)).slice(0, 3),
+    [candidates, selectedCandidateIds],
+  );
+
+  const toggleCandidateSelection = (candidateId: number) => {
+    setSelectedCandidateIds((current) => {
+      if (current.includes(candidateId)) {
+        return current.filter((id) => id !== candidateId);
+      }
+
+      if (current.length >= 3) {
+        toast({
+          title: "Compare tray is full",
+          description: "You can compare up to 3 candidates at a time.",
+        });
+        return current;
+      }
+
+      return [...current, candidateId];
+    });
+  };
+
+  const clearSelection = () => setSelectedCandidateIds([]);
+
+  const openCompare = () => {
+    if (selectedCandidates.length < 2) {
+      toast({
+        title: "Pick at least two candidates",
+        description: "Select 2-3 candidates to open the compare view.",
+      });
+      return;
+    }
+
+    setLocation(`/admin/compare?ids=${selectedCandidates.map((candidate) => candidate.id).join(",")}`);
+  };
 
   const submitStatusUpdate = (candidateId: number, status: CandidateStatusValue, reason?: string) => {
     const currentCandidate = candidates?.find((candidate) => candidate.id === candidateId);
@@ -211,6 +251,43 @@ export default function AdminCandidates() {
             </Select>
           </div>
         </div>
+
+        <div className="mt-5 rounded-2xl border border-indigo-200 bg-indigo-50/80 p-4 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-indigo-500">Admin compare tray</p>
+              <p className="mt-1 text-sm leading-6 text-indigo-900">
+                Select up to 3 candidates from the queue to compare completeness, fit, risk flags, and executive brief quality side by side.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {selectedCandidates.length ? (
+                  selectedCandidates.map((candidate) => (
+                    <button
+                      key={candidate.id}
+                      type="button"
+                      onClick={() => toggleCandidateSelection(candidate.id)}
+                      className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-800 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50"
+                    >
+                      {candidate.firstName} {candidate.lastName}
+                      <X className="h-3 w-3" />
+                    </button>
+                  ))
+                ) : (
+                  <span className="text-sm text-indigo-700">No candidates selected yet.</span>
+                )}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" className="rounded-full" onClick={clearSelection}>
+                Clear selection
+              </Button>
+              <Button type="button" className="rounded-full gap-2" disabled={selectedCandidates.length < 2} onClick={openCompare}>
+                <Columns3 className="h-4 w-4" />
+                Compare selected
+              </Button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -218,6 +295,7 @@ export default function AdminCandidates() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50/50 border-b border-slate-200">
+                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Select</th>
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Candidate</th>
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Role</th>
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Company</th>
@@ -229,11 +307,18 @@ export default function AdminCandidates() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {isLoading ? (
-                <tr><td colSpan={7} className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-slate-400" /></td></tr>
+                <tr><td colSpan={8} className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-slate-400" /></td></tr>
               ) : filteredCandidates.length === 0 ? (
-                <tr><td colSpan={7} className="p-12 text-center text-slate-500">No candidates found.</td></tr>
+                <tr><td colSpan={8} className="p-12 text-center text-slate-500">No candidates found.</td></tr>
               ) : filteredCandidates.map(c => (
                 <tr key={c.id} className="hover:bg-slate-50/50 transition-colors">
+                  <td className="px-6 py-4">
+                    <Checkbox
+                      checked={selectedCandidateIds.includes(c.id)}
+                      onCheckedChange={() => toggleCandidateSelection(c.id)}
+                      aria-label={`Select ${c.firstName} ${c.lastName} for compare`}
+                    />
+                  </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0 text-slate-600">

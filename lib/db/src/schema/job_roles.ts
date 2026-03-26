@@ -11,7 +11,9 @@ export const jobRolesTable = pgTable("job_roles", {
   salaryMin: numeric("salary_min", { precision: 10, scale: 2 }),
   salaryMax: numeric("salary_max", { precision: 10, scale: 2 }),
   location: text("location"),
-  employmentType: text("employment_type", { enum: ["full-time", "part-time", "contract", "freelance"] }),
+  employmentType: text("employment_type", {
+    enum: ["full-time", "part-time", "other", "contract", "freelance"],
+  }),
   isRemote: boolean("is_remote").notNull().default(false),
   status: text("status", { enum: ["draft", "pending_approval", "published", "closed"] }).notNull().default("draft"),
   companyId: integer("company_id").notNull().references(() => companiesTable.id),

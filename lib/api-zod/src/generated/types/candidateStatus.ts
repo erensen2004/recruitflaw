@@ -10,6 +10,7 @@ export type CandidateStatus =
   (typeof CandidateStatus)[keyof typeof CandidateStatus];
 
 export const CandidateStatus = {
+  pending_approval: "pending_approval",
   submitted: "submitted",
   screening: "screening",
   interview: "interview",

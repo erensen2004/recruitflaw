@@ -7,8 +7,10 @@ import {
   usersTable,
   candidateNotesTable,
   candidateStatusHistoryTable,
+  reviewThreadsTable,
+  reviewThreadMessagesTable,
 } from "@workspace/db";
-import { eq, count, sql, desc } from "drizzle-orm";
+import { eq, count, sql, desc, or, lt, and } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole } from "../lib/authz.js";
 import { Errors } from "../lib/errors.js";
@@ -26,7 +28,6 @@ function isUndefinedRelationError(error: unknown): boolean {
 
 router.get("/", requireAuth, requireRole("admin"), async (_req, res) => {
   try {
-
     const [totals] = await db
       .select({
         totalCandidates: count(candidatesTable.id),
@@ -81,6 +82,106 @@ router.get("/", requireAuth, requireRole("admin"), async (_req, res) => {
       .select({ count: count(candidatesTable.id) })
       .from(candidatesTable)
       .where(eq(candidatesTable.status, "rejected"));
+
+    const staleThreshold = sql`now() - interval '72 hours'`;
+
+    const [pendingRoleReviews] = await db
+      .select({ count: count(jobRolesTable.id) })
+      .from(jobRolesTable)
+      .where(or(eq(jobRolesTable.status, "draft"), eq(jobRolesTable.status, "pending_approval")));
+
+    const [pendingCandidateReviews] = await db
+      .select({ count: count(candidatesTable.id) })
+      .from(candidatesTable)
+      .where(eq(candidatesTable.status, "pending_approval"));
+
+    const [reviewRequiredCandidates] = await db
+      .select({ count: count(candidatesTable.id) })
+      .from(candidatesTable)
+      .where(or(eq(candidatesTable.parseReviewRequired, true), eq(candidatesTable.parseStatus, "partial")));
+
+    const [readyCandidates] = await db
+      .select({ count: count(candidatesTable.id) })
+      .from(candidatesTable)
+      .where(or(eq(candidatesTable.status, "screening"), eq(candidatesTable.status, "interview"), eq(candidatesTable.status, "offer"), eq(candidatesTable.status, "hired")));
+
+    const [staleRoleReviews] = await db
+      .select({ count: count(jobRolesTable.id) })
+      .from(jobRolesTable)
+      .where(
+        and(
+          or(eq(jobRolesTable.status, "draft"), eq(jobRolesTable.status, "pending_approval")),
+          lt(jobRolesTable.createdAt, staleThreshold),
+        ),
+      );
+
+    const [staleCandidateReviews] = await db
+      .select({ count: count(candidatesTable.id) })
+      .from(candidatesTable)
+      .where(
+        and(
+          eq(candidatesTable.status, "pending_approval"),
+          lt(candidatesTable.submittedAt, staleThreshold),
+        ),
+      );
+
+    const staleRoles = await db
+      .select({
+        roleId: jobRolesTable.id,
+        title: jobRolesTable.title,
+        status: jobRolesTable.status,
+        companyName: companiesTable.name,
+        createdAt: jobRolesTable.createdAt,
+      })
+      .from(jobRolesTable)
+      .leftJoin(companiesTable, eq(jobRolesTable.companyId, companiesTable.id))
+      .where(
+        and(
+          or(eq(jobRolesTable.status, "draft"), eq(jobRolesTable.status, "pending_approval")),
+          lt(jobRolesTable.createdAt, staleThreshold),
+        ),
+      )
+      .orderBy(jobRolesTable.createdAt)
+      .limit(5);
+
+    const staleCandidates = await db
+      .select({
+        candidateId: candidatesTable.id,
+        candidateName: sql<string>`${candidatesTable.firstName} || ' ' || ${candidatesTable.lastName}`,
+        roleTitle: jobRolesTable.title,
+        companyName: companiesTable.name,
+        status: candidatesTable.status,
+        submittedAt: candidatesTable.submittedAt,
+      })
+      .from(candidatesTable)
+      .leftJoin(jobRolesTable, eq(candidatesTable.roleId, jobRolesTable.id))
+      .leftJoin(companiesTable, eq(jobRolesTable.companyId, companiesTable.id))
+      .where(
+        and(
+          eq(candidatesTable.status, "pending_approval"),
+          lt(candidatesTable.submittedAt, staleThreshold),
+        ),
+      )
+      .orderBy(candidatesTable.submittedAt)
+      .limit(5);
+
+    const [totalReviewThreads] = await db
+      .select({ count: count(reviewThreadsTable.id) })
+      .from(reviewThreadsTable);
+
+    const [totalReviewMessages] = await db
+      .select({ count: count(reviewThreadMessagesTable.id) })
+      .from(reviewThreadMessagesTable);
+
+    const reviewThreadsByVisibility = await db
+      .select({ visibility: reviewThreadsTable.visibility, count: count() })
+      .from(reviewThreadsTable)
+      .groupBy(reviewThreadsTable.visibility);
+
+    const reviewThreadsByScopeType = await db
+      .select({ scopeType: reviewThreadsTable.scopeType, count: count() })
+      .from(reviewThreadsTable)
+      .groupBy(reviewThreadsTable.scopeType);
 
     const recentSubmissions = await db
       .select({
@@ -179,6 +280,37 @@ router.get("/", requireAuth, requireRole("admin"), async (_req, res) => {
       candidatesByStatus: candidatesByStatus.map((s) => ({ status: s.status, count: Number(s.cnt) })),
       rolesByStatus: rolesByStatus.map((s) => ({ status: s.status, count: Number(s.cnt) })),
       topRoles: topRoles.map((r) => ({ roleId: r.roleId, roleTitle: r.roleTitle ?? "", count: Number(r.cnt) })),
+      reviewWorkload: {
+        pendingRoleReviews: Number(pendingRoleReviews.count),
+        pendingCandidateReviews: Number(pendingCandidateReviews.count),
+        reviewRequiredCandidates: Number(reviewRequiredCandidates.count),
+        readyCandidates: Number(readyCandidates.count),
+        staleRoleReviews: Number(staleRoleReviews.count),
+        staleCandidateReviews: Number(staleCandidateReviews.count),
+      },
+      reviewThreads: {
+        totalThreads: Number(totalReviewThreads.count),
+        totalMessages: Number(totalReviewMessages.count),
+        byVisibility: reviewThreadsByVisibility.map((row) => ({ visibility: row.visibility, count: Number(row.count) })),
+        byScopeType: reviewThreadsByScopeType.map((row) => ({ scopeType: row.scopeType, count: Number(row.count) })),
+      },
+      stuckItems: {
+        roles: staleRoles.map((role) => ({
+          roleId: role.roleId,
+          title: role.title,
+          companyName: role.companyName ?? "",
+          status: role.status,
+          createdAt: role.createdAt.toISOString(),
+        })),
+        candidates: staleCandidates.map((candidate) => ({
+          candidateId: candidate.candidateId,
+          candidateName: candidate.candidateName,
+          roleTitle: candidate.roleTitle ?? "",
+          companyName: candidate.companyName ?? "",
+          status: candidate.status,
+          submittedAt: candidate.submittedAt.toISOString(),
+        })),
+      },
       recentActivity,
     });
   } catch (err) {

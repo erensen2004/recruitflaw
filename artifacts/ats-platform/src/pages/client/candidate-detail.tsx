@@ -38,10 +38,13 @@ import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { getPrivateObjectUrl } from "@/lib/utils";
 import { invalidateCandidateQueries, syncCandidateAcrossCaches } from "@/lib/candidate-query";
+import { ReviewThreadPanel } from "@/components/review-thread-panel";
 import {
   formatTurkishLira,
   getCandidateCompleteness,
+  getCandidateExecutiveBrief,
   getCandidateDecisionGuidance,
+  getCandidateReadinessSnapshot,
   getStatusReasonDescription,
   getStatusReasonTitle,
   parseCandidateTags,
@@ -58,7 +61,7 @@ const STATUS_LABELS: Record<string, string> = {
   rejected: "Rejected",
 };
 
-type ReviewSignalTone = "emerald" | "amber" | "blue" | "slate";
+type ReviewSignalTone = "emerald" | "amber" | "blue" | "slate" | "rose";
 
 interface Note {
   id: number;
@@ -178,6 +181,8 @@ function getSignalClasses(tone: ReviewSignalTone) {
       return "border-amber-200 bg-amber-50 text-amber-800";
     case "blue":
       return "border-sky-200 bg-sky-50 text-sky-800";
+    case "rose":
+      return "border-rose-200 bg-rose-50 text-rose-800";
     default:
       return "border-slate-200 bg-slate-50 text-slate-800";
   }
@@ -252,6 +257,8 @@ export default function ClientCandidateDetail() {
   const cleanSummary = cleanSnapshotText(candidate?.summary);
   const cleanStandardizedProfile = cleanSnapshotText(candidate?.standardizedProfile);
   const cleanLanguages = cleanSnapshotText(candidate?.languages);
+  const readinessSnapshot = candidate ? getCandidateReadinessSnapshot(candidate) : null;
+  const executiveBrief = candidate ? getCandidateExecutiveBrief(candidate) : null;
 
   const fetchNotes = async () => {
     setLoadingNotes(true);
@@ -567,7 +574,7 @@ export default function ClientCandidateDetail() {
                       { label: "Structured experience", ready: candidate.parsedExperience.length > 0 },
                       { label: "Structured education", ready: candidate.parsedEducation.length > 0 },
                       { label: "Recruiter summary", ready: Boolean(cleanSummary) },
-                    ].map((item) => (
+                    ].map((item: { label: string; ready: boolean }) => (
                       <div key={item.label} className={`rounded-xl px-3 py-2 text-sm font-medium ${item.ready ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
                         {item.ready ? "✓" : "•"} {item.label}
                       </div>
@@ -581,6 +588,104 @@ export default function ClientCandidateDetail() {
                   <p className="mt-3 text-sm leading-6">{decisionGuidance.body}</p>
                 </div>
               </div>
+
+              {readinessSnapshot ? (
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  {[
+                    {
+                      label: "Salary readiness",
+                      value: readinessSnapshot.salaryLabel,
+                      tone: (readinessSnapshot.compensationReady ? "emerald" : "amber") as ReviewSignalTone,
+                    },
+                    {
+                      label: "Language readiness",
+                      value: readinessSnapshot.languageLabel,
+                      tone: (readinessSnapshot.languageReady ? "emerald" : "amber") as ReviewSignalTone,
+                    },
+                    {
+                      label: "Risk posture",
+                      value: readinessSnapshot.riskLevel === "low" ? "Low risk" : readinessSnapshot.riskLevel === "medium" ? "Moderate risk" : "High risk",
+                      tone: (readinessSnapshot.riskLevel === "low" ? "emerald" : readinessSnapshot.riskLevel === "medium" ? "amber" : "rose") as ReviewSignalTone,
+                    },
+                    {
+                      label: "Next action",
+                      value: readinessSnapshot.nextAction,
+                      tone: (readinessSnapshot.riskLevel === "low" ? "emerald" : readinessSnapshot.riskLevel === "medium" ? "amber" : "rose") as ReviewSignalTone,
+                    },
+                  ].map((item: { label: string; value: string; tone: ReviewSignalTone }) => (
+                    <div key={item.label} className={`rounded-2xl border p-4 ${getSignalClasses(item.tone)}`}>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">{item.label}</p>
+                      <p className="mt-2 text-sm font-semibold leading-6">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {executiveBrief ? (
+                <div className="mt-5 rounded-3xl border border-slate-100 bg-gradient-to-br from-sky-50 via-white to-emerald-50/70 p-5 shadow-sm">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Executive intelligence</p>
+                      <p className="mt-2 text-2xl font-bold text-slate-900">{executiveBrief.fitLabel}</p>
+                      <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-700">{executiveBrief.fitSummary}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center shadow-sm">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Fit score</p>
+                      <p className="mt-1 text-3xl font-bold text-slate-900">{executiveBrief.fitScore}</p>
+                      <p className="text-xs text-slate-500">out of 100</p>
+                    </div>
+                  </div>
+
+                  {executiveBrief.strengths.length ? (
+                    <div className="mt-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Top strengths</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {executiveBrief.strengths.map((strength) => (
+                          <span key={strength} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200">
+                            {strength}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                    <div className="rounded-2xl border border-rose-100 bg-rose-50/70 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Risk flags</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {executiveBrief.riskFlags.length ? (
+                          executiveBrief.riskFlags.map((flag) => (
+                            <span key={flag} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-rose-700 ring-1 ring-rose-100">
+                              {flag}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                            No critical flags
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-500">Normalization notes</p>
+                      <div className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+                        {executiveBrief.normalizationNotes.length ? (
+                          executiveBrief.normalizationNotes.map((note) => (
+                            <p key={note} className="rounded-xl bg-white px-3 py-2 shadow-sm ring-1 ring-slate-200">
+                              {note}
+                            </p>
+                          ))
+                        ) : (
+                          <p className="rounded-xl bg-white px-3 py-2 shadow-sm ring-1 ring-slate-200">
+                            Profile is already normalized enough for a quick handoff.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               {parsedSkills.length > 0 ? (
                 <div className="mt-6">
@@ -819,6 +924,14 @@ export default function ClientCandidateDetail() {
                 )}
               </div>
             </div>
+
+            <ReviewThreadPanel
+              scopeType="candidate"
+              scopeId={candidate.id}
+              actorRole={isAdminRoute ? "admin" : "client"}
+              title="Scoped review thread"
+              description="Keep candidate-specific clarifications, approval notes, and next-step feedback attached to this profile."
+            />
           </div>
         </div>
 

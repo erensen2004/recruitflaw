@@ -12,6 +12,7 @@ export type UpdateRoleRequestEmploymentType =
 export const UpdateRoleRequestEmploymentType = {
   "full-time": "full-time",
   "part-time": "part-time",
+  other: "other",
   contract: "contract",
   freelance: "freelance",
 } as const;

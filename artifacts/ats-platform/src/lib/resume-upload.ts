@@ -15,59 +15,19 @@ function shouldRetryStatus(status: number) {
   return RETRYABLE_STATUS_CODES.has(status);
 }
 
-async function requestUploadUrl(file: File, token: string | null) {
-  const response = await fetch("/api/storage/uploads/request-url", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({
-      name: file.name,
-      size: file.size,
-      contentType: file.type,
-    }),
-  });
-
-  if (!response.ok) {
-    const message = await getErrorMessage(response);
-    const error = new Error(message);
-    (error as Error & { status?: number }).status = response.status;
-    throw error;
-  }
-
-  return (await response.json()) as { uploadURL: string; objectPath: string };
-}
-
-async function confirmUpload(objectPath: string, token: string | null) {
-  const response = await fetch("/api/storage/uploads/confirm", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ objectPath }),
-  });
-
-  if (!response.ok) {
-    throw new Error(await getErrorMessage(response));
-  }
-}
-
 export async function uploadResumeFile(file: File, options: UploadResumeFileOptions): Promise<string> {
   const { token, maxAttempts = 2 } = options;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      const { uploadURL, objectPath } = await requestUploadUrl(file, token);
-      const uploadHeaders: Record<string, string> = { "Content-Type": file.type || "application/octet-stream" };
-      if (token && uploadURL.startsWith("/api/")) {
-        uploadHeaders.Authorization = `Bearer ${token}`;
-      }
-
-      const uploadResponse = await fetch(uploadURL, {
-        method: "PUT",
-        headers: uploadHeaders,
+      const uploadResponse = await fetch("/api/storage/uploads/direct", {
+        method: "POST",
+        headers: {
+          "Content-Type": file.type || "application/octet-stream",
+          "X-Upload-Name": encodeURIComponent(file.name),
+          "X-Upload-Size": String(file.size),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: file,
       });
 
@@ -78,8 +38,11 @@ export async function uploadResumeFile(file: File, options: UploadResumeFileOpti
         throw error;
       }
 
-      await confirmUpload(objectPath, token);
-      return objectPath;
+      const payload = (await uploadResponse.json()) as { objectPath?: string };
+      if (!payload.objectPath) {
+        throw new Error("Upload completed but no file path was returned");
+      }
+      return payload.objectPath;
     } catch (error) {
       const status = typeof error === "object" && error && "status" in error ? Number((error as { status?: number }).status) : null;
       const canRetry = attempt < maxAttempts && (status == null || shouldRetryStatus(status));

@@ -21,7 +21,12 @@ function getDatabaseUrl(): string {
 }
 
 function getSearchPath(): string {
-  return process.env.DB_SEARCH_PATH || "public";
+  const raw = process.env.DB_SEARCH_PATH?.trim();
+  if (!raw) return "public";
+
+  const unquoted = raw.replace(/^"(.*)"$/, "$1").trim();
+  const normalized = unquoted.replace(/\\n/g, "").trim();
+  return normalized || "public";
 }
 
 function isLocalDatabaseHost(hostname: string): boolean {

@@ -19,6 +19,8 @@ export async function resolveCandidateAccess(
   roleId: number;
   vendorCompanyId: number;
   roleCompanyId: number | null;
+  phone: string | null;
+  expectedSalary: string | null;
 } | null> {
   const { role: userRole, companyId } = req.user!;
 
@@ -28,6 +30,8 @@ export async function resolveCandidateAccess(
       status: candidatesTable.status,
       roleId: candidatesTable.roleId,
       vendorCompanyId: candidatesTable.vendorCompanyId,
+      phone: candidatesTable.phone,
+      expectedSalary: candidatesTable.expectedSalary,
       roleCompanyId: jobRolesTable.companyId,
     })
     .from(candidatesTable)
@@ -46,7 +50,7 @@ export async function resolveCandidateAccess(
       Errors.forbidden(res);
       return null;
     }
-    if (row.status === "withdrawn") {
+    if (row.status === "pending_approval" || row.status === "withdrawn") {
       Errors.notFound(res, "Candidate not found");
       return null;
     }

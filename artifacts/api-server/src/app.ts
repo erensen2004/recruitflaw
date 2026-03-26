@@ -40,12 +40,11 @@ function buildCorsOptions() {
     new Set([...configuredOrigins, ...getPlatformOrigins()]),
   );
 
-  if (isProd && allowedOrigins.length === 0) {
-    throw new Error(
-      "ALLOWED_ORIGINS or Vercel deployment URLs must be set in production. " +
-        "Refusing to start with open CORS policy."
-    );
-  }
+  const productionFallbackOrigins = ["https://recruitflaw.vercel.app"];
+  const effectiveOrigins =
+    isProd && allowedOrigins.length === 0
+      ? productionFallbackOrigins
+      : allowedOrigins;
 
   const devDefaults = [
     "http://localhost:3000",
@@ -66,7 +65,7 @@ function buildCorsOptions() {
         origin.endsWith(".pike.replit.dev");
 
       const normalizedOrigin = normalizeOrigin(origin);
-      const inWhitelist = normalizedOrigin ? allowedOrigins.includes(normalizedOrigin) : false;
+      const inWhitelist = normalizedOrigin ? effectiveOrigins.includes(normalizedOrigin) : false;
 
       const inDevDefaults = !isProd && devDefaults.includes(origin);
 

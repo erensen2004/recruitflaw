@@ -11,6 +11,7 @@ import storageRouter from "./storage.js";
 import notesRouter from "./notes.js";
 import analyticsRouter from "./analytics.js";
 import cvParseRouter from "./cv-parse.js";
+import reviewThreadsRouter from "./review-threads.js";
 
 const router = Router();
 
@@ -24,6 +25,7 @@ router.use("/candidates/:id/notes", notesRouter);
 router.use("/contracts", contracts);
 router.use("/timesheets", timesheets);
 router.use("/analytics", analyticsRouter);
+router.use("/review-threads", reviewThreadsRouter);
 router.use("/cv-parse", cvParseRouter);
 router.use(storageRouter);
 

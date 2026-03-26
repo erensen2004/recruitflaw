@@ -42,7 +42,10 @@ type ParseDocumentOptions = {
   onProgress?: ProgressCallback;
 };
 
-const OCR_PAGE_LIMIT = 2;
+const OCR_PAGE_LIMIT = 3;
+const OCR_PRIMARY_SCALE = 2.4;
+const OCR_RETRY_SCALE = 3.2;
+const OCR_RETRY_TEXT_LENGTH = 120;
 const MIN_TEXT_LENGTH = 180;
 
 function uniqueStrings(values: Array<string | null | undefined>) {
@@ -226,6 +229,38 @@ function createCanvas(viewport: { width: number; height: number }) {
   return { canvas, context };
 }
 
+function enhanceCanvasForOcr(sourceCanvas: HTMLCanvasElement) {
+  const targetCanvas = document.createElement("canvas");
+  targetCanvas.width = sourceCanvas.width;
+  targetCanvas.height = sourceCanvas.height;
+
+  const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+  const targetContext = targetCanvas.getContext("2d", { willReadFrequently: true });
+  if (!sourceContext || !targetContext) {
+    return sourceCanvas;
+  }
+
+  const imageData = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+  const { data } = imageData;
+  const contrast = 1.45;
+  const brightness = -4;
+
+  for (let index = 0; index < data.length; index += 4) {
+    const gray = data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
+    const adjusted = Math.max(
+      0,
+      Math.min(255, Math.round((gray - 128) * contrast + 128 + brightness)),
+    );
+    const boosted = gray > 245 ? 255 : adjusted;
+    data[index] = boosted;
+    data[index + 1] = boosted;
+    data[index + 2] = boosted;
+  }
+
+  targetContext.putImageData(imageData, 0, 0);
+  return targetCanvas;
+}
+
 async function runTesseractOcr(image: HTMLCanvasElement | File, onProgress?: ProgressCallback) {
   const { createWorker } = await import("tesseract.js");
   const originalConsoleError = console.error;
@@ -253,6 +288,34 @@ async function runTesseractOcr(image: HTMLCanvasElement | File, onProgress?: Pro
   }
 }
 
+async function renderPdfPageForOcr(page: any, scale: number) {
+  const viewport = page.getViewport({ scale });
+  const { canvas, context } = createCanvas(viewport);
+  await page.render({ canvasContext: context, viewport, canvas } as any).promise;
+  return enhanceCanvasForOcr(canvas);
+}
+
+async function ocrPdfPage(page: any, pageNumber: number, pageCount: number, onProgress?: ProgressCallback) {
+  const attempts = [OCR_PRIMARY_SCALE, OCR_RETRY_SCALE];
+  let bestText = "";
+
+  for (const [index, scale] of attempts.entries()) {
+    onProgress?.(
+      `Scanning PDF page ${pageNumber}/${pageCount} in the browser${index > 0 ? " (quality retry)" : ""}…`,
+    );
+    const canvas = await renderPdfPageForOcr(page, scale);
+    const text = await runTesseractOcr(canvas, onProgress);
+    if (text.length > bestText.length) {
+      bestText = text;
+    }
+    if (text.length >= OCR_RETRY_TEXT_LENGTH) {
+      break;
+    }
+  }
+
+  return bestText.trim();
+}
+
 async function extractPdfTextWithOcr(file: File, onProgress?: ProgressCallback) {
   const pdfjs = await getPdfModule();
   const data = new Uint8Array(await file.arrayBuffer());
@@ -261,12 +324,8 @@ async function extractPdfTextWithOcr(file: File, onProgress?: ProgressCallback) 
   const ocrPages: string[] = [];
 
   for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-    onProgress?.(`Scanning PDF page ${pageNumber}/${pageCount} in the browser…`);
     const page = await pdf.getPage(pageNumber);
-    const viewport = page.getViewport({ scale: 1.8 });
-    const { canvas, context } = createCanvas(viewport);
-    await page.render({ canvasContext: context, viewport, canvas } as any).promise;
-    const text = await runTesseractOcr(canvas, onProgress);
+    const text = await ocrPdfPage(page, pageNumber, pageCount, onProgress);
     if (text) ocrPages.push(text);
   }
 

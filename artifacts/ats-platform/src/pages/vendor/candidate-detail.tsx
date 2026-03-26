@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useGetCandidate, useListCandidateHistory } from "@workspace/api-client-react";
+import { useGetCandidate, useListCandidateHistory, useListCandidateNotes } from "@workspace/api-client-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Link, useRoute } from "wouter";
 import { useToast } from "@/hooks/use-toast";
@@ -7,31 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Loader2, ArrowLeft, FileText, Upload, Sparkles, Save, Undo2, Clock3, AlertTriangle } from "lucide-react";
+import { ReviewThreadPanel } from "@/components/review-thread-panel";
+import { Loader2, ArrowLeft, FileText, Upload, Save, Undo2, Clock3, AlertTriangle, MessageSquare, Tag } from "lucide-react";
 import { getPrivateObjectUrl, validateResumeFile } from "@/lib/utils";
-import { exportStandardizedCandidatePdf } from "@/lib/standardized-cv";
 import { invalidateCandidateQueries, syncCandidateAcrossCaches } from "@/lib/candidate-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { parseResumeFileWithFallback, type ParsedCandidateProfile } from "@/lib/resume-parse";
 import { uploadResumeFile } from "@/lib/resume-upload";
+import { formatTurkishLira, parseCandidateTags } from "@/lib/candidate-display";
 
-function cleanSnapshotText(value?: string | null) {
-  if (!value) return null;
-  const normalized = value
-    .replace(/\b(?:null|undefined)\b/gi, "")
-    .replace(/\s*\|\s*\|+/g, " | ")
-    .replace(/^\s*\|\s*|\s*\|\s*$/g, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-
-  if (!normalized || /^(not found|n\/a)$/i.test(normalized)) {
-    return null;
-  }
-
-  return normalized;
-}
-
-const EDITABLE_STATUSES = new Set(["submitted", "screening"]);
+const EDITABLE_STATUSES = new Set(["submitted", "screening", "pending_approval"]);
 
 export default function VendorCandidateDetail() {
   const [, params] = useRoute("/vendor/candidates/:id");
@@ -42,6 +27,7 @@ export default function VendorCandidateDetail() {
 
   const { data: candidate, isLoading } = useGetCandidate(candidateId);
   const { data: history = [], isLoading: historyLoading } = useListCandidateHistory(candidateId);
+  const { data: notes = [], isLoading: notesLoading } = useListCandidateNotes(candidateId);
 
   const [formData, setFormData] = useState({
     firstName: "",
@@ -77,27 +63,9 @@ export default function VendorCandidateDetail() {
   }, [candidate]);
 
   const canEdit = candidate ? EDITABLE_STATUSES.has(candidate.status) : false;
-  const snapshotSource = parsedProfile ?? candidate ?? null;
-
-  const snapshotFields = useMemo(() => {
-    if (!snapshotSource) return [];
-    return [
-      { label: "Current Title", value: cleanSnapshotText(snapshotSource.currentTitle) },
-      { label: "Location", value: cleanSnapshotText(snapshotSource.location) },
-      {
-        label: "Experience",
-        value:
-          snapshotSource.yearsExperience != null
-            ? `${snapshotSource.yearsExperience} years`
-            : null,
-      },
-      { label: "Languages", value: cleanSnapshotText(snapshotSource.languages) },
-    ].filter((field): field is { label: string; value: string } => Boolean(field.value));
-  }, [snapshotSource]);
-
-  const snapshotEducation = cleanSnapshotText(snapshotSource?.education);
-  const snapshotSummary = cleanSnapshotText(snapshotSource?.summary);
-  const snapshotProfile = cleanSnapshotText(snapshotSource?.standardizedProfile);
+  const { visibleTags, englishLevel } = useMemo(() => parseCandidateTags(candidate?.tags), [candidate?.tags]);
+  const parsedSkills = candidate?.parsedSkills?.length ? candidate.parsedSkills : visibleTags;
+  const expectedSalaryLabel = formatTurkishLira(candidate?.expectedSalary);
 
   const handleResumeSelection = async (file: File | null) => {
     if (!file) {
@@ -160,7 +128,34 @@ export default function VendorCandidateDetail() {
     if (!canEdit) {
       toast({
         title: "Candidate can no longer be edited",
-        description: "Only submitted or screening candidates can be edited by the vendor.",
+        description: "Only submitted, screening, or pending approval candidates can be edited by the vendor.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!formData.firstName.trim() || !formData.lastName.trim() || !formData.email.trim()) {
+      toast({
+        title: "Candidate identity is incomplete",
+        description: "First name, last name, and email must be filled in before saving.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!formData.phone.trim()) {
+      toast({
+        title: "Phone number is required",
+        description: "Please keep the contact phone number filled in before saving.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!formData.expectedSalary.trim()) {
+      toast({
+        title: "Expected salary is required",
+        description: "Please keep the expected monthly salary in TL filled in before saving.",
         variant: "destructive",
       });
       return;
@@ -236,7 +231,7 @@ export default function VendorCandidateDetail() {
     if (!canEdit) {
       toast({
         title: "Candidate can no longer be withdrawn",
-        description: "Only submitted or screening candidates can be withdrawn by the vendor.",
+        description: "Only submitted, screening, or pending approval candidates can be withdrawn by the vendor.",
         variant: "destructive",
       });
       return;
@@ -330,16 +325,39 @@ export default function VendorCandidateDetail() {
                       </a>
                     </Button>
                   ) : null}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="rounded-xl gap-2"
-                    onClick={() => exportStandardizedCandidatePdf(candidate)}
-                  >
-                    <Sparkles className="h-4 w-4" /> Export Standardized CV
-                  </Button>
                 </div>
               </div>
+
+              <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {[
+                  { label: "Role", value: candidate.roleTitle },
+                  { label: "Company", value: candidate.vendorCompanyName },
+                  { label: "Phone", value: candidate.phone || "Not provided" },
+                  { label: "Expected Salary", value: expectedSalaryLabel },
+                  { label: "English level", value: englishLevel || "Not provided" },
+                  { label: "Submitted", value: new Date(candidate.submittedAt).toLocaleDateString() },
+                ].map(({ label, value }) => (
+                  <div key={label} className="rounded-xl bg-slate-50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-800">{value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {parsedSkills.length > 0 ? (
+                <div className="mt-6">
+                  <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                    <Tag className="h-4 w-4 text-primary" /> Skills
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {parsedSkills.map((tag, index) => (
+                      <span key={`${tag}-${index}`} className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div className="rounded-2xl border border-slate-100 bg-white p-8 shadow-lg shadow-black/5">
@@ -353,7 +371,7 @@ export default function VendorCandidateDetail() {
                 {!canEdit ? (
                   <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
                     <AlertTriangle className="h-3.5 w-3.5" />
-                    Read-only once the pipeline moves beyond screening
+                    Read-only once the pipeline moves beyond approval
                   </div>
                 ) : null}
               </div>
@@ -361,23 +379,23 @@ export default function VendorCandidateDetail() {
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <label className="text-sm font-semibold">First Name</label>
-                  <Input value={formData.firstName} disabled={!canEdit || saving} onChange={(e) => setFormData((current) => ({ ...current, firstName: e.target.value }))} className="h-11 rounded-xl" />
+                  <Input required value={formData.firstName} disabled={!canEdit || saving} onChange={(e) => setFormData((current) => ({ ...current, firstName: e.target.value }))} className="h-11 rounded-xl" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-semibold">Last Name</label>
-                  <Input value={formData.lastName} disabled={!canEdit || saving} onChange={(e) => setFormData((current) => ({ ...current, lastName: e.target.value }))} className="h-11 rounded-xl" />
+                  <Input required value={formData.lastName} disabled={!canEdit || saving} onChange={(e) => setFormData((current) => ({ ...current, lastName: e.target.value }))} className="h-11 rounded-xl" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-semibold">Email</label>
-                  <Input type="email" value={formData.email} disabled={!canEdit || saving} onChange={(e) => setFormData((current) => ({ ...current, email: e.target.value }))} className="h-11 rounded-xl" />
+                  <Input required type="email" value={formData.email} disabled={!canEdit || saving} onChange={(e) => setFormData((current) => ({ ...current, email: e.target.value }))} className="h-11 rounded-xl" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-semibold">Phone</label>
-                  <Input value={formData.phone} disabled={!canEdit || saving} onChange={(e) => setFormData((current) => ({ ...current, phone: e.target.value }))} className="h-11 rounded-xl" />
+                  <Input required value={formData.phone} disabled={!canEdit || saving} onChange={(e) => setFormData((current) => ({ ...current, phone: e.target.value }))} className="h-11 rounded-xl" />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-semibold">Expected Salary ($)</label>
-                  <Input type="number" value={formData.expectedSalary} disabled={!canEdit || saving} onChange={(e) => setFormData((current) => ({ ...current, expectedSalary: e.target.value }))} className="h-11 rounded-xl" />
+                  <label className="text-sm font-semibold">Expected Salary (TL)</label>
+                  <Input required min="1" type="number" value={formData.expectedSalary} disabled={!canEdit || saving} onChange={(e) => setFormData((current) => ({ ...current, expectedSalary: e.target.value }))} className="h-11 rounded-xl" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-semibold">Current Title</label>
@@ -465,46 +483,6 @@ export default function VendorCandidateDetail() {
           </div>
 
           <div className="space-y-6">
-            {snapshotSource ? (
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-5">
-                <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
-                  <Sparkles className="h-4 w-4" />
-                  Standardized CV Snapshot
-                </div>
-                <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-slate-600">
-                  Parse quality {snapshotSource.parseConfidence ?? 0}% • {snapshotSource.parseReviewRequired ? "Review suggested" : "Ready"}
-                </div>
-                {snapshotFields.length ? (
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    {snapshotFields.map((field) => (
-                      <div key={field.label} className="rounded-xl bg-white/80 p-3">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{field.label}</div>
-                        <div className="mt-1 text-sm text-slate-800">{field.value}</div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                {snapshotEducation ? (
-                  <div className="mt-3 rounded-xl bg-white/80 p-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Education</div>
-                    <div className="mt-1 text-sm text-slate-800">{snapshotEducation}</div>
-                  </div>
-                ) : null}
-                {snapshotSummary ? (
-                  <div className="mt-3 rounded-xl bg-white/80 p-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Summary</div>
-                    <div className="mt-1 text-sm text-slate-800">{snapshotSummary}</div>
-                  </div>
-                ) : null}
-                {snapshotProfile ? (
-                  <div className="mt-3 rounded-xl bg-white/80 p-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Standardized Profile</div>
-                    <pre className="mt-1 whitespace-pre-wrap font-sans text-sm text-slate-800">{snapshotProfile}</pre>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-
             <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-lg shadow-black/5">
               <div className="flex items-center gap-2 text-lg font-semibold text-slate-900">
                 <Clock3 className="h-4 w-4 text-slate-400" />
@@ -535,6 +513,43 @@ export default function VendorCandidateDetail() {
                 )}
               </div>
             </div>
+
+            <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-lg shadow-black/5">
+              <div className="flex items-center gap-2 text-lg font-semibold text-slate-900">
+                <MessageSquare className="h-4 w-4 text-primary" />
+                Shared Notes
+              </div>
+              <p className="mt-2 text-sm text-slate-500">
+                These notes are visible to the shared review team and remain read-only from the vendor side.
+              </p>
+              <div className="mt-4 space-y-3">
+                {notesLoading ? (
+                  <div className="flex justify-center py-6">
+                    <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                  </div>
+                ) : notes.length ? (
+                  notes.map((note) => (
+                    <div key={note.id} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold text-slate-800">{note.authorName}</p>
+                        <p className="text-xs text-slate-400">{new Date(note.createdAt).toLocaleString()}</p>
+                      </div>
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{note.content}</p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">No shared notes yet.</div>
+                )}
+              </div>
+            </div>
+
+            <ReviewThreadPanel
+              scopeType="candidate"
+              scopeId={candidate.id}
+              actorRole="vendor"
+              title="Candidate thread"
+              description="Track candidate-specific follow-up and review feedback in a scoped thread that stays attached to this submission."
+            />
           </div>
         </div>
       </div>

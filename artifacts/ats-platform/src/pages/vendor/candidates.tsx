@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { useListCandidates, useSubmitCandidate, useListRoles } from "@workspace/api-client-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -8,29 +8,15 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UserCircle, Loader2, Plus, FileText, Upload, Tag, Sparkles } from "lucide-react";
 import { format } from "date-fns";
-import { formatCurrency, getPrivateObjectUrl, validateResumeFile } from "@/lib/utils";
+import { getPrivateObjectUrl, validateResumeFile } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListCandidatesQueryKey } from "@workspace/api-client-react";
 import { getErrorMessage, parseResumeFileWithFallback, type ParsedCandidateProfile } from "@/lib/resume-parse";
 import { uploadResumeFile } from "@/lib/resume-upload";
 import { Link } from "wouter";
-
-function cleanSnapshotText(value?: string | null) {
-  if (!value) return null;
-  const normalized = value
-    .replace(/\b(?:null|undefined)\b/gi, "")
-    .replace(/\s*\|\s*\|+/g, " | ")
-    .replace(/^\s*\|\s*|\s*\|\s*$/g, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-
-  if (!normalized || /^(not found|n\/a)$/i.test(normalized)) {
-    return null;
-  }
-
-  return normalized;
-}
+import { ResumeDropzone } from "@/components/upload/resume-dropzone";
+import { formatTurkishLira } from "@/lib/candidate-display";
 
 export default function VendorCandidates() {
   const { data: candidates, isLoading } = useListCandidates();
@@ -42,24 +28,8 @@ export default function VendorCandidates() {
   const [parseProgress, setParseProgress] = useState("");
   const [tags, setTags] = useState("");
   const [parsedProfile, setParsedProfile] = useState<ParsedCandidateProfile | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
-
-  const snapshotFields = parsedProfile
-    ? [
-        { label: "Current Title", value: cleanSnapshotText(parsedProfile.currentTitle) },
-        { label: "Location", value: cleanSnapshotText(parsedProfile.location) },
-        {
-          label: "Experience",
-          value: parsedProfile.yearsExperience != null ? `${parsedProfile.yearsExperience} years` : null,
-        },
-        { label: "Languages", value: cleanSnapshotText(parsedProfile.languages) },
-      ].filter((field): field is { label: string; value: string } => Boolean(field.value))
-    : [];
-  const snapshotEducation = cleanSnapshotText(parsedProfile?.education);
-  const snapshotSummary = cleanSnapshotText(parsedProfile?.summary);
-  const snapshotProfile = cleanSnapshotText(parsedProfile?.standardizedProfile);
 
   const publishedRoles = roles?.filter(r => r.status === "published") || [];
   const [formData, setFormData] = useState({
@@ -73,9 +43,6 @@ export default function VendorCandidates() {
     setParsing(false);
     setParseProgress("");
     setUploading(false);
-    if (fileRef.current) {
-      fileRef.current.value = "";
-    }
   };
 
   const { mutate: submit, isPending } = useSubmitCandidate({
@@ -225,12 +192,12 @@ export default function VendorCandidates() {
             <h1 className="text-3xl font-bold text-slate-900">My Candidates</h1>
             <p className="mt-1 text-slate-500">Track the pipeline status of candidates you submitted</p>
           </div>
-          <DialogTrigger asChild>
-            <Button className="h-11 rounded-xl px-6 shadow-md hover-elevate active-elevate-2">
+          <Button asChild className="h-11 rounded-xl px-6 shadow-md hover-elevate active-elevate-2">
+            <Link href="/vendor/positions">
               <Plus className="mr-2 h-4 w-4" />
-              Add Candidate
-            </Button>
-          </DialogTrigger>
+              Open Positions
+            </Link>
+          </Button>
         </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -285,7 +252,7 @@ export default function VendorCandidates() {
                         </div>
                       ) : <span className="text-slate-300 text-xs">-</span>}
                     </td>
-                    <td className="px-6 py-4 text-slate-600">{c.expectedSalary ? formatCurrency(c.expectedSalary) : "-"}</td>
+                    <td className="px-6 py-4 text-slate-600">{c.expectedSalary ? formatTurkishLira(c.expectedSalary) : "-"}</td>
                     <td className="px-6 py-4">
                       {c.cvUrl ? (
                         <a
@@ -361,11 +328,11 @@ export default function VendorCandidates() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Phone</label>
-                <Input value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} className="h-11 rounded-xl" />
+                <Input required value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} className="h-11 rounded-xl" />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-semibold">Expected Salary ($)</label>
-                <Input type="number" value={formData.expectedSalary} onChange={e => setFormData({ ...formData, expectedSalary: e.target.value })} className="h-11 rounded-xl" />
+                <label className="text-sm font-semibold">Expected Salary (TL)</label>
+                <Input required type="number" value={formData.expectedSalary} onChange={e => setFormData({ ...formData, expectedSalary: e.target.value })} className="h-11 rounded-xl" />
               </div>
             </div>
 
@@ -379,102 +346,87 @@ export default function VendorCandidates() {
 
             <div className="space-y-2">
               <label className="text-sm font-semibold">CV / Resume</label>
-              <div
-                className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-colors"
-                onClick={() => fileRef.current?.click()}
+              <ResumeDropzone
+                accept=".pdf,.docx,.jpg,.jpeg,.png,.webp"
+                disabled={parsing || uploading}
+                onFileSelected={async (file) => {
+                  if (!file) {
+                    setCvFile(null);
+                    return;
+                  }
+
+                  const fileError = validateResumeFile(file);
+                  if (fileError) {
+                    toast({ title: "Invalid CV file", description: fileError, variant: "destructive" });
+                    setCvFile(null);
+                    return;
+                  }
+
+                  setCvFile(file);
+                  await parsePdfCv(file);
+                }}
               >
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept=".pdf,.docx,.jpg,.jpeg,.png,.webp"
-                  className="hidden"
-                  onChange={async e => {
-                    const file = e.target.files?.[0] || null;
-                    if (!file) {
-                      setCvFile(null);
-                      return;
-                    }
-
-                    const fileError = validateResumeFile(file);
-                    if (fileError) {
-                      toast({ title: "Invalid CV file", description: fileError, variant: "destructive" });
-                      if (fileRef.current) {
-                        fileRef.current.value = "";
-                      }
-                      setCvFile(null);
-                      return;
-                    }
-
-                    setCvFile(file);
-                    await parsePdfCv(file);
-                  }}
-                />
-                {cvFile ? (
+                {({ isDragging, openPicker }) => (
                   <div className="space-y-2">
-                    <div className="flex items-center justify-center gap-2 text-sm font-medium text-primary">
-                      <FileText className="w-4 h-4" /> {cvFile.name}
+                    <div className={`rounded-xl border-2 border-dashed p-4 text-center transition-colors ${isDragging ? "border-primary bg-primary/5" : "border-slate-200 hover:border-primary/50 hover:bg-primary/5"}`}>
+                      {cvFile ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-center gap-2 text-sm font-medium text-primary">
+                            <FileText className="w-4 h-4" /> {cvFile.name}
+                          </div>
+                          <div className="inline-flex items-center gap-2 rounded-lg bg-violet-50 px-3 py-2 text-xs font-medium text-violet-700">
+                            {parsing ? <><Loader2 className="w-3 h-3 animate-spin" />{parseProgress || "Reading resume and preparing normalized profile…"}</> : <><Sparkles className="w-3 h-3" />Resume uploaded. Candidate fields will be normalized automatically.</>}
+                          </div>
+                          {parsedProfile?.parseReviewRequired ? (
+                            <div className="text-xs text-amber-700">
+                              Some fields may need review, but you can still submit the candidate.
+                            </div>
+                          ) : null}
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openPicker();
+                            }}
+                            disabled={parsing || uploading}
+                            className="rounded-lg gap-2 hover-elevate active-elevate-2"
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            Replace Resume
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="text-slate-400">
+                          <Upload className="w-5 h-5 mx-auto mb-1" />
+                          <p className="text-sm">Drag and drop a resume here or click to upload</p>
+                          <p className="text-xs mt-1">PDF, DOCX, or image resumes will be normalized automatically.</p>
+                        </div>
+                      )}
+                      {isDragging ? (
+                        <div className="mt-3 text-xs font-semibold text-primary">
+                          Drop the resume to start parsing immediately.
+                        </div>
+                      ) : null}
                     </div>
-                    <div className="inline-flex items-center gap-2 rounded-lg bg-violet-50 px-3 py-2 text-xs font-medium text-violet-700">
-                      {parsing ? <><Loader2 className="w-3 h-3 animate-spin" />{parseProgress || "Reading resume and preparing normalized profile…"}</> : <><Sparkles className="w-3 h-3" />Resume uploaded. Candidate fields will be normalized automatically.</>}
-                    </div>
-                    {parsedProfile?.parseReviewRequired ? (
-                      <div className="text-xs text-amber-700">
-                        Some fields may need review, but you can still submit the candidate.
-                      </div>
-                    ) : null}
-                  </div>
-                ) : (
-                  <div className="text-slate-400 text-sm">
-                    <Upload className="w-5 h-5 mx-auto mb-1" />
-                    Click to upload PDF, DOCX, or image resume and auto-fill candidate fields
                   </div>
                 )}
-              </div>
+              </ResumeDropzone>
             </div>
 
             {parsedProfile && (
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
                 <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
                   <Sparkles className="w-4 h-4" />
-                  Standardized CV Snapshot
+                  Resume analyzed successfully
                 </div>
                 <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-slate-600">
                   Parse quality {parsedProfile.parseConfidence ?? 0}% • {parsedProfile.parseReviewRequired ? "Review suggested" : "Ready"}
                 </div>
-                {snapshotFields.length ? (
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    {snapshotFields.map((field) => (
-                      <div key={field.label} className="rounded-xl bg-white/80 p-3">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{field.label}</div>
-                        <div className="mt-1 text-sm text-slate-800">{field.value}</div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                    Contact details were extracted, but some resume sections still need review.
-                  </div>
-                )}
-                {snapshotEducation ? (
-                  <div className="mt-3 rounded-xl bg-white/80 p-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Education</div>
-                    <div className="mt-1 text-sm text-slate-800">{snapshotEducation}</div>
-                  </div>
-                ) : null}
-                {snapshotSummary ? (
-                  <div className="mt-3 rounded-xl bg-white/80 p-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Summary</div>
-                    <div className="mt-1 text-sm text-slate-800">{snapshotSummary}</div>
-                  </div>
-                ) : null}
-                {snapshotProfile ? (
-                  <div className="mt-3 rounded-xl bg-white/80 p-3">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Standardized Profile</div>
-                    <pre className="mt-1 whitespace-pre-wrap font-sans text-sm text-slate-800">
-                      {snapshotProfile}
-                    </pre>
-                  </div>
-                ) : null}
+                <div className="mt-3 rounded-xl border border-white/60 bg-white/70 p-3 text-sm text-emerald-900">
+                  Candidate fields were pre-filled from the resume. The admin and client teams will handle the final standardized review output.
+                </div>
               </div>
             )}
 

@@ -83,12 +83,26 @@ function normalizeTags(value: string | string[] | null | undefined) {
   return normalizeNullableString(value);
 }
 
-async function getActorName(userId: number): Promise<string> {
+async function getActorLabel(userId: number): Promise<string> {
   const [userRow] = await db
-    .select({ name: usersTable.name })
+    .select({
+      name: usersTable.name,
+      role: usersTable.role,
+      companyId: usersTable.companyId,
+    })
     .from(usersTable)
     .where(eq(usersTable.id, userId));
-  return userRow?.name ?? "Unknown";
+
+  if (!userRow) return "Review team";
+  if (userRow.role === "admin") return "Admin team";
+  if (!userRow.companyId) return userRow.role === "client" ? "Client team" : "Vendor team";
+
+  const [company] = await db
+    .select({ name: companiesTable.name })
+    .from(companiesTable)
+    .where(eq(companiesTable.id, userRow.companyId));
+
+  return company?.name ?? (userRow.role === "client" ? "Client team" : "Vendor team");
 }
 
 function formatCandidate(c: {
@@ -187,6 +201,7 @@ router.get("/", requireAuth, async (req, res) => {
       conditions.push(eq(candidatesTable.vendorCompanyId, companyId));
     } else if (userRole === "client" && companyId) {
       conditions.push(eq(jobRolesTable.companyId, companyId));
+      conditions.push(ne(candidatesTable.status, "pending_approval"));
       conditions.push(ne(candidatesTable.status, "withdrawn"));
     }
     if (skill) {
@@ -429,7 +444,7 @@ router.post(
         return;
       }
 
-      const actorName = await getActorName(req.user!.userId);
+      const actorName = await getActorLabel(req.user!.userId);
       const effectiveParseStatus = inferParseStatus({
         parseStatus,
         parseReviewRequired,
@@ -447,7 +462,7 @@ router.post(
           email: normalizedEmail,
           phone: phone ?? null,
           expectedSalary: expectedSalary != null ? String(expectedSalary) : null,
-          status: "submitted",
+          status: "pending_approval",
           roleId,
           vendorCompanyId: companyId,
           cvUrl: cvUrl ?? null,
@@ -475,7 +490,7 @@ router.post(
         await db.insert(candidateStatusHistoryTable).values({
           candidateId: candidate.id,
           previousStatus: null,
-          nextStatus: "submitted",
+          nextStatus: "pending_approval",
           reason: "Candidate submitted by vendor",
           changedByUserId: req.user!.userId,
           changedByName: actorName,
@@ -503,7 +518,7 @@ router.post(
 router.patch(
   "/:id",
   requireAuth,
-  requireRole("vendor"),
+  requireRole("admin", "vendor"),
   validate(UpdateCandidateSchema),
   async (req, res) => {
     try {
@@ -511,10 +526,14 @@ router.patch(
       const access = await resolveCandidateAccess(req, res, id);
       if (!access) return;
 
-      if (!["submitted", "screening"].includes(access.status)) {
+      const actorRole = req.user!.role;
+      if (
+        actorRole === "vendor" &&
+        !["pending_approval", "submitted", "screening"].includes(access.status)
+      ) {
         Errors.forbidden(
           res,
-          "Only candidates in submitted or screening can be edited by the vendor.",
+          "Only candidates in pending approval, submitted or screening can be edited by the vendor.",
         );
         return;
       }
@@ -544,6 +563,22 @@ router.patch(
         parsedExperience,
         parsedEducation,
       } = req.body;
+
+      const finalPhone = phone !== undefined ? normalizeNullableString(phone) : access.phone;
+      const finalExpectedSalary =
+        expectedSalary !== undefined
+          ? expectedSalary != null
+            ? String(expectedSalary)
+            : null
+          : access.expectedSalary;
+
+      if (!finalPhone || finalExpectedSalary == null) {
+        Errors.badRequest(
+          res,
+          "Candidate contact information and expected salary must be provided before saving.",
+        );
+        return;
+      }
 
       const updates: Record<string, unknown> = { updatedAt: new Date() };
       if (firstName !== undefined) updates.firstName = firstName.trim();
@@ -605,15 +640,15 @@ router.post(
       const access = await resolveCandidateAccess(req, res, id);
       if (!access) return;
 
-      if (!["submitted", "screening"].includes(access.status)) {
+      if (!["pending_approval", "submitted", "screening"].includes(access.status)) {
         Errors.forbidden(
           res,
-          "Only candidates in submitted or screening can be withdrawn by the vendor.",
+          "Only candidates in pending approval, submitted or screening can be withdrawn by the vendor.",
         );
         return;
       }
 
-      const actorName = await getActorName(req.user!.userId);
+      const actorName = await getActorLabel(req.user!.userId);
       const [candidate] = await db
         .update(candidatesTable)
         .set({ status: "withdrawn", updatedAt: new Date() })
@@ -667,7 +702,7 @@ router.patch(
       const access = await resolveCandidateAccess(req, res, id);
       if (!access) return;
 
-      const actorName = await getActorName(req.user!.userId);
+      const actorName = await getActorLabel(req.user!.userId);
       const [candidate] = await db
         .update(candidatesTable)
         .set({ status, updatedAt: new Date() })

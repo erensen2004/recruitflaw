@@ -376,15 +376,16 @@ export class ObjectStorageService {
     objectPath: string,
     fileBuffer: Buffer,
     contentType?: string
-  ): Promise<void> {
+  ): Promise<string> {
     const pathname = this.getBlobPathFromObjectPath(objectPath);
-    await putBlob(pathname, fileBuffer, {
+    const result = await putBlob(pathname, fileBuffer, {
       access: "private",
       addRandomSuffix: false,
       allowOverwrite: true,
       contentType: contentType || "application/octet-stream",
       token: this.getBlobToken(),
     });
+    return `/objects/${result.pathname.replace(/^\/+/, "")}`;
   }
 
   async canAccessObjectEntity({
