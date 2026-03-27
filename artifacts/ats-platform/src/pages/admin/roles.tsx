@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useRef, useState } from "react";
 import { getListRolesQueryKey, useListRoles, useUpdateRole, useUpdateRoleStatus } from "@workspace/api-client-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -14,7 +14,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Archive,
   ArrowRight,
   Briefcase,
   Building2,
@@ -49,7 +48,6 @@ import {
 } from "@/lib/role-display";
 import {
   buildRoleQueueSnapshot,
-  getRoleReviewActionLabel,
   getRoleReviewStateMeta,
   isStaleRole,
   matchesRoleReviewSearch,
@@ -92,26 +90,44 @@ function getRoleActionCopy(status: string) {
         primary: {
           label: "Approve & publish",
           status: "published" as const,
-          className: "rounded-lg h-8 bg-green-600 text-white hover:bg-green-700",
+          variant: "default" as const,
+          className: "rounded-lg h-8 border-emerald-700 bg-emerald-600 text-white hover:bg-emerald-700 hover:text-white",
         },
-        secondary: { label: "Send back to draft", status: "draft" as const },
-        destructive: { label: "Reject / close", status: "closed" as const },
+        secondary: {
+          label: "Send back to draft",
+          status: "draft" as const,
+          variant: "outline" as const,
+          className: "rounded-lg h-8 border-sky-200 bg-white text-sky-800 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-900",
+        },
+        destructive: {
+          label: "Reject / close",
+          status: "closed" as const,
+          variant: "outline" as const,
+          className: "rounded-lg h-8 border-rose-200 bg-white text-rose-700 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800",
+        },
       };
     case "published":
       return {
         primary: {
           label: "Send back to draft",
           status: "draft" as const,
-          className: "rounded-lg h-8 border-sky-200 text-sky-700 hover:bg-sky-50 hover:text-sky-800",
+          variant: "outline" as const,
+          className: "rounded-lg h-8 border-sky-200 bg-white text-sky-800 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-900",
         },
-        secondary: { label: "Reject / close", status: "closed" as const },
+        secondary: {
+          label: "Reject / close",
+          status: "closed" as const,
+          variant: "outline" as const,
+          className: "rounded-lg h-8 border-rose-200 bg-white text-rose-700 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800",
+        },
       };
     case "closed":
       return {
         primary: {
           label: "Reopen as draft",
           status: "draft" as const,
-          className: "rounded-lg h-8 border-slate-200 text-slate-700 hover:bg-slate-100",
+          variant: "outline" as const,
+          className: "rounded-lg h-8 border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900",
         },
       };
     default:
@@ -119,9 +135,15 @@ function getRoleActionCopy(status: string) {
         primary: {
           label: "Publish",
           status: "published" as const,
-          className: "rounded-lg h-8 bg-green-600 text-white hover:bg-green-700",
+          variant: "default" as const,
+          className: "rounded-lg h-8 border-emerald-700 bg-emerald-600 text-white hover:bg-emerald-700 hover:text-white",
         },
-        secondary: { label: "Reject / close", status: "closed" as const },
+        secondary: {
+          label: "Reject / close",
+          status: "closed" as const,
+          variant: "outline" as const,
+          className: "rounded-lg h-8 border-rose-200 bg-white text-rose-700 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800",
+        },
       };
   }
 }
@@ -130,6 +152,69 @@ function formatRoleDate(value: string | number | Date | null | undefined) {
   if (value == null) return "Unknown";
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? "Unknown" : format(parsed, "MMM d, yyyy");
+}
+
+function getDaysWaiting(value: string | number | Date | null | undefined) {
+  if (value == null) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const diff = Date.now() - parsed.getTime();
+  return Math.max(0, Math.floor(diff / (24 * 60 * 60 * 1000)));
+}
+
+function getRoleReviewGuidance(role: AdminReviewRole) {
+  switch (role.status) {
+    case "draft":
+      return {
+        heading: "Brief still needs admin shaping",
+        description: "This role is still waiting for a final hiring brief, clearer requirements, or a polished market-facing summary before vendors should see it.",
+        checklist: [
+          "Tighten the role description and expected outcomes.",
+          "Confirm work mode, salary cap, and key skills are recruiter-ready.",
+          "Publish only when the brief feels final and vendor-facing.",
+        ],
+      };
+    case "pending_approval":
+      return {
+        heading: "Ready for final approval",
+        description: "The role has already moved past drafting and now needs a last admin pass before it becomes part of the live vendor pipeline.",
+        checklist: [
+          "Check that the brief is complete and easy to understand.",
+          "Confirm the visible details match the latest hiring decision.",
+          "Approve and publish when no more edits are needed.",
+        ],
+      };
+    case "published":
+      return {
+        heading: "Live in the vendor pipeline",
+        description: "This role is already visible to vendors. The admin panel should now focus on quality control, candidate flow, and whether the brief still reflects the current need.",
+        checklist: [
+          "Send back to draft if the brief needs a rewrite.",
+          "Reject or close if hiring is paused.",
+          "Open the candidate pipeline when you need submission context.",
+        ],
+      };
+    case "closed":
+      return {
+        heading: "Archived from the active queue",
+        description: "This role is out of the live hiring flow. Reopen it only if the team wants to restart hiring or refine the brief for a new pass.",
+        checklist: [
+          "Reopen when the hiring request becomes active again.",
+          "Keep it closed if the brief is no longer relevant.",
+          "Use edit review before re-publishing an outdated brief.",
+        ],
+      };
+    default:
+      return {
+        heading: "Admin review context",
+        description: "Use this panel to decide whether the role should stay in review, go live, or return for more edits.",
+        checklist: [
+          "Review the role details.",
+          "Pick the next admin action.",
+          "Use the pipeline only when candidate context is needed.",
+        ],
+      };
+  }
 }
 
 function RoleReviewCard({
@@ -237,7 +322,8 @@ function RoleReviewCard({
         </Button>
         <Button
           type="button"
-          className="rounded-xl bg-emerald-600 text-white hover:bg-emerald-700"
+          variant={actions.primary.variant}
+          className={actions.primary.className}
           disabled={actionDisabled}
           onClick={() => onUpdateStatus(role.id, actions.primary.status)}
         >
@@ -247,8 +333,8 @@ function RoleReviewCard({
         {secondaryAction ? (
           <Button
             type="button"
-            variant="outline"
-            className="rounded-xl border-sky-200 text-sky-700 hover:bg-sky-50 hover:text-sky-800"
+            variant={secondaryAction.variant}
+            className={secondaryAction.className}
             disabled={actionDisabled}
             onClick={() => onUpdateStatus(role.id, secondaryAction.status)}
           >
@@ -259,8 +345,8 @@ function RoleReviewCard({
         {destructiveAction ? (
           <Button
             type="button"
-            variant="outline"
-            className="rounded-xl border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+            variant={destructiveAction.variant}
+            className={destructiveAction.className}
             disabled={actionDisabled}
             onClick={() => onUpdateStatus(role.id, destructiveAction.status)}
           >
@@ -293,6 +379,7 @@ export default function AdminRoles() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const deferredSearch = useDeferredValue(search.trim());
+  const reviewPanelRef = useRef<HTMLDivElement | null>(null);
 
   const selectedRole = useMemo(
     () => roles?.find((role) => role.id === selectedRoleId) ?? null,
@@ -308,7 +395,7 @@ export default function AdminRoles() {
     const reference = new Date();
     return [...(roles ?? [])]
       .filter((role) => isStaleRole(role as AdminReviewRole, reference))
-      .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
+      .sort((left, right) => new Date(left.updatedAt).getTime() - new Date(right.updatedAt).getTime())
       .slice(0, 3);
   }, [roles]);
 
@@ -444,6 +531,13 @@ export default function AdminRoles() {
     updateStatus({ id: roleId, data: { status } });
   };
 
+  const focusRoleReview = (roleId: number) => {
+    setSelectedRoleId(roleId);
+    requestAnimationFrame(() => {
+      reviewPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+
   return (
     <DashboardLayout allowedRoles={["admin"]}>
       <div className="mb-8">
@@ -505,7 +599,7 @@ export default function AdminRoles() {
         </div>
 
         <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-white/80 px-4 py-3 text-sm text-slate-500 shadow-sm">
-          Tap any queue card to jump into that lane. Use the review hub as the admin control center, then open the pipeline or analytics when you need more context.
+          Tap a queue card to jump into that lane. Roles that have been waiting for 3+ days surface in the attention lane first so the admin can unblock hiring before the queue slows down.
         </div>
 
         <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -567,9 +661,9 @@ export default function AdminRoles() {
           <div className="mt-5 rounded-3xl border border-rose-100 bg-rose-50/60 p-5 shadow-sm">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-500">Priority lane</p>
-                <h2 className="mt-2 text-xl font-bold text-slate-900">Roles that need an admin pass first</h2>
-                <p className="mt-1 text-sm leading-6 text-slate-600">These drafts or pending approvals are the most likely to slow the queue down if they stay untouched.</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-500">Needs attention first</p>
+                <h2 className="mt-2 text-xl font-bold text-slate-900">Roles waiting longest for admin action</h2>
+                <p className="mt-1 text-sm leading-6 text-slate-600">This lane highlights draft or approval-stage roles that have been sitting for 3 or more days. It is the fastest place to start when you want to clear bottlenecks.</p>
               </div>
               <span className="inline-flex items-center rounded-full bg-white px-3 py-1 text-xs font-semibold text-rose-700 ring-1 ring-rose-100">
                 {priorityRoles.length} roles marked for escalation
@@ -590,10 +684,13 @@ export default function AdminRoles() {
                     <p className="mt-3 text-sm leading-6 text-slate-600">{reviewState.body}</p>
                     <div className="mt-3 flex flex-wrap gap-2 text-xs font-medium text-slate-500">
                       <span className="rounded-full bg-slate-100 px-2.5 py-1">Updated {format(new Date(role.updatedAt), "MMM d")}</span>
+                      <span className="rounded-full bg-rose-100 px-2.5 py-1 text-rose-700">
+                        Waiting {getDaysWaiting(role.updatedAt ?? role.createdAt) ?? 0} days
+                      </span>
                       <span className="rounded-full bg-slate-100 px-2.5 py-1">{role.candidateCount ?? 0} candidates</span>
                     </div>
                     <div className="mt-4 flex flex-wrap gap-2">
-                      <Button type="button" size="sm" className="rounded-xl" onClick={() => setSelectedRoleId(role.id)}>
+                      <Button type="button" size="sm" className="rounded-xl" onClick={() => focusRoleReview(role.id)}>
                         Open review
                       </Button>
                       <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={() => openEditDialog(role as AdminReviewRole)}>
@@ -608,7 +705,7 @@ export default function AdminRoles() {
         ) : null}
 
       {previewRole ? (
-        <div className="mb-6 grid gap-6 xl:grid-cols-[1.35fr,0.95fr]">
+        <div ref={reviewPanelRef} className="mb-6 grid gap-6 xl:grid-cols-[1.35fr,0.95fr]">
           <RoleReviewCard
             role={previewRole as AdminReviewRole}
             onEdit={openEditDialog}
@@ -616,22 +713,34 @@ export default function AdminRoles() {
             onUpdateStatus={changeStatus}
             pendingRoleId={pendingRoleId}
           />
-          <div className="rounded-3xl border border-slate-200 bg-slate-950 p-6 text-white shadow-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-300">
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-500">
               <Building2 className="h-4 w-4 text-cyan-300" />
-              Admin review playbook
+              Selected role review brief
             </div>
-            <h2 className="mt-3 text-2xl font-bold">Centralized approval flow</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-300">
-              The admin is the final checkpoint. Drafts stay draft, pending roles stay visible until approved, and closed roles stay archived unless re-opened for edits.
+            <h2 className="mt-3 text-2xl font-bold text-slate-950">{getRoleReviewGuidance(previewRole).heading}</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              {getRoleReviewGuidance(previewRole).description}
             </p>
-            <div className="mt-6 space-y-3">
-              {[
-                "Publish only when the brief is complete and stakeholder-ready.",
-                "Send back to draft when the role needs more edits or a tighter hiring brief.",
-                "Close when the role should be rejected or paused from the active queue.",
-              ].map((line) => (
-                <div key={line} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Queue reason</p>
+                <p className="mt-2 text-sm font-semibold text-slate-900">{getRoleReviewStateMeta(previewRole.status).label}</p>
+                <p className="mt-1 text-sm leading-6 text-slate-600">{getRoleReviewStateMeta(previewRole.status).body}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Role readiness</p>
+                <p className="mt-2 text-sm font-semibold text-slate-900">
+                  {previewRole.status === "published" ? "Live in vendor pipeline" : previewRole.status === "closed" ? "Archived from live hiring" : "Still in admin review"}
+                </p>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  {previewRole.candidateCount ?? 0} candidate{previewRole.candidateCount === 1 ? "" : "s"} currently attached to this role.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 space-y-3">
+              {getRoleReviewGuidance(previewRole).checklist.map((line) => (
+                <div key={line} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
                   {line}
                 </div>
               ))}
@@ -639,7 +748,7 @@ export default function AdminRoles() {
             <div className="mt-6 flex flex-wrap gap-2">
               <Link
                 href={`/admin/roles/${previewRole.id}/candidates`}
-                className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-white px-4 text-sm font-semibold text-slate-950 transition-all duration-150 hover:-translate-y-0.5 hover:bg-cyan-100 active:translate-y-0 active:scale-[0.98]"
+                className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-950 px-4 text-sm font-semibold text-white transition-all duration-150 hover:-translate-y-0.5 hover:border-slate-900 hover:bg-slate-900 active:translate-y-0 active:scale-[0.98]"
               >
                 <Eye className="h-4 w-4" />
                 Open pipeline
@@ -647,7 +756,7 @@ export default function AdminRoles() {
               <Button
                 type="button"
                 variant="outline"
-                className="rounded-xl border-white/15 bg-transparent text-white hover:bg-white/10 hover:text-white"
+                className="rounded-xl border-slate-200 bg-white text-slate-800 hover:bg-slate-50 hover:text-slate-900"
                 onClick={() => openEditDialog(previewRole)}
               >
                 <Pencil className="mr-1.5 h-4 w-4" />
@@ -667,7 +776,7 @@ export default function AdminRoles() {
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Company</th>
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Updated</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -687,6 +796,9 @@ export default function AdminRoles() {
                 const reviewState = getRoleReviewStateMeta(role.status);
                 const summary = getRoleSummaryLines(role);
                 const selected = previewRole?.id === role.id;
+                const rowActions = getRoleActionCopy(role.status);
+                const rowSecondaryAction = "secondary" in rowActions ? rowActions.secondary! : null;
+                const rowDestructiveAction = "destructive" in rowActions ? rowActions.destructive! : null;
 
                 return (
                   <tr
@@ -736,7 +848,7 @@ export default function AdminRoles() {
                       <div className="mt-1 text-xs text-slate-400">Created {format(new Date(role.createdAt), "MMM d, yyyy")}</div>
                     </td>
                     <td className="px-6 py-4 align-top">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="grid min-w-[12rem] gap-2 xl:min-w-[15rem] xl:justify-items-end">
                         <Button
                           size="sm"
                           variant="outline"
@@ -752,67 +864,54 @@ export default function AdminRoles() {
                         </Button>
                         <Button
                           size="sm"
+                          variant={rowActions.primary.variant}
                           disabled={isUpdatingStatus && pendingRoleId === role.id}
-                          className={getRoleActionCopy(role.status).primary.className}
+                          className={rowActions.primary.className}
                           onClick={(event) => {
                             event.stopPropagation();
-                            changeStatus(role.id, getRoleActionCopy(role.status).primary.status);
+                            changeStatus(role.id, rowActions.primary.status);
                           }}
                         >
                           <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-                          {getRoleReviewActionLabel(role.status)}
+                          {rowActions.primary.label}
                         </Button>
-                        {role.status !== "draft" ? (
+                        {rowSecondaryAction ? (
                           <Button
                             size="sm"
-                            variant="outline"
+                            variant={rowSecondaryAction.variant}
                             disabled={isUpdatingStatus && pendingRoleId === role.id}
-                            className="rounded-lg h-8 border-sky-200 text-sky-700 hover:bg-sky-50 hover:text-sky-800"
+                            className={rowSecondaryAction.className}
                             onClick={(event) => {
                               event.stopPropagation();
-                              changeStatus(role.id, "draft");
+                              changeStatus(role.id, rowSecondaryAction.status);
                             }}
                           >
                             <ArrowRight className="w-3.5 h-3.5 mr-1.5" />
-                            Send back
+                            {rowSecondaryAction.label}
                           </Button>
                         ) : null}
-                        {role.status !== "closed" ? (
+                        {rowDestructiveAction ? (
                           <Button
                             size="sm"
-                            variant="outline"
+                            variant={rowDestructiveAction.variant}
                             disabled={isUpdatingStatus && pendingRoleId === role.id}
-                            className="rounded-lg h-8 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                            className={rowDestructiveAction.className}
                             onClick={(event) => {
                               event.stopPropagation();
-                              changeStatus(role.id, "closed");
+                              changeStatus(role.id, rowDestructiveAction.status);
                             }}
                           >
                             <XCircle className="w-3.5 h-3.5 mr-1.5" />
-                            Reject
+                            {rowDestructiveAction.label}
                           </Button>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={isUpdatingStatus && pendingRoleId === role.id}
-                            className="rounded-lg h-8 border-slate-200 text-slate-600 hover:bg-slate-100"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              changeStatus(role.id, "draft");
-                            }}
-                          >
-                            <Archive className="w-3.5 h-3.5 mr-1.5" />
-                            Reopen
-                          </Button>
-                        )}
+                        ) : null}
                         <Link
                           href={`/admin/roles/${role.id}/candidates`}
-                          className="inline-flex min-h-8 items-center justify-center gap-1 rounded-lg px-3 text-xs font-medium text-slate-700 transition-all duration-150 hover:-translate-y-0.5 hover:bg-slate-100 hover:text-primary active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                          className="inline-flex min-h-8 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 hover:text-primary active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                           onClick={(event) => event.stopPropagation()}
                         >
                           <Eye className="h-3.5 w-3.5" />
-                          Open
+                          Open pipeline
                         </Link>
                       </div>
                     </td>
