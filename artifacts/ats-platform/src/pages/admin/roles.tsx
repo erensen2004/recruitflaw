@@ -16,7 +16,6 @@ import {
 import {
   ArrowRight,
   Briefcase,
-  Building2,
   CheckCircle2,
   Eye,
   Filter,
@@ -232,6 +231,7 @@ function RoleReviewCard({
 }) {
   const summary = getRoleSummaryLines(role);
   const state = getRoleReviewStateMeta(role.status);
+  const guidance = getRoleReviewGuidance(role);
   const actions = getRoleActionCopy(role.status);
   const secondaryAction = "secondary" in actions ? actions.secondary! : null;
   const destructiveAction = "destructive" in actions ? actions.destructive! : null;
@@ -361,6 +361,40 @@ function RoleReviewCard({
           <Eye className="h-4 w-4" />
           Open pipeline
         </Link>
+      </div>
+
+      <div className="mt-6 border-t border-slate-200 pt-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Admin review guidance</p>
+            <h3 className="mt-1 text-lg font-semibold text-slate-950">{guidance.heading}</h3>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">{guidance.description}</p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Queue reason</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">{state.label}</p>
+              <p className="mt-1 text-sm leading-5 text-slate-600">{state.body}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Role readiness</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">
+                {role.status === "published" ? "Live in vendor pipeline" : role.status === "closed" ? "Archived from live hiring" : "Still in admin review"}
+              </p>
+              <p className="mt-1 text-sm leading-5 text-slate-600">
+                {role.candidateCount ?? 0} candidate{role.candidateCount === 1 ? "" : "s"} currently attached to this role.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3">
+          {guidance.checklist.map((line) => (
+            <div key={line} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              {line}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -698,7 +732,7 @@ export default function AdminRoles() {
         ) : null}
 
       {previewRole ? (
-        <div ref={reviewPanelRef} className="mb-6 grid gap-6 xl:grid-cols-[1.35fr,0.95fr]">
+        <div ref={reviewPanelRef} className="mb-6">
           <RoleReviewCard
             role={previewRole as AdminReviewRole}
             onEdit={openEditDialog}
@@ -706,57 +740,6 @@ export default function AdminRoles() {
             onUpdateStatus={changeStatus}
             pendingRoleId={pendingRoleId}
           />
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-500">
-              <Building2 className="h-4 w-4 text-cyan-300" />
-              Selected role review brief
-            </div>
-            <h2 className="mt-3 text-2xl font-bold text-slate-950">{getRoleReviewGuidance(previewRole).heading}</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              {getRoleReviewGuidance(previewRole).description}
-            </p>
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Queue reason</p>
-                <p className="mt-2 text-sm font-semibold text-slate-900">{getRoleReviewStateMeta(previewRole.status).label}</p>
-                <p className="mt-1 text-sm leading-6 text-slate-600">{getRoleReviewStateMeta(previewRole.status).body}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Role readiness</p>
-                <p className="mt-2 text-sm font-semibold text-slate-900">
-                  {previewRole.status === "published" ? "Live in vendor pipeline" : previewRole.status === "closed" ? "Archived from live hiring" : "Still in admin review"}
-                </p>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  {previewRole.candidateCount ?? 0} candidate{previewRole.candidateCount === 1 ? "" : "s"} currently attached to this role.
-                </p>
-              </div>
-            </div>
-            <div className="mt-4 space-y-3">
-              {getRoleReviewGuidance(previewRole).checklist.map((line) => (
-                <div key={line} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                  {line}
-                </div>
-              ))}
-            </div>
-            <div className="mt-6 flex flex-wrap gap-2">
-              <Link
-                href={`/admin/roles/${previewRole.id}/candidates`}
-                className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-950 px-4 text-sm font-semibold text-white transition-all duration-150 hover:-translate-y-0.5 hover:border-slate-900 hover:bg-slate-900 active:translate-y-0 active:scale-[0.98]"
-              >
-                <Eye className="h-4 w-4" />
-                Open pipeline
-              </Link>
-              <Button
-                type="button"
-                variant="outline"
-                className="rounded-xl border-slate-200 bg-white text-slate-800 hover:bg-slate-50 hover:text-slate-900"
-                onClick={() => openEditDialog(previewRole)}
-              >
-                <Pencil className="mr-1.5 h-4 w-4" />
-                Edit review
-              </Button>
-            </div>
-          </div>
         </div>
       ) : null}
 
