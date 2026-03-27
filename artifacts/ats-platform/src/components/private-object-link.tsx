@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn, openPrivateObject } from "@/lib/utils";
@@ -9,7 +9,7 @@ type PrivateObjectLinkProps = {
   children: ReactNode;
   loadingLabel?: string;
   disabled?: boolean;
-};
+} & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type" | "children" | "disabled">;
 
 export function PrivateObjectLink({
   objectPath,
@@ -17,16 +17,21 @@ export function PrivateObjectLink({
   children,
   loadingLabel = "Opening CV…",
   disabled = false,
+  onClick,
+  ...buttonProps
 }: PrivateObjectLinkProps) {
   const { toast } = useToast();
   const [opening, setOpening] = useState(false);
 
   return (
     <button
+      {...buttonProps}
       type="button"
       disabled={disabled || !objectPath || opening}
       className={cn(className, (!objectPath || disabled || opening) && "pointer-events-none opacity-60")}
-      onClick={async () => {
+      onClick={async (event) => {
+        onClick?.(event);
+        if (event.defaultPrevented) return;
         if (!objectPath || opening) return;
         setOpening(true);
         try {

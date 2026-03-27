@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { UserCircle, Loader2, Plus, FileText, Upload, Tag, Sparkles } from "lucide-react";
+import { UserCircle, Loader2, ArrowRight, FileText, Upload, Tag, Sparkles } from "lucide-react";
 import { format } from "date-fns";
 import { validateResumeFile } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -14,7 +14,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getListCandidatesQueryKey } from "@workspace/api-client-react";
 import { getErrorMessage, parseResumeFileWithFallback, type ParsedCandidateProfile } from "@/lib/resume-parse";
 import { uploadResumeFile } from "@/lib/resume-upload";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { ResumeDropzone } from "@/components/upload/resume-dropzone";
 import { formatTurkishLira } from "@/lib/candidate-display";
 import { PrivateObjectLink } from "@/components/private-object-link";
@@ -22,6 +22,7 @@ import { PrivateObjectLink } from "@/components/private-object-link";
 export default function VendorCandidates() {
   const { data: candidates, isLoading } = useListCandidates();
   const { data: roles } = useListRoles();
+  const [, setLocation] = useLocation();
   const [isOpen, setIsOpen] = useState(false);
   const [cvFile, setCvFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -44,6 +45,15 @@ export default function VendorCandidates() {
     setParsing(false);
     setParseProgress("");
     setUploading(false);
+  };
+
+  const navigateToCandidate = (candidateId: number) => {
+    setLocation(`/vendor/candidates/${candidateId}`);
+  };
+
+  const shouldIgnoreRowNavigation = (target: EventTarget | null) => {
+    if (!(target instanceof HTMLElement)) return false;
+    return Boolean(target.closest("button, a, input, select, textarea, [data-row-action='true']"));
   };
 
   const { mutate: submit, isPending } = useSubmitCandidate({
@@ -195,7 +205,7 @@ export default function VendorCandidates() {
           </div>
           <Button asChild className="h-11 rounded-xl px-6 shadow-md hover-elevate active-elevate-2">
             <Link href="/vendor/positions">
-              <Plus className="mr-2 h-4 w-4" />
+              <ArrowRight className="mr-2 h-4 w-4" />
               Open Positions
             </Link>
           </Button>
@@ -213,24 +223,38 @@ export default function VendorCandidates() {
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">CV</th>
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Date Submitted</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {isLoading ? (
-                <tr><td colSpan={8} className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-slate-400" /></td></tr>
+                <tr><td colSpan={7} className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-slate-400" /></td></tr>
               ) : candidates?.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-12 text-center">
+                  <td colSpan={7} className="p-12 text-center">
                     <UserCircle className="w-12 h-12 mx-auto mb-3 text-slate-300" />
                     <p className="text-slate-500 font-medium">No candidates yet</p>
-                    <p className="text-sm text-slate-400 mt-1">Click &quot;Add Candidate&quot; to submit your first candidate and start tracking their pipeline.</p>
+                    <p className="text-sm text-slate-400 mt-1">Open a published position first, then submit your first candidate from the role detail page.</p>
                   </td>
                 </tr>
               ) : candidates?.map(c => {
                 const splitTags = c.tags ? c.tags.split(",").map(t => t.trim()).filter(Boolean) : [];
                 return (
-                  <tr key={c.id} className="hover:bg-slate-50/50 transition-colors">
+                  <tr
+                    key={c.id}
+                    className="group cursor-pointer hover:bg-slate-50/70 transition-colors focus-within:bg-slate-50/70"
+                    tabIndex={0}
+                    onClick={(event) => {
+                      if (shouldIgnoreRowNavigation(event.target)) return;
+                      navigateToCandidate(c.id);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        if (shouldIgnoreRowNavigation(event.target)) return;
+                        navigateToCandidate(c.id);
+                      }
+                    }}
+                  >
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-orange-50 flex items-center justify-center flex-shrink-0 text-orange-600">
@@ -239,6 +263,10 @@ export default function VendorCandidates() {
                         <div>
                           <div className="font-semibold text-slate-900">{c.firstName} {c.lastName}</div>
                           <div className="text-sm text-slate-500">{c.email}</div>
+                          <div className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-slate-400 transition-colors group-hover:text-primary">
+                            Open details
+                            <ArrowRight className="h-3 w-3" />
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -258,6 +286,7 @@ export default function VendorCandidates() {
                       {c.cvUrl ? (
                         <PrivateObjectLink
                           objectPath={c.cvUrl}
+                          data-row-action="true"
                           className="inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-all hover:text-primary/80 hover:underline active:scale-[0.98]"
                         >
                           <FileText className="w-4 h-4" /> View CV
@@ -268,14 +297,6 @@ export default function VendorCandidates() {
                     </td>
                     <td className="px-6 py-4"><StatusBadge status={c.status} /></td>
                     <td className="px-6 py-4 text-sm text-slate-600">{format(new Date(c.submittedAt), "MMM d, yyyy")}</td>
-                    <td className="px-6 py-4">
-                      <Link
-                        href={`/vendor/candidates/${c.id}`}
-                        className="inline-flex min-h-8 items-center justify-center rounded-lg px-3 text-xs font-medium text-slate-700 transition-all duration-150 hover:-translate-y-0.5 hover:bg-slate-100 hover:text-primary active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                      >
-                        Details
-                      </Link>
-                    </td>
                   </tr>
                 );
               })}
