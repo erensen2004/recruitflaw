@@ -29,6 +29,67 @@ export function getPrivateObjectUrl(objectPath?: string | null) {
   return `/api/storage/objects/${objectPath.replace(/^\/+/, "")}`;
 }
 
+export async function openPrivateObject(objectPath?: string | null, options?: { token?: string | null }) {
+  const url = getPrivateObjectUrl(objectPath);
+  if (!url) {
+    throw new Error("CV file is not available.");
+  }
+
+  const token = options?.token ?? (typeof window !== "undefined" ? localStorage.getItem("ats_token") : null);
+  if (!token) {
+    throw new Error("Please sign in again to open private CV files.");
+  }
+
+  const popup = typeof window !== "undefined" ? window.open("", "_blank") : null;
+  if (popup) {
+    popup.document.title = "Opening CV...";
+    popup.document.body.innerHTML = "<p style=\"font-family: sans-serif; padding: 24px;\">Opening CV...</p>";
+  }
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      let errorMessage = `Failed to open CV (${response.status})`;
+      const contentType = response.headers.get("content-type") ?? "";
+      try {
+        if (contentType.includes("application/json")) {
+          const body = await response.json() as { message?: string; error?: string };
+          errorMessage = body.message || body.error || errorMessage;
+        } else {
+          const body = await response.text();
+          if (body.trim()) errorMessage = body.trim();
+        }
+      } catch {
+        // Keep the fallback status-based message.
+      }
+
+      if (popup && !popup.closed) popup.close();
+      throw new Error(errorMessage);
+    }
+
+    const blob = await response.blob();
+    const blobUrl = URL.createObjectURL(blob);
+
+    if (popup && !popup.closed) {
+      popup.location.replace(blobUrl);
+    } else if (typeof window !== "undefined") {
+      window.open(blobUrl, "_blank");
+    }
+
+    window.setTimeout(() => {
+      URL.revokeObjectURL(blobUrl);
+    }, 60_000);
+  } catch (error) {
+    if (popup && !popup.closed) popup.close();
+    throw error;
+  }
+}
+
 export function validatePdfResumeFile(file: File) {
   return validateResumeFile(file, { pdfOnly: true });
 }

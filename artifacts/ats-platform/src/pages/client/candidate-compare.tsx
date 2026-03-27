@@ -1,12 +1,11 @@
 import { useMemo, type ReactNode } from "react";
 import { useListCandidates, type Candidate } from "@workspace/api-client-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Link, useLocation, useRoute } from "wouter";
 import { ArrowLeft, Eye, FileText, Sparkles, AlertTriangle, Columns3, X } from "lucide-react";
-import { getPrivateObjectUrl } from "@/lib/utils";
 import {
   formatTurkishLira,
   getCandidateCompleteness,
@@ -14,6 +13,7 @@ import {
   getCandidateExecutiveBrief,
   getCandidateReadinessSnapshot,
 } from "@/lib/candidate-display";
+import { PrivateObjectLink } from "@/components/private-object-link";
 
 function parseCompareIds(location: string) {
   const search = location.split("?")[1] ?? "";
@@ -350,11 +350,12 @@ export default function CandidateCompare() {
                           </Link>
                         </Button>
                         {candidate.cvUrl ? (
-                          <Button asChild variant="outline" size="sm" className="rounded-xl">
-                            <a href={getPrivateObjectUrl(candidate.cvUrl) ?? "#"} target="_blank" rel="noreferrer">
-                              <FileText className="h-4 w-4" /> View CV
-                            </a>
-                          </Button>
+                          <PrivateObjectLink
+                            objectPath={candidate.cvUrl}
+                            className={buttonVariants({ variant: "outline", size: "sm", className: "rounded-xl" })}
+                          >
+                            <FileText className="h-4 w-4" /> View CV
+                          </PrivateObjectLink>
                         ) : null}
                       </div>
                     </CardContent>

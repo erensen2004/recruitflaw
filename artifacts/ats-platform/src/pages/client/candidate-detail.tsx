@@ -8,7 +8,7 @@ import {
 } from "@workspace/api-client-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -36,8 +36,8 @@ import {
 import { useRoute, Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { getPrivateObjectUrl } from "@/lib/utils";
 import { invalidateCandidateQueries, syncCandidateAcrossCaches } from "@/lib/candidate-query";
+import { PrivateObjectLink } from "@/components/private-object-link";
 import { ReviewThreadPanel } from "@/components/review-thread-panel";
 import {
   formatTurkishLira,
@@ -510,11 +510,12 @@ export default function ClientCandidateDetail() {
                     </Button>
                   ) : null}
                   {candidate.cvUrl ? (
-                    <Button asChild variant="outline" size="sm" className="rounded-xl gap-2">
-                      <a href={getPrivateObjectUrl(candidate.cvUrl) ?? "#"} target="_blank" rel="noreferrer">
-                        <FileText className="h-4 w-4" /> View Original CV
-                      </a>
-                    </Button>
+                    <PrivateObjectLink
+                      objectPath={candidate.cvUrl}
+                      className={buttonVariants({ variant: "outline", size: "sm", className: "rounded-xl gap-2" })}
+                    >
+                      <FileText className="h-4 w-4" /> View Original CV
+                    </PrivateObjectLink>
                   ) : null}
                   <Button
                     variant="outline"

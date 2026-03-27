@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UserCircle, Loader2, Plus, FileText, Upload, Tag, Sparkles } from "lucide-react";
 import { format } from "date-fns";
-import { getPrivateObjectUrl, validateResumeFile } from "@/lib/utils";
+import { validateResumeFile } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListCandidatesQueryKey } from "@workspace/api-client-react";
@@ -17,6 +17,7 @@ import { uploadResumeFile } from "@/lib/resume-upload";
 import { Link } from "wouter";
 import { ResumeDropzone } from "@/components/upload/resume-dropzone";
 import { formatTurkishLira } from "@/lib/candidate-display";
+import { PrivateObjectLink } from "@/components/private-object-link";
 
 export default function VendorCandidates() {
   const { data: candidates, isLoading } = useListCandidates();
@@ -255,14 +256,12 @@ export default function VendorCandidates() {
                     <td className="px-6 py-4 text-slate-600">{c.expectedSalary ? formatTurkishLira(c.expectedSalary) : "-"}</td>
                     <td className="px-6 py-4">
                       {c.cvUrl ? (
-                        <a
-                          href={getPrivateObjectUrl(c.cvUrl) ?? "#"}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <PrivateObjectLink
+                          objectPath={c.cvUrl}
                           className="inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-all hover:text-primary/80 hover:underline active:scale-[0.98]"
                         >
                           <FileText className="w-4 h-4" /> View CV
-                        </a>
+                        </PrivateObjectLink>
                       ) : (
                         <span className="text-slate-400 text-sm">-</span>
                       )}

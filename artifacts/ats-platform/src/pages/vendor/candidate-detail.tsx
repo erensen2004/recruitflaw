@@ -3,18 +3,19 @@ import { useGetCandidate, useListCandidateHistory, useListCandidateNotes } from 
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Link, useRoute } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ReviewThreadPanel } from "@/components/review-thread-panel";
 import { Loader2, ArrowLeft, FileText, Upload, Save, Undo2, Clock3, AlertTriangle, MessageSquare, Tag } from "lucide-react";
-import { getPrivateObjectUrl, validateResumeFile } from "@/lib/utils";
+import { validateResumeFile } from "@/lib/utils";
 import { invalidateCandidateQueries, syncCandidateAcrossCaches } from "@/lib/candidate-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { parseResumeFileWithFallback, type ParsedCandidateProfile } from "@/lib/resume-parse";
 import { uploadResumeFile } from "@/lib/resume-upload";
 import { formatTurkishLira, parseCandidateTags } from "@/lib/candidate-display";
+import { PrivateObjectLink } from "@/components/private-object-link";
 
 const EDITABLE_STATUSES = new Set(["submitted", "screening", "pending_approval"]);
 
@@ -319,11 +320,12 @@ export default function VendorCandidateDetail() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {candidate.cvUrl ? (
-                    <Button asChild variant="outline" size="sm" className="rounded-xl gap-2">
-                      <a href={getPrivateObjectUrl(candidate.cvUrl) ?? "#"} target="_blank" rel="noreferrer">
-                        <FileText className="h-4 w-4" /> View Original CV
-                      </a>
-                    </Button>
+                    <PrivateObjectLink
+                      objectPath={candidate.cvUrl}
+                      className={buttonVariants({ variant: "outline", size: "sm", className: "rounded-xl gap-2" })}
+                    >
+                      <FileText className="h-4 w-4" /> View Original CV
+                    </PrivateObjectLink>
                   ) : null}
                 </div>
               </div>

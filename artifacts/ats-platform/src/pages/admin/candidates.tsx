@@ -16,7 +16,6 @@ import {
 } from "@/components/ui/dialog";
 import { UserCircle, Loader2, FileText, AlertTriangle, Eye, CheckCircle2, XCircle, Search, Columns3, X } from "lucide-react";
 import { format } from "date-fns";
-import { getPrivateObjectUrl } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
@@ -29,6 +28,7 @@ import {
   requiresStatusReason,
 } from "@/lib/candidate-display";
 import { Input } from "@/components/ui/input";
+import { PrivateObjectLink } from "@/components/private-object-link";
 
 const CANDIDATE_STATUSES = ["submitted", "screening", "interview", "offer", "hired", "rejected"] as const;
 type CandidateStatusValue = (typeof CANDIDATE_STATUSES)[number];
@@ -350,14 +350,12 @@ export default function AdminCandidates() {
                   <td className="px-6 py-4 text-slate-600">{c.vendorCompanyName}</td>
                   <td className="px-6 py-4">
                     {c.cvUrl ? (
-                      <a
-                        href={getPrivateObjectUrl(c.cvUrl) ?? "#"}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <PrivateObjectLink
+                        objectPath={c.cvUrl}
                         className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
                       >
                         <FileText className="w-4 h-4" /> View CV
-                      </a>
+                      </PrivateObjectLink>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-amber-600 text-sm">
                         <AlertTriangle className="w-4 h-4" /> Missing

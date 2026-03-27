@@ -8,9 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Search, FileText, Eye, AlertTriangle, Columns3, X } from "lucide-react";
 import { Link, useLocation } from "wouter";
-import { getPrivateObjectUrl } from "@/lib/utils";
 import { getCandidateCompleteness, parseCandidateTags } from "@/lib/candidate-display";
 import { useToast } from "@/hooks/use-toast";
+import { PrivateObjectLink } from "@/components/private-object-link";
 
 function getParseBadge(candidate: { parseStatus: string; parseReviewRequired: boolean }) {
   if (candidate.parseStatus === "parsed" && !candidate.parseReviewRequired) {
@@ -305,10 +305,11 @@ export default function ClientCandidates() {
                     <td className="px-5 py-4"><StatusBadge status={c.status} /></td>
                     <td className="px-5 py-4">
                       {c.cvUrl ? (
-                        <a href={getPrivateObjectUrl(c.cvUrl) ?? "#"} target="_blank" rel="noreferrer"
+                        <PrivateObjectLink
+                          objectPath={c.cvUrl}
                           className="inline-flex items-center gap-1 text-xs font-medium text-primary transition-all hover:text-primary/80 hover:underline active:scale-[0.98]">
                           <FileText className="w-3.5 h-3.5" /> View
-                        </a>
+                        </PrivateObjectLink>
                       ) : <span className="text-slate-300 text-xs">—</span>}
                     </td>
                     <td className="px-5 py-4">

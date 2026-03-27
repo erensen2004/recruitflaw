@@ -17,7 +17,7 @@ import { UserCircle, Loader2, ArrowLeft, FileText, MapPin, Eye } from "lucide-re
 import { useRoute, Link } from "wouter";
 import { format } from "date-fns";
 import { useQueryClient } from "@tanstack/react-query";
-import { cn, getPrivateObjectUrl } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { invalidateCandidateQueries, syncCandidateAcrossCaches } from "@/lib/candidate-query";
 import { ReviewThreadPanel } from "@/components/review-thread-panel";
@@ -29,6 +29,7 @@ import {
   requiresStatusReason,
 } from "@/lib/candidate-display";
 import { getRoleSummaryLines } from "@/lib/role-display";
+import { PrivateObjectLink } from "@/components/private-object-link";
 
 const CANDIDATE_STATUSES = ["submitted", "screening", "interview", "offer", "hired", "rejected"] as const;
 type CandidateStatusValue = (typeof CANDIDATE_STATUSES)[number];
@@ -237,14 +238,12 @@ export default function ClientRoleCandidates() {
                       <td className="px-6 py-4 text-slate-600">{formatTurkishLira(candidate.expectedSalary)}</td>
                       <td className="px-6 py-4">
                         {candidate.cvUrl ? (
-                          <a
-                            href={getPrivateObjectUrl(candidate.cvUrl) ?? "#"}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          <PrivateObjectLink
+                            objectPath={candidate.cvUrl}
                             className="inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-all hover:text-primary/80 hover:underline active:scale-[0.98]"
                           >
                             <FileText className="w-4 h-4" /> View CV
-                          </a>
+                          </PrivateObjectLink>
                         ) : (
                           <span className="text-slate-400 text-sm">—</span>
                         )}
