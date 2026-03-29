@@ -32,6 +32,7 @@ import { PrivateObjectLink } from "@/components/private-object-link";
 
 const CANDIDATE_STATUSES = ["submitted", "screening", "interview", "offer", "hired", "rejected"] as const;
 type CandidateStatusValue = (typeof CANDIDATE_STATUSES)[number];
+type CandidateStatusSelectValue = CandidateStatusValue | "pending_approval" | "withdrawn";
 type ReviewTab = "all" | "pending" | "normalize" | "ready";
 
 function getParseBadge(parseStatus: string, reviewRequired: boolean) {
@@ -103,6 +104,11 @@ export default function AdminCandidates() {
     () => (candidates ?? []).filter((candidate) => selectedCandidateIds.includes(candidate.id)).slice(0, 3),
     [candidates, selectedCandidateIds],
   );
+
+  const getSelectStatusValue = (status: string): CandidateStatusSelectValue =>
+    status === "pending_approval" || status === "withdrawn"
+      ? status
+      : (status as CandidateStatusValue);
 
   const toggleCandidateSelection = (candidateId: number) => {
     setSelectedCandidateIds((current) => {
@@ -393,20 +399,25 @@ export default function AdminCandidates() {
                         <XCircle className="h-3.5 w-3.5" /> Reject
                       </Button>
                       <Select
-                        value={c.status}
-                        onValueChange={(value) => requestStatusUpdate(c.id, value as CandidateStatusValue)}
+                        value={getSelectStatusValue(c.status)}
+                        onValueChange={(value) => {
+                          if (value === "pending_approval" || value === "withdrawn") return;
+                          requestStatusUpdate(c.id, value as CandidateStatusValue);
+                        }}
                         disabled={updatingStatus && pendingCandidateId === c.id}
                       >
                         <SelectTrigger className="h-9 min-w-[140px] rounded-xl border-slate-200 bg-white">
                           <SelectValue placeholder={updatingStatus && pendingCandidateId === c.id ? "Updating..." : undefined} />
                         </SelectTrigger>
                         <SelectContent>
+                          <SelectItem value="pending_approval" disabled>Pending approval</SelectItem>
                           <SelectItem value="submitted">Submitted</SelectItem>
                           <SelectItem value="screening">Screening</SelectItem>
                           <SelectItem value="interview">Interview</SelectItem>
                           <SelectItem value="offer">Offer</SelectItem>
                           <SelectItem value="hired">Hired</SelectItem>
                           <SelectItem value="rejected">Rejected</SelectItem>
+                          <SelectItem value="withdrawn" disabled>Withdrawn</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
