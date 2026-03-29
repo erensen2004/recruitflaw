@@ -86,6 +86,32 @@ function cleanSnapshotText(value?: string | null) {
   return normalized;
 }
 
+function hasMeaningfulValue(value?: string | null) {
+  return Boolean(cleanSnapshotText(value));
+}
+
+function getMeaningfulExperience(candidate: Candidate) {
+  return candidate.parsedExperience.filter(
+    (item) =>
+      hasMeaningfulValue(item.title) ||
+      hasMeaningfulValue(item.company) ||
+      hasMeaningfulValue(item.startDate) ||
+      hasMeaningfulValue(item.endDate) ||
+      item.highlights?.some((highlight) => hasMeaningfulValue(highlight)),
+  );
+}
+
+function getMeaningfulEducation(candidate: Candidate) {
+  return candidate.parsedEducation.filter(
+    (item) =>
+      hasMeaningfulValue(item.degree) ||
+      hasMeaningfulValue(item.fieldOfStudy) ||
+      hasMeaningfulValue(item.institution) ||
+      hasMeaningfulValue(item.startDate) ||
+      hasMeaningfulValue(item.endDate),
+  );
+}
+
 function getParseBadge(parseStatus: string, confidence?: number | null, reviewRequired?: boolean) {
   if (parseStatus === "parsed" && !reviewRequired) {
     return {
@@ -106,6 +132,8 @@ function getParseBadge(parseStatus: string, confidence?: number | null, reviewRe
 }
 
 function buildNormalizedProfileCards(candidate: Candidate) {
+  const meaningfulExperience = getMeaningfulExperience(candidate);
+  const meaningfulEducation = getMeaningfulEducation(candidate);
   const profileCards = [
     { label: "Headline", value: candidate.currentTitle || `${candidate.firstName} ${candidate.lastName}` },
     {
@@ -118,7 +146,7 @@ function buildNormalizedProfileCards(candidate: Candidate) {
       value:
         candidate.yearsExperience != null
           ? `${candidate.yearsExperience} years`
-          : candidate.parsedExperience[0]?.title || "Experience depth needs review",
+          : cleanSnapshotText(meaningfulExperience[0]?.title) || candidate.currentTitle || "Experience depth needs review",
     },
     {
       label: "Skills",
@@ -131,7 +159,7 @@ function buildNormalizedProfileCards(candidate: Candidate) {
       label: "Education",
       value:
         candidate.education ||
-        candidate.parsedEducation.map((item) => [item.degree, item.institution].filter(Boolean).join(" • ")).filter(Boolean).slice(0, 1)[0] ||
+        meaningfulEducation.map((item) => [item.degree, item.institution].filter(Boolean).join(" • ")).filter(Boolean).slice(0, 1)[0] ||
         "Education not finalized",
     },
     {
@@ -257,6 +285,8 @@ export default function ClientCandidateDetail() {
   const cleanSummary = cleanSnapshotText(candidate?.summary);
   const cleanStandardizedProfile = cleanSnapshotText(candidate?.standardizedProfile);
   const cleanLanguages = cleanSnapshotText(candidate?.languages);
+  const meaningfulExperience = useMemo(() => (candidate ? getMeaningfulExperience(candidate) : []), [candidate]);
+  const meaningfulEducation = useMemo(() => (candidate ? getMeaningfulEducation(candidate) : []), [candidate]);
   const readinessSnapshot = candidate ? getCandidateReadinessSnapshot(candidate) : null;
   const executiveBrief = candidate ? getCandidateExecutiveBrief(candidate) : null;
 
@@ -571,9 +601,9 @@ export default function ClientCandidateDetail() {
                     {[
                       { label: "Contact", ready: Boolean(candidate.email && candidate.phone) },
                       { label: "Compensation", ready: candidate.expectedSalary != null },
-                      { label: "Languages", ready: Boolean(cleanLanguages) },
-                      { label: "Structured experience", ready: candidate.parsedExperience.length > 0 },
-                      { label: "Structured education", ready: candidate.parsedEducation.length > 0 },
+                      { label: "Languages", ready: Boolean(cleanLanguages || englishLevel) },
+                      { label: "Structured experience", ready: meaningfulExperience.length > 0 },
+                      { label: "Structured education", ready: meaningfulEducation.length > 0 },
                       { label: "Recruiter summary", ready: Boolean(cleanSummary) },
                     ].map((item: { label: string; ready: boolean }) => (
                       <div key={item.label} className={`rounded-xl px-3 py-2 text-sm font-medium ${item.ready ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
@@ -769,12 +799,16 @@ export default function ClientCandidateDetail() {
                 <div className="mt-4 grid gap-4 lg:grid-cols-2">
                 <div className="rounded-2xl border border-slate-100 p-4">
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Experience</p>
-                  {candidate.parsedExperience.length ? (
+                  {meaningfulExperience.length ? (
                     <div className="space-y-3">
-                      {candidate.parsedExperience.map((item, index) => (
+                      {meaningfulExperience.map((item, index) => (
                         <div key={`${item.title}-${item.company}-${index}`} className="rounded-xl bg-slate-50 p-3">
-                          <p className="font-semibold text-slate-900">{item.title || "Role not found"}</p>
-                          <p className="text-sm text-slate-500">{item.company || "Company not found"}</p>
+                          <p className="font-semibold text-slate-900">
+                            {cleanSnapshotText(item.title) || candidate.currentTitle || "Experience highlight"}
+                          </p>
+                          <p className="text-sm text-slate-500">
+                            {cleanSnapshotText(item.company) || "Company details pending normalization"}
+                          </p>
                           {(item.startDate || item.endDate) && (
                             <p className="mt-1 text-xs text-slate-400">
                               {[item.startDate, item.endDate].filter(Boolean).join(" - ")}
@@ -791,19 +825,29 @@ export default function ClientCandidateDetail() {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-slate-500">No structured experience extracted yet.</p>
+                    <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">
+                      {candidate.yearsExperience != null
+                        ? `${candidate.yearsExperience} years of experience captured. Detailed role history still needs admin normalization.`
+                        : candidate.parseReviewRequired
+                          ? "Experience details still need a quick admin review."
+                          : "Structured experience details have not been extracted yet."}
+                    </div>
                   )}
                 </div>
 
                 <div className="rounded-2xl border border-slate-100 p-4">
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Education & languages</p>
-                  {candidate.parsedEducation.length ? (
+                  {meaningfulEducation.length ? (
                     <div className="space-y-3">
-                      {candidate.parsedEducation.map((item, index) => (
+                      {meaningfulEducation.map((item, index) => (
                         <div key={`${item.institution}-${index}`} className="rounded-xl bg-slate-50 p-3">
-                          <p className="font-semibold text-slate-900">{item.degree || "Degree not found"}</p>
+                          <p className="font-semibold text-slate-900">
+                            {cleanSnapshotText(item.degree) || cleanSnapshotText(item.fieldOfStudy) || "Education record"}
+                          </p>
                           <p className="text-sm text-slate-600">
-                            {[item.fieldOfStudy, item.institution].filter(Boolean).join(" • ") || "Education details not found"}
+                            {cleanSnapshotText([item.fieldOfStudy, item.institution].filter(Boolean).join(" • ")) ||
+                              cleanSnapshotText(candidate.education) ||
+                              "Education details pending normalization"}
                           </p>
                           {(item.startDate || item.endDate) ? (
                             <p className="mt-1 text-xs text-slate-400">
@@ -815,13 +859,16 @@ export default function ClientCandidateDetail() {
                     </div>
                   ) : (
                     <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">
-                      {candidate.parseReviewRequired ? "Education needs a quick manual review." : "No structured education extracted yet."}
+                      {cleanSnapshotText(candidate.education) ||
+                        (candidate.parseReviewRequired
+                          ? "Education details need a quick admin review."
+                          : "Structured education details have not been extracted yet.")}
                     </div>
                   )}
                   <div className="mt-3 rounded-xl bg-slate-50 p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Languages</p>
                     <p className="mt-1 text-sm text-slate-700">
-                      {cleanLanguages || (candidate.parseReviewRequired ? "Needs review" : "Not available")}
+                      {cleanLanguages || englishLevel || (candidate.parseReviewRequired ? "Language details pending admin review" : "Language details not available yet")}
                     </p>
                   </div>
                 </div>
