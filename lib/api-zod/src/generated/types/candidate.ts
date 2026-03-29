@@ -9,6 +9,7 @@ import type { CandidateParsedEducation } from "./candidateParsedEducation";
 import type { CandidateParsedExperience } from "./candidateParsedExperience";
 import type { CandidateParseStatus } from "./candidateParseStatus";
 import type { CandidateStatus } from "./candidateStatus";
+import type { JobRoleStatus } from "./jobRoleStatus";
 
 export interface Candidate {
   id: number;
@@ -20,6 +21,7 @@ export interface Candidate {
   status: CandidateStatus;
   roleId: number;
   roleTitle: string;
+  roleStatus?: JobRoleStatus | null;
   vendorCompanyId: number;
   vendorCompanyName: string;
   submittedAt: Date;

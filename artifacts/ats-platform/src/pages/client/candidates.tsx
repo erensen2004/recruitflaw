@@ -1,12 +1,12 @@
 import { useDeferredValue, useMemo, useState } from "react";
-import { useListCandidates } from "@workspace/api-client-react";
+import { useListCandidates, useListRoles } from "@workspace/api-client-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Search, FileText, Eye, AlertTriangle, Columns3, X } from "lucide-react";
+import { Loader2, Search, FileText, Eye, AlertTriangle, Columns3, ArrowUpDown, X } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { getCandidateCompleteness, parseCandidateTags } from "@/lib/candidate-display";
 import { useToast } from "@/hooks/use-toast";
@@ -25,36 +25,70 @@ function getParseBadge(candidate: { parseStatus: string; parseReviewRequired: bo
 export default function ClientCandidates() {
   const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
-  const [skill, setSkill] = useState("");
   const [status, setStatus] = useState("all");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [vendorFilter, setVendorFilter] = useState("all");
   const [reviewRequired, setReviewRequired] = useState("all");
   const [hasCv, setHasCv] = useState("all");
-  const [minExperience, setMinExperience] = useState("");
+  const [sortBy, setSortBy] = useState("recent");
   const [highCompletenessOnly, setHighCompletenessOnly] = useState(false);
   const [adminApprovedOnly, setAdminApprovedOnly] = useState(false);
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<number[]>([]);
   const deferredSearch = useDeferredValue(search.trim());
-  const deferredSkill = useDeferredValue(skill.trim());
   const { toast } = useToast();
+  const { data: roles } = useListRoles();
 
   const { data: candidates, isLoading } = useListCandidates({
     search: deferredSearch || undefined,
-    skill: deferredSkill || undefined,
     status: status === "all" ? undefined : status,
+    roleId: roleFilter === "all" ? undefined : Number(roleFilter),
     reviewRequired: reviewRequired === "all" ? undefined : reviewRequired === "yes",
     hasCv: hasCv === "all" ? undefined : hasCv === "yes",
-    minExperience: minExperience ? Number(minExperience) : undefined,
+    vendorCompanyId: vendorFilter === "all" ? undefined : Number(vendorFilter),
   });
+
+  const roleOptions = useMemo(() => {
+    return (roles ?? [])
+      .map((role) => ({ id: role.id, title: role.title }))
+      .sort((left, right) => left.title.localeCompare(right.title));
+  }, [roles]);
+
+  const vendorOptions = useMemo(() => {
+    return Array.from(
+      new Map((candidates ?? []).map((candidate) => [candidate.vendorCompanyId, candidate.vendorCompanyName])).entries(),
+    )
+      .map(([id, name]) => ({ id, name }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }, [candidates]);
 
   const visibleCandidates = useMemo(() => {
     if (!candidates) return [];
 
-    return candidates.filter((candidate) => {
+    const filtered = candidates.filter((candidate) => {
       if (highCompletenessOnly && getCandidateCompleteness(candidate) < 85) return false;
       if (adminApprovedOnly && (candidate.parseReviewRequired || candidate.status === "pending_approval")) return false;
       return true;
     });
-  }, [adminApprovedOnly, candidates, highCompletenessOnly]);
+
+    return [...filtered].sort((left, right) => {
+      switch (sortBy) {
+        case "name_asc":
+          return `${left.firstName} ${left.lastName}`.localeCompare(`${right.firstName} ${right.lastName}`);
+        case "name_desc":
+          return `${right.firstName} ${right.lastName}`.localeCompare(`${left.firstName} ${left.lastName}`);
+        case "role_asc":
+          return (left.roleTitle ?? "").localeCompare(right.roleTitle ?? "");
+        case "company_asc":
+          return (left.vendorCompanyName ?? "").localeCompare(right.vendorCompanyName ?? "");
+        case "salary_desc":
+          return (right.expectedSalary ?? 0) - (left.expectedSalary ?? 0);
+        case "salary_asc":
+          return (left.expectedSalary ?? 0) - (right.expectedSalary ?? 0);
+        default:
+          return new Date(right.submittedAt).getTime() - new Date(left.submittedAt).getTime();
+      }
+    });
+  }, [adminApprovedOnly, candidates, highCompletenessOnly, sortBy]);
 
   const selectedCandidates = useMemo(
     () => (candidates ?? []).filter((candidate) => selectedCandidateIds.includes(candidate.id)).slice(0, 3),
@@ -96,59 +130,93 @@ export default function ClientCandidates() {
   return (
     <DashboardLayout allowedRoles={["client"]}>
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900">All Candidates</h1>
+        <h1 className="text-2xl font-bold text-slate-900">All Candidates</h1>
         <p className="text-slate-500 mt-1">Review admin-approved candidate submissions and manage the pipeline</p>
       </div>
 
-      <div className="mb-6 grid gap-3 lg:grid-cols-[1.6fr,1fr,1fr,1fr,1fr]">
-        <div className="relative lg:col-span-2">
+      <div className="mb-4 flex flex-col gap-2 xl:flex-row xl:items-center">
+        <div className="relative xl:min-w-[280px] xl:flex-[1.3]">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <Input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search by candidate, email, role, company, or tags..."
-            className="pl-11 h-11 rounded-xl"
+            className="pl-11 h-10 rounded-xl"
           />
         </div>
-        <Input
-          value={skill}
-          onChange={e => setSkill(e.target.value)}
-          placeholder="Filter by skill"
-          className="h-11 rounded-xl"
-        />
-        <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="h-11 rounded-xl">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            <SelectItem value="submitted">Submitted</SelectItem>
-            <SelectItem value="screening">Screening</SelectItem>
-            <SelectItem value="interview">Interview</SelectItem>
-            <SelectItem value="offer">Offer</SelectItem>
-            <SelectItem value="hired">Hired</SelectItem>
-            <SelectItem value="rejected">Rejected</SelectItem>
-          </SelectContent>
-        </Select>
-        <Input
-          value={minExperience}
-          onChange={e => setMinExperience(e.target.value.replace(/[^\d]/g, ""))}
-          placeholder="Min years exp."
-          className="h-11 rounded-xl"
-          inputMode="numeric"
-        />
+        <div className="grid gap-2 sm:grid-cols-2 xl:flex xl:flex-1 xl:flex-wrap">
+          <Select value={roleFilter} onValueChange={setRoleFilter}>
+            <SelectTrigger className="h-10 rounded-xl xl:w-[180px]">
+              <SelectValue placeholder="Role" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All roles</SelectItem>
+              {roleOptions.map((role) => (
+                <SelectItem key={role.id} value={String(role.id)}>
+                  {role.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={vendorFilter} onValueChange={setVendorFilter}>
+            <SelectTrigger className="h-10 rounded-xl xl:w-[190px]">
+              <SelectValue placeholder="Vendor" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All vendors</SelectItem>
+              {vendorOptions.map((vendor) => (
+                <SelectItem key={vendor.id} value={String(vendor.id)}>
+                  {vendor.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger className="h-10 rounded-xl xl:w-[160px]">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="submitted">Submitted</SelectItem>
+              <SelectItem value="screening">Screening</SelectItem>
+              <SelectItem value="interview">Interview</SelectItem>
+              <SelectItem value="offer">Offer</SelectItem>
+              <SelectItem value="hired">Hired</SelectItem>
+              <SelectItem value="rejected">Rejected</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={sortBy} onValueChange={setSortBy}>
+            <SelectTrigger className="h-10 rounded-xl xl:w-[190px]">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="recent">Sort: newest first</SelectItem>
+              <SelectItem value="name_asc">Sort: A-Z</SelectItem>
+              <SelectItem value="name_desc">Sort: Z-A</SelectItem>
+              <SelectItem value="role_asc">Sort: role</SelectItem>
+              <SelectItem value="company_asc">Sort: vendor</SelectItem>
+              <SelectItem value="salary_desc">Sort: salary high-low</SelectItem>
+              <SelectItem value="salary_asc">Sort: salary low-high</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          variant={reviewRequired === "yes" ? "default" : "outline"}
-          className="rounded-full"
-          onClick={() => setReviewRequired(reviewRequired === "yes" ? "all" : "yes")}
-        >
-          <AlertTriangle className="mr-2 h-4 w-4" />
-          Review needed
-        </Button>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-500">
+          <ArrowUpDown className="h-3.5 w-3.5" />
+          {visibleCandidates.length} result{visibleCandidates.length === 1 ? "" : "s"}
+        </div>
+        <Select value={reviewRequired} onValueChange={setReviewRequired}>
+          <SelectTrigger className="h-9 w-[150px] rounded-full border-slate-200 bg-white text-xs">
+            <SelectValue placeholder="Review state" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All review states</SelectItem>
+            <SelectItem value="yes">Review needed</SelectItem>
+            <SelectItem value="no">Finalized brief</SelectItem>
+          </SelectContent>
+        </Select>
         <Button
           type="button"
           variant={hasCv === "yes" ? "default" : "outline"}
@@ -179,11 +247,12 @@ export default function ClientCandidates() {
           className="rounded-full text-slate-500"
           onClick={() => {
             setSearch("");
-            setSkill("");
             setStatus("all");
+            setRoleFilter("all");
+            setVendorFilter("all");
             setReviewRequired("all");
             setHasCv("all");
-            setMinExperience("");
+            setSortBy("recent");
             setHighCompletenessOnly(false);
             setAdminApprovedOnly(false);
             clearSelection();
@@ -193,16 +262,14 @@ export default function ClientCandidates() {
         </Button>
       </div>
 
-      <div className="mb-5 rounded-2xl border border-sky-200 bg-sky-50/80 p-4 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-500">Compare tray</p>
-            <p className="mt-1 text-sm leading-6 text-sky-900">
-              Select up to 3 candidates to open the side-by-side intelligence view.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {selectedCandidates.length ? (
-                selectedCandidates.map((candidate) => (
+      {selectedCandidates.length ? (
+        <div className="mb-5 rounded-2xl border border-sky-200 bg-sky-50/80 p-4 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-500">Compare tray</p>
+              <p className="mt-1 text-sm leading-6 text-sky-900">Open the side-by-side intelligence view for the selected shortlist.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {selectedCandidates.map((candidate) => (
                   <button
                     key={candidate.id}
                     type="button"
@@ -212,23 +279,21 @@ export default function ClientCandidates() {
                     {candidate.firstName} {candidate.lastName}
                     <X className="h-3 w-3" />
                   </button>
-                ))
-              ) : (
-                <span className="text-sm text-sky-700">No candidates selected yet.</span>
-              )}
+                ))}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" className="rounded-full" onClick={clearSelection}>
+                Clear selection
+              </Button>
+              <Button type="button" className="rounded-full gap-2" disabled={selectedCandidates.length < 2} onClick={compareCandidates}>
+                <Columns3 className="h-4 w-4" />
+                Compare selected
+              </Button>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" className="rounded-full" onClick={clearSelection}>
-              Clear selection
-            </Button>
-            <Button type="button" className="rounded-full gap-2" disabled={selectedCandidates.length < 2} onClick={compareCandidates}>
-              <Columns3 className="h-4 w-4" />
-              Compare selected
-            </Button>
-          </div>
         </div>
-      </div>
+      ) : null}
 
       {!isLoading && candidates?.length ? (
         <p className="mb-6 text-sm text-slate-500">
@@ -288,7 +353,12 @@ export default function ClientCandidates() {
                         </span>
                       </div>
                     </td>
-                    <td className="px-5 py-4 text-slate-700">{c.roleTitle}</td>
+                    <td className="px-5 py-4 text-slate-700">
+                      <div className="flex flex-col gap-1">
+                        <span className="font-medium">{c.roleTitle}</span>
+                        {c.roleStatus ? <StatusBadge status={c.roleStatus} className="w-fit" /> : null}
+                      </div>
+                    </td>
                     <td className="px-5 py-4 text-slate-500">{c.vendorCompanyName}</td>
                     <td className="px-5 py-4">
                       {tags.length > 0 ? (

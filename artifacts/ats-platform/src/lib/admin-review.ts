@@ -91,6 +91,12 @@ export function getRoleReviewStateMeta(status: string) {
         tone: "emerald" as const,
         body: "Visible to vendors and ready for candidate flow.",
       };
+    case "on_hold":
+      return {
+        label: "On hold",
+        tone: "amber" as const,
+        body: "Hiring is paused for now, but the role remains in the tracked queue.",
+      };
     case "closed":
       return {
         label: "Closed",
@@ -110,6 +116,7 @@ export function getRoleReviewActionLabel(status: string) {
   if (status === "pending_approval") return "Approve & publish";
   if (status === "draft") return "Publish";
   if (status === "published") return "Send back to draft";
+  if (status === "on_hold") return "Resume publishing";
   if (status === "closed") return "Reopen as draft";
   return "Review";
 }
@@ -137,6 +144,7 @@ export function getRoleReviewBucket(status: string) {
   if (status === "pending_approval") return "awaiting";
   if (status === "draft") return "draft";
   if (status === "published") return "published";
+  if (status === "on_hold") return "on_hold";
   if (status === "closed") return "closed";
   return "other";
 }
@@ -165,6 +173,7 @@ export function buildRoleQueueSnapshot(roles: AdminReviewRole[], reference = new
   const pendingApproval = roles.filter((role) => role.status === "pending_approval").length;
   const needsEdits = roles.filter((role) => role.status === "draft").length;
   const readyToPublish = roles.filter((role) => role.status === "published").length;
+  const onHold = roles.filter((role) => role.status === "on_hold").length;
   const closed = roles.filter((role) => role.status === "closed").length;
   const stuckRoles = roles.filter((role) => isStaleRole(role, reference)).length;
   const todayReviews = roles.filter((role) => toLocalDayKey(role.updatedAt) === toLocalDayKey(reference)).length;
@@ -174,6 +183,7 @@ export function buildRoleQueueSnapshot(roles: AdminReviewRole[], reference = new
     pendingApproval,
     needsEdits,
     readyToPublish,
+    onHold,
     closed,
     stuckRoles,
     todayReviews,

@@ -25,7 +25,6 @@ export default function VendorPositions() {
                 <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Role</th>
                 <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Company</th>
                 <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Work setup</th>
-                <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Max salary</th>
                 <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
                 <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500 text-right">Action</th>
               </tr>
@@ -33,13 +32,13 @@ export default function VendorPositions() {
             <tbody className="divide-y divide-slate-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="p-12 text-center">
+                  <td colSpan={5} className="p-12 text-center">
                     <Loader2 className="mx-auto h-7 w-7 animate-spin text-primary" />
                   </td>
                 </tr>
               ) : publishedRoles.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-12 text-center text-slate-500">
+                  <td colSpan={5} className="p-12 text-center text-slate-500">
                     No open positions are available right now.
                   </td>
                 </tr>
@@ -76,7 +75,6 @@ export default function VendorPositions() {
                       </td>
                       <td className="px-6 py-4 font-medium text-slate-700">{role.companyName}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">{details.workModeLabel}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{details.salaryLabel || "Not specified"}</td>
                       <td className="px-6 py-4">
                         <StatusBadge status="published" className="bg-green-100 text-green-800 border-green-200" />
                       </td>

@@ -57,20 +57,20 @@ const emptyForm = {
   title: "",
   description: "",
   skills: "",
-  salaryMax: "",
   location: "",
   employmentType: "" as "" | EmploymentType,
   employmentTypeDescription: "",
   workMode: "" as "" | WorkMode,
 };
 
-type ReviewTab = "all" | "draft" | "pending" | "published" | "closed";
+type ReviewTab = "all" | "draft" | "pending" | "published" | "on_hold" | "closed";
 
 const REVIEW_TABS: Array<{ key: ReviewTab; label: string }> = [
   { key: "all", label: "All queue" },
   { key: "draft", label: "Needs edits" },
   { key: "pending", label: "Awaiting approval" },
-  { key: "published", label: "Ready to publish" },
+  { key: "published", label: "Live" },
+  { key: "on_hold", label: "On hold" },
   { key: "closed", label: "Closed" },
 ];
 
@@ -78,6 +78,7 @@ function getReviewTabStatus(status: string) {
   if (status === "draft") return "draft";
   if (status === "pending_approval") return "pending";
   if (status === "published") return "published";
+  if (status === "on_hold") return "on_hold";
   if (status === "closed") return "closed";
   return "all";
 }
@@ -108,13 +109,40 @@ function getRoleActionCopy(status: string) {
     case "published":
       return {
         primary: {
+          label: "Put on hold",
+          status: "on_hold" as const,
+          variant: "outline" as const,
+          className: "rounded-lg h-8 border-amber-200 bg-white text-amber-800 hover:border-amber-300 hover:bg-amber-50 hover:text-amber-900",
+        },
+        secondary: {
           label: "Send back to draft",
           status: "draft" as const,
           variant: "outline" as const,
           className: "rounded-lg h-8 border-sky-200 bg-white text-sky-800 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-900",
         },
-        secondary: {
+        destructive: {
           label: "Reject / close",
+          status: "closed" as const,
+          variant: "outline" as const,
+          className: "rounded-lg h-8 border-rose-200 bg-white text-rose-700 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800",
+        },
+      };
+    case "on_hold":
+      return {
+        primary: {
+          label: "Resume publishing",
+          status: "published" as const,
+          variant: "default" as const,
+          className: "rounded-lg h-8 border-emerald-700 bg-emerald-600 text-white hover:bg-emerald-700 hover:text-white",
+        },
+        secondary: {
+          label: "Send back to draft",
+          status: "draft" as const,
+          variant: "outline" as const,
+          className: "rounded-lg h-8 border-sky-200 bg-white text-sky-800 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-900",
+        },
+        destructive: {
+          label: "Close",
           status: "closed" as const,
           variant: "outline" as const,
           className: "rounded-lg h-8 border-rose-200 bg-white text-rose-700 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800",
@@ -169,7 +197,7 @@ function getRoleReviewGuidance(role: AdminReviewRole) {
         description: "This role is still waiting for a final hiring brief, clearer requirements, or a polished market-facing summary before vendors should see it.",
         checklist: [
           "Tighten the role description and expected outcomes.",
-          "Confirm work mode, salary cap, and key skills are recruiter-ready.",
+          "Confirm work mode, location, and key skills are recruiter-ready.",
           "Publish only when the brief feels final and vendor-facing.",
         ],
       };
@@ -203,6 +231,16 @@ function getRoleReviewGuidance(role: AdminReviewRole) {
           "Use edit review before re-publishing an outdated brief.",
         ],
       };
+    case "on_hold":
+      return {
+        heading: "Temporarily paused",
+        description: "This role is not actively accepting fresh attention right now, but it stays visible in the review system so the team can resume quickly.",
+        checklist: [
+          "Resume publishing when hiring is active again.",
+          "Send back to draft if the brief needs changes before reopening.",
+          "Close it only if the hiring request is no longer relevant.",
+        ],
+      };
     default:
       return {
         heading: "Admin review context",
@@ -226,7 +264,7 @@ function RoleReviewCard({
   role: AdminReviewRole;
   onEdit: (role: AdminReviewRole) => void;
   onOpenPipeline: (roleId: number) => void;
-  onUpdateStatus: (roleId: number, status: "draft" | "pending_approval" | "published" | "closed") => void;
+  onUpdateStatus: (roleId: number, status: "draft" | "pending_approval" | "published" | "on_hold" | "closed") => void;
   pendingRoleId: number | null;
 }) {
   const summary = getRoleSummaryLines(role);
@@ -254,7 +292,7 @@ function RoleReviewCard({
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-3">
-              <h2 className="text-2xl font-bold text-slate-900">{role.title}</h2>
+            <h2 className="text-xl font-bold text-slate-900">{role.title}</h2>
               <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
                 {role.companyName}
               </span>
@@ -270,10 +308,12 @@ function RoleReviewCard({
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Queue state</p>
             <p className="mt-1 text-sm font-semibold text-slate-800">{state.label}</p>
           </div>
-          <div className="rounded-2xl bg-slate-50 px-4 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Salary cap</p>
-            <p className="mt-1 text-sm font-semibold text-slate-800">{summary.salaryLabel || "Not specified"}</p>
-          </div>
+        <div className="rounded-2xl bg-slate-50 px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Candidate flow</p>
+          <p className="mt-1 text-sm font-semibold text-slate-800">
+            {role.candidateCount ?? 0} active submission{role.candidateCount === 1 ? "" : "s"}
+          </p>
+        </div>
         </div>
       </div>
 
@@ -367,7 +407,7 @@ function RoleReviewCard({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Admin review guidance</p>
-            <h3 className="mt-1 text-lg font-semibold text-slate-950">{guidance.heading}</h3>
+            <h3 className="mt-1 text-base font-semibold text-slate-950">{guidance.heading}</h3>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">{guidance.description}</p>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
@@ -379,7 +419,13 @@ function RoleReviewCard({
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Role readiness</p>
               <p className="mt-1 text-sm font-semibold text-slate-900">
-                {role.status === "published" ? "Live in vendor pipeline" : role.status === "closed" ? "Archived from live hiring" : "Still in admin review"}
+                {role.status === "published"
+                  ? "Live in vendor pipeline"
+                  : role.status === "on_hold"
+                    ? "Paused but still tracked"
+                    : role.status === "closed"
+                      ? "Archived from live hiring"
+                      : "Still in admin review"}
               </p>
               <p className="mt-1 text-sm leading-5 text-slate-600">
                 {role.candidateCount ?? 0} candidate{role.candidateCount === 1 ? "" : "s"} currently attached to this role.
@@ -449,7 +495,8 @@ export default function AdminRoles() {
           if (status === "pending_approval") return 0;
           if (status === "draft") return 1;
           if (status === "published") return 2;
-          return 3;
+          if (status === "on_hold") return 3;
+          return 4;
         };
 
         const statusDelta = priority(left.status) - priority(right.status);
@@ -461,7 +508,7 @@ export default function AdminRoles() {
 
   const previewRole = selectedRole && filteredRoles.some((role) => role.id === selectedRole.id)
     ? selectedRole
-    : filteredRoles[0] ?? null;
+    : null;
   const leadPriorityRole = priorityRoles[0] ?? null;
 
   const resetForm = () => {
@@ -481,6 +528,8 @@ export default function AdminRoles() {
           title:
             statusLabel === "published"
               ? "Role published"
+              : statusLabel === "on_hold"
+                ? "Role put on hold"
               : statusLabel === "draft"
                 ? "Role sent back to draft"
                 : statusLabel === "closed"
@@ -508,7 +557,6 @@ export default function AdminRoles() {
       title: role.title || "",
       description: body,
       skills: role.skills || "",
-      salaryMax: role.salaryMax != null ? String(role.salaryMax) : "",
       location: role.location || "",
       employmentType: resolveEmploymentType(role) || "",
       employmentTypeDescription: resolveEmploymentTypeDescription(role),
@@ -533,7 +581,6 @@ export default function AdminRoles() {
               formData.employmentType === "other" ? formData.employmentTypeDescription.trim() || undefined : undefined,
           }),
           skills: formData.skills.trim() || undefined,
-          salaryMax: formData.salaryMax ? Number(formData.salaryMax) : undefined,
           location: formData.location.trim() || undefined,
           employmentType: formData.employmentType || undefined,
           workMode: toApiWorkMode(formData.workMode),
@@ -559,7 +606,7 @@ export default function AdminRoles() {
     }
   };
 
-  const changeStatus = (roleId: number, status: "draft" | "pending_approval" | "published" | "closed") => {
+  const changeStatus = (roleId: number, status: "draft" | "pending_approval" | "published" | "on_hold" | "closed") => {
     const currentRole = roles?.find((role) => role.id === roleId);
     if (isUpdatingStatus || currentRole?.status === status) return;
     setPendingRoleId(roleId);
@@ -575,66 +622,59 @@ export default function AdminRoles() {
 
   return (
     <DashboardLayout allowedRoles={["admin"]}>
-      <div className="mb-8">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+      <div className="mb-6">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-slate-900">Admin Review Hub</h1>
-            <p className="text-slate-500 mt-1">
+            <h1 className="text-2xl font-bold text-slate-900">Job Roles</h1>
+            <p className="text-sm text-slate-500 mt-1">
               Review draft roles, adjust the hiring brief, and publish the approved version into the vendor-facing pipeline.
             </p>
           </div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500 shadow-sm">
-            <Sparkles className="h-4 w-4 text-primary" />
-            {queueSnapshot.todayReviews} role updates today
-          </div>
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-4 flex flex-wrap gap-2">
           {[
             {
               label: "Total queue",
               value: queueSnapshot.total,
               tone: "border-slate-200 bg-slate-50 text-slate-800",
               tab: "all" as ReviewTab,
-              detail: "All roles awaiting admin oversight.",
             },
             {
               label: "Awaiting approval",
               value: queueSnapshot.pendingApproval,
               tone: "border-amber-200 bg-amber-50 text-amber-800",
               tab: "pending" as ReviewTab,
-              detail: "Roles ready for a final admin pass.",
             },
             {
               label: "Needs edits",
               value: queueSnapshot.needsEdits,
               tone: "border-sky-200 bg-sky-50 text-sky-800",
               tab: "draft" as ReviewTab,
-              detail: "Briefs that still need cleanup before publish.",
+            },
+            {
+              label: "On hold",
+              value: queueSnapshot.onHold,
+              tone: "border-orange-200 bg-orange-50 text-orange-800",
+              tab: "on_hold" as ReviewTab,
             },
             {
               label: "Stuck roles",
               value: queueSnapshot.stuckRoles,
               tone: "border-rose-200 bg-rose-50 text-rose-800",
               tab: "all" as ReviewTab,
-              detail: "Roles that have been waiting longer than ideal.",
             },
           ].map((card) => (
             <button
               key={card.label}
               type="button"
-              className={`rounded-2xl border px-4 py-3 text-left transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${card.tone} ${activeTab === card.tab ? "ring-2 ring-primary/30 shadow-md" : ""}`}
+              className={`rounded-full border px-4 py-2 text-left transition-all duration-150 hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${card.tone} ${activeTab === card.tab ? "ring-2 ring-primary/30 shadow-md" : ""}`}
               onClick={() => setActiveTab(card.tab)}
             >
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">{card.label}</p>
-              <p className="mt-2 text-2xl font-bold">{card.value}</p>
-              <p className="mt-1 text-xs leading-5 opacity-80">{card.detail}</p>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">{card.label}</span>
+              <span className="ml-2 text-sm font-bold">{card.value}</span>
             </button>
           ))}
-        </div>
-
-        <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-white/80 px-4 py-3 text-sm text-slate-500 shadow-sm">
-          Tap a queue card to jump into that lane. Roles that have been waiting for 3+ days surface in the attention summary first so the admin can unblock hiring before the queue slows down.
         </div>
 
         <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -644,7 +684,7 @@ export default function AdminRoles() {
                 key={tab.key}
                 type="button"
                 variant={activeTab === tab.key ? "default" : "outline"}
-                className="rounded-full"
+                className="h-9 rounded-full"
                 onClick={() => setActiveTab(tab.key)}
               >
                 {tab.label}
@@ -653,17 +693,17 @@ export default function AdminRoles() {
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="relative min-w-[260px]">
+            <div className="relative min-w-[220px]">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search role, company, skill, or location..."
-                className="h-11 rounded-xl pl-11"
+                className="h-10 rounded-xl pl-11"
               />
             </div>
             <Select value={companyFilter} onValueChange={setCompanyFilter}>
-              <SelectTrigger className="h-11 min-w-[190px] rounded-xl">
+              <SelectTrigger className="h-10 min-w-[170px] rounded-xl">
                 <SelectValue placeholder="Company filter" />
               </SelectTrigger>
               <SelectContent>
@@ -678,7 +718,7 @@ export default function AdminRoles() {
             <Button
               type="button"
               variant="ghost"
-              className="rounded-full text-slate-500"
+              className="h-10 rounded-full text-slate-500"
               onClick={() => {
                 setSearch("");
                 setCompanyFilter("all");
@@ -730,18 +770,6 @@ export default function AdminRoles() {
             </div>
           </div>
         ) : null}
-
-      {previewRole ? (
-        <div ref={reviewPanelRef} className="mb-6">
-          <RoleReviewCard
-            role={previewRole as AdminReviewRole}
-            onEdit={openEditDialog}
-            onOpenPipeline={(roleId) => setSelectedRoleId(roleId)}
-            onUpdateStatus={changeStatus}
-            pendingRoleId={pendingRoleId}
-          />
-        </div>
-      ) : null}
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
@@ -801,7 +829,6 @@ export default function AdminRoles() {
                           <div className="mt-1 text-sm text-slate-500">
                             {summary.workModeLabel}
                             {summary.employmentTypeLabel ? ` · ${summary.employmentTypeLabel}` : ""}
-                            {summary.salaryLabel ? ` · ${summary.salaryLabel}` : ""}
                           </div>
                           <div className="mt-2 flex flex-wrap items-center gap-2">
                             <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600">
@@ -824,10 +851,10 @@ export default function AdminRoles() {
                       <div className="mt-1 text-xs text-slate-400">Created {format(new Date(role.createdAt), "MMM d, yyyy")}</div>
                     </td>
                     <td className="px-6 py-4 align-top">
-                      <div className="grid min-w-[12rem] gap-2 xl:min-w-[15rem] xl:justify-items-end">
-                        <Button
-                          size="sm"
-                          variant="outline"
+                        <div className="grid min-w-[11rem] gap-2 xl:min-w-[13rem] xl:justify-items-end">
+                          <Button
+                            size="sm"
+                            variant="outline"
                           disabled={isUpdatingRole}
                           className="rounded-lg h-8"
                           onClick={(event) => {
@@ -849,8 +876,8 @@ export default function AdminRoles() {
                           }}
                         >
                           <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-                          {rowActions.primary.label}
-                        </Button>
+                            {rowActions.primary.label}
+                          </Button>
                         {rowSecondaryAction ? (
                           <Button
                             size="sm"
@@ -881,7 +908,7 @@ export default function AdminRoles() {
                             {rowDestructiveAction.label}
                           </Button>
                         ) : null}
-                        <Link
+                          <Link
                           href={`/admin/roles/${role.id}/candidates`}
                           className="inline-flex min-h-8 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 hover:text-primary active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                           onClick={(event) => event.stopPropagation()}
@@ -889,8 +916,8 @@ export default function AdminRoles() {
                           <Eye className="h-3.5 w-3.5" />
                           Open pipeline
                         </Link>
-                      </div>
-                    </td>
+                        </div>
+                      </td>
                   </tr>
                 );
               })}
@@ -898,6 +925,18 @@ export default function AdminRoles() {
           </table>
         </div>
       </div>
+
+      {previewRole ? (
+        <div ref={reviewPanelRef} className="mt-6">
+          <RoleReviewCard
+            role={previewRole as AdminReviewRole}
+            onEdit={openEditDialog}
+            onOpenPipeline={(roleId) => setSelectedRoleId(roleId)}
+            onUpdateStatus={changeStatus}
+            pendingRoleId={pendingRoleId}
+          />
+        </div>
+      ) : null}
 
       <Dialog
         open={isEditOpen}
@@ -926,25 +965,19 @@ export default function AdminRoles() {
               <label className="text-sm font-semibold">Required Skills</label>
               <Input value={formData.skills} onChange={(e) => setFormData({ ...formData, skills: e.target.value })} className="h-11 rounded-xl" />
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold">Maximum Salary (TL)</label>
-                <Input type="number" min="1" value={formData.salaryMax} onChange={(e) => setFormData({ ...formData, salaryMax: e.target.value })} className="h-11 rounded-xl" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold">Work Mode *</label>
-                <select
-                  required
-                  value={formData.workMode}
-                  onChange={(e) => setFormData({ ...formData, workMode: e.target.value as WorkMode })}
-                  className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm"
-                >
-                  <option value="">Select work mode...</option>
-                  {WORK_MODES.map((mode) => (
-                    <option key={mode} value={mode}>{workModeLabel[mode]}</option>
-                  ))}
-                </select>
-              </div>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold">Work Mode *</label>
+              <select
+                required
+                value={formData.workMode}
+                onChange={(e) => setFormData({ ...formData, workMode: e.target.value as WorkMode })}
+                className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm"
+              >
+                <option value="">Select work mode...</option>
+                {WORK_MODES.map((mode) => (
+                  <option key={mode} value={mode}>{workModeLabel[mode]}</option>
+                ))}
+              </select>
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">

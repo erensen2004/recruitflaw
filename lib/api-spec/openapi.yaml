@@ -860,7 +860,7 @@ components:
           type: boolean
         status:
           type: string
-          enum: [draft, pending_approval, published, closed]
+          enum: [draft, pending_approval, published, on_hold, closed]
         companyId:
           type: integer
         companyName:
@@ -933,7 +933,7 @@ components:
       properties:
         status:
           type: string
-          enum: [draft, pending_approval, published, closed]
+          enum: [draft, pending_approval, published, on_hold, closed]
       required:
         - status
 
@@ -961,6 +961,9 @@ components:
           type: integer
         roleTitle:
           type: string
+        roleStatus:
+          $ref: "#/components/schemas/JobRoleStatus"
+          nullable: true
         vendorCompanyId:
           type: integer
         vendorCompanyName:
@@ -1038,6 +1041,7 @@ components:
         - status
         - roleId
         - roleTitle
+        - roleStatus
         - vendorCompanyId
         - vendorCompanyName
         - parseStatus

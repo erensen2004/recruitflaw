@@ -1,9 +1,9 @@
 import { Link, useLocation } from "wouter";
 import { useGetMe } from "@workspace/api-client-react";
-import { 
-  Building2, Users, Briefcase, UserCircle, 
+import {
+  Building2, Users, Briefcase, UserCircle,
   FileText, Clock, LogOut, Loader2, LayoutDashboard,
-  Menu, X, BarChart3
+  Menu, X, BarChart3, LockKeyhole
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -11,9 +11,9 @@ import { getCompanyDisplayName } from "@/lib/candidate-display";
 
 const SIDEBAR_NAV = {
   admin: [
+    { name: "Job Roles", href: "/admin/roles", icon: Briefcase },
     { name: "Companies", href: "/admin/companies", icon: Building2 },
     { name: "Users", href: "/admin/users", icon: Users },
-    { name: "Job Roles", href: "/admin/roles", icon: Briefcase },
     { name: "All Candidates", href: "/admin/candidates", icon: UserCircle },
     { name: "Contracts", href: "/admin/contracts", icon: FileText },
     { name: "Timesheets", href: "/admin/timesheets", icon: Clock },
@@ -98,15 +98,15 @@ export function DashboardLayout({ children, allowedRoles }: { children: React.Re
 
   const SidebarContent = () => (
     <>
-      <div className="p-6">
-        <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center text-white">
-            <Briefcase className="w-5 h-5" />
+      <div className="p-5">
+        <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight text-white">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-white">
+            <Briefcase className="h-4 w-4" />
           </div>
           RecruitFlow
         </h1>
-        <div className="mt-6 flex items-center gap-3 px-3 py-2 bg-sidebar-border/50 rounded-xl border border-sidebar-border">
-          <div className="w-10 h-10 rounded-full bg-primary/20 text-primary-foreground flex items-center justify-center font-semibold">
+        <div className="mt-5 flex items-center gap-3 rounded-xl border border-sidebar-border bg-sidebar-border/50 px-3 py-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/20 font-semibold text-primary-foreground">
             {user.name.charAt(0)}
           </div>
           <div className="overflow-hidden">
@@ -116,13 +116,13 @@ export function DashboardLayout({ children, allowedRoles }: { children: React.Re
         </div>
       </div>
 
-      <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
+      <nav className="flex-1 space-y-1 overflow-y-auto px-3">
         {navItems.map((item) => {
           const isActive = location.startsWith(item.href);
           return (
             <Link key={item.name} href={item.href} className="block">
               <div
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 ${
+                className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-all duration-200 ${
                   isActive 
                     ? "bg-primary text-primary-foreground shadow-sm shadow-black/10 ring-1 ring-white/10" 
                     : "text-sidebar-foreground hover:-translate-y-0.5 hover:bg-sidebar-border/50 hover:text-white hover:shadow-sm"
@@ -138,6 +138,12 @@ export function DashboardLayout({ children, allowedRoles }: { children: React.Re
       </nav>
 
       <div className="p-4 border-t border-sidebar-border">
+        <Link href="/change-password" className="block">
+          <div className="mb-2 flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-sidebar-foreground transition-all duration-150 hover:-translate-y-0.5 hover:bg-sidebar-border/50 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20">
+            <LockKeyhole className="w-5 h-5 text-sidebar-foreground/70" />
+            <span className="font-medium">Change Password</span>
+          </div>
+        </Link>
         <button
           onClick={handleLogout}
           className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-red-400 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-400/10 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/40"
@@ -152,7 +158,7 @@ export function DashboardLayout({ children, allowedRoles }: { children: React.Re
   return (
     <div className="min-h-screen bg-background flex">
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex w-72 flex-col bg-sidebar border-r border-sidebar-border fixed inset-y-0 z-20 shadow-xl">
+      <aside className="fixed inset-y-0 z-20 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar shadow-xl md:flex">
         <SidebarContent />
       </aside>
 
@@ -189,7 +195,7 @@ export function DashboardLayout({ children, allowedRoles }: { children: React.Re
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
               transition={{ type: "spring", bounce: 0, duration: 0.3 }}
-              className="fixed inset-y-0 left-0 w-72 bg-sidebar border-r border-sidebar-border z-50 flex flex-col shadow-2xl md:hidden"
+              className="fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-sidebar-border bg-sidebar shadow-2xl md:hidden"
             >
               <SidebarContent />
             </motion.aside>
@@ -198,8 +204,8 @@ export function DashboardLayout({ children, allowedRoles }: { children: React.Re
       </AnimatePresence>
 
       {/* Main Content */}
-      <main className="flex-1 min-w-0 md:ml-72 min-h-screen flex flex-col mt-16 md:mt-0">
-        <div className="flex-1 min-w-0 p-4 md:p-8 max-w-7xl mx-auto w-full">
+      <main className="mt-16 flex min-h-screen min-w-0 flex-1 flex-col md:ml-64 md:mt-0">
+        <div className="flex-1 min-w-0 p-4 md:p-6 max-w-7xl mx-auto w-full">
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}

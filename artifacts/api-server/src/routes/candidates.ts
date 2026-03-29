@@ -196,7 +196,7 @@ function formatCandidate(c: {
   tags?: string | null;
   submittedAt: Date;
   updatedAt: Date;
-}, roleTitle: string, vendorCompanyName: string) {
+}, roleTitle: string, vendorCompanyName: string, roleStatus?: string | null) {
   return {
     id: c.id,
     firstName: c.firstName,
@@ -207,6 +207,7 @@ function formatCandidate(c: {
     status: c.status,
     roleId: c.roleId,
     roleTitle,
+    roleStatus: roleStatus ?? null,
     vendorCompanyId: c.vendorCompanyId,
     vendorCompanyName,
     cvUrl: c.cvUrl ?? null,
@@ -323,6 +324,7 @@ router.get("/", requireAuth, async (req, res) => {
         submittedAt: candidatesTable.submittedAt,
         updatedAt: candidatesTable.updatedAt,
         roleTitle: jobRolesTable.title,
+        roleStatus: jobRolesTable.status,
         vendorCompanyName: companiesTable.name,
       })
       .from(candidatesTable)
@@ -331,7 +333,7 @@ router.get("/", requireAuth, async (req, res) => {
 
     const rows = await (whereClause ? query.where(whereClause) : query).orderBy(desc(candidatesTable.submittedAt));
 
-    res.json(filteredByStatuses(rows, statusFilters).map((c) => formatCandidate(c, c.roleTitle ?? "", c.vendorCompanyName ?? "")));
+    res.json(filteredByStatuses(rows, statusFilters).map((c) => formatCandidate(c, c.roleTitle ?? "", c.vendorCompanyName ?? "", c.roleStatus ?? null)));
   } catch (err) {
     console.error(err);
     Errors.internal(res);
@@ -423,6 +425,7 @@ router.get("/:id", requireAuth, async (req, res) => {
         submittedAt: candidatesTable.submittedAt,
         updatedAt: candidatesTable.updatedAt,
         roleTitle: jobRolesTable.title,
+        roleStatus: jobRolesTable.status,
         vendorCompanyName: companiesTable.name,
       })
       .from(candidatesTable)
@@ -435,7 +438,7 @@ router.get("/:id", requireAuth, async (req, res) => {
       return;
     }
 
-    res.json(formatCandidate(row, row.roleTitle ?? "", row.vendorCompanyName ?? ""));
+    res.json(formatCandidate(row, row.roleTitle ?? "", row.vendorCompanyName ?? "", row.roleStatus ?? null));
   } catch (err) {
     console.error(err);
     Errors.internal(res);
@@ -580,7 +583,7 @@ router.post(
         .from(companiesTable)
         .where(eq(companiesTable.id, companyId));
 
-      res.status(201).json(formatCandidate(candidate, role.title, vendorCompany?.name ?? ""));
+      res.status(201).json(formatCandidate(candidate, role.title, vendorCompany?.name ?? "", role.status));
     } catch (err) {
       console.error(err);
       Errors.internal(res);
@@ -709,7 +712,7 @@ router.patch(
         .returning();
 
       const [role] = await db
-        .select({ title: jobRolesTable.title })
+        .select({ title: jobRolesTable.title, status: jobRolesTable.status })
         .from(jobRolesTable)
         .where(eq(jobRolesTable.id, candidate.roleId));
 
@@ -718,7 +721,7 @@ router.patch(
         .from(companiesTable)
         .where(eq(companiesTable.id, candidate.vendorCompanyId));
 
-      res.json(formatCandidate(candidate, role?.title ?? "", vendorCompany?.name ?? ""));
+      res.json(formatCandidate(candidate, role?.title ?? "", vendorCompany?.name ?? "", role?.status ?? null));
     } catch (err) {
       console.error(err);
       Errors.internal(res);
@@ -769,7 +772,7 @@ router.post(
       }
 
       const [role] = await db
-        .select({ title: jobRolesTable.title })
+        .select({ title: jobRolesTable.title, status: jobRolesTable.status })
         .from(jobRolesTable)
         .where(eq(jobRolesTable.id, candidate.roleId));
 
@@ -778,7 +781,7 @@ router.post(
         .from(companiesTable)
         .where(eq(companiesTable.id, candidate.vendorCompanyId));
 
-      res.json(formatCandidate(candidate, role?.title ?? "", vendorCompany?.name ?? ""));
+      res.json(formatCandidate(candidate, role?.title ?? "", vendorCompany?.name ?? "", role?.status ?? null));
     } catch (err) {
       console.error(err);
       Errors.internal(res);
@@ -823,7 +826,7 @@ router.patch(
       }
 
       const [role] = await db
-        .select({ title: jobRolesTable.title })
+        .select({ title: jobRolesTable.title, status: jobRolesTable.status })
         .from(jobRolesTable)
         .where(eq(jobRolesTable.id, candidate.roleId));
 
@@ -832,7 +835,7 @@ router.patch(
         .from(companiesTable)
         .where(eq(companiesTable.id, candidate.vendorCompanyId));
 
-      res.json(formatCandidate(candidate, role?.title ?? "", vendorCompany?.name ?? ""));
+      res.json(formatCandidate(candidate, role?.title ?? "", vendorCompany?.name ?? "", role?.status ?? null));
     } catch (err) {
       console.error(err);
       Errors.internal(res);

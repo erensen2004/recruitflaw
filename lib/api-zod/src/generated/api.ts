@@ -154,7 +154,7 @@ export const ListRolesResponseItem = zod.object({
     .enum(["full-time", "part-time", "contract", "freelance"])
     .nullish(),
   isRemote: zod.boolean(),
-  status: zod.enum(["draft", "pending_approval", "published", "closed"]),
+  status: zod.enum(["draft", "pending_approval", "published", "on_hold", "closed"]),
   companyId: zod.number(),
   companyName: zod.string(),
   candidateCount: zod.number(),
@@ -198,7 +198,7 @@ export const GetRoleResponse = zod.object({
     .enum(["full-time", "part-time", "contract", "freelance"])
     .nullish(),
   isRemote: zod.boolean(),
-  status: zod.enum(["draft", "pending_approval", "published", "closed"]),
+  status: zod.enum(["draft", "pending_approval", "published", "on_hold", "closed"]),
   companyId: zod.number(),
   companyName: zod.string(),
   candidateCount: zod.number(),
@@ -238,7 +238,7 @@ export const UpdateRoleResponse = zod.object({
     .enum(["full-time", "part-time", "contract", "freelance"])
     .nullish(),
   isRemote: zod.boolean(),
-  status: zod.enum(["draft", "pending_approval", "published", "closed"]),
+  status: zod.enum(["draft", "pending_approval", "published", "on_hold", "closed"]),
   companyId: zod.number(),
   companyName: zod.string(),
   candidateCount: zod.number(),
@@ -254,7 +254,7 @@ export const UpdateRoleStatusParams = zod.object({
 });
 
 export const UpdateRoleStatusBody = zod.object({
-  status: zod.enum(["draft", "pending_approval", "published", "closed"]),
+  status: zod.enum(["draft", "pending_approval", "published", "on_hold", "closed"]),
 });
 
 export const UpdateRoleStatusResponse = zod.object({
@@ -269,7 +269,7 @@ export const UpdateRoleStatusResponse = zod.object({
     .enum(["full-time", "part-time", "contract", "freelance"])
     .nullish(),
   isRemote: zod.boolean(),
-  status: zod.enum(["draft", "pending_approval", "published", "closed"]),
+  status: zod.enum(["draft", "pending_approval", "published", "on_hold", "closed"]),
   companyId: zod.number(),
   companyName: zod.string(),
   candidateCount: zod.number(),
@@ -308,6 +308,7 @@ export const ListCandidatesResponseItem = zod.object({
   ]),
   roleId: zod.number(),
   roleTitle: zod.string(),
+  roleStatus: zod.enum(["draft", "pending_approval", "published", "on_hold", "closed"]).nullish(),
   vendorCompanyId: zod.number(),
   vendorCompanyName: zod.string(),
   submittedAt: zod.date(),
@@ -432,6 +433,7 @@ export const GetCandidateResponse = zod.object({
   ]),
   roleId: zod.number(),
   roleTitle: zod.string(),
+  roleStatus: zod.enum(["draft", "pending_approval", "published", "on_hold", "closed"]).nullish(),
   vendorCompanyId: zod.number(),
   vendorCompanyName: zod.string(),
   submittedAt: zod.date(),
@@ -536,6 +538,7 @@ export const UpdateCandidateStatusResponse = zod.object({
   ]),
   roleId: zod.number(),
   roleTitle: zod.string(),
+  roleStatus: zod.enum(["draft", "pending_approval", "published", "on_hold", "closed"]).nullish(),
   vendorCompanyId: zod.number(),
   vendorCompanyName: zod.string(),
   submittedAt: zod.date(),

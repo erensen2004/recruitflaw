@@ -38,7 +38,6 @@ const emptyForm = {
   title: "",
   description: "",
   skills: "",
-  salaryMax: "",
   location: "",
   employmentType: "" as "" | EmploymentType,
   employmentTypeDescription: "",
@@ -81,7 +80,6 @@ export default function ClientRoles() {
               formData.employmentType === "other" ? formData.employmentTypeDescription || undefined : undefined,
           }),
           skills: formData.skills.trim() || undefined,
-          salaryMax: formData.salaryMax ? Number(formData.salaryMax) : undefined,
           location: formData.location.trim() || undefined,
           employmentType: formData.employmentType || undefined,
           workMode: toApiWorkMode(formData.workMode),
@@ -123,7 +121,6 @@ export default function ClientRoles() {
               formData.employmentType === "other" ? formData.employmentTypeDescription || undefined : undefined,
           }),
           skills: formData.skills.trim() || undefined,
-          salaryMax: formData.salaryMax ? Number(formData.salaryMax) : undefined,
           location: formData.location.trim() || undefined,
           employmentType: formData.employmentType || undefined,
           workMode: toApiWorkMode(formData.workMode),
@@ -156,7 +153,6 @@ export default function ClientRoles() {
       title: role.title || "",
       description: body,
       skills: role.skills || "",
-      salaryMax: role.salaryMax != null ? String(role.salaryMax) : "",
       location: role.location || "",
       employmentType: resolveEmploymentType(role) || "",
       employmentTypeDescription: resolveEmploymentTypeDescription(role),
@@ -199,7 +195,7 @@ export default function ClientRoles() {
     <DashboardLayout allowedRoles={["client"]}>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">My Job Roles</h1>
+          <h1 className="text-2xl font-bold text-slate-900">My Job Roles</h1>
           <p className="text-slate-500 mt-1">Create draft roles for admin approval and manage the positions already in review.</p>
         </div>
 
@@ -239,25 +235,19 @@ export default function ClientRoles() {
                 <Input value={formData.skills} onChange={(e) => setFormData({ ...formData, skills: e.target.value })} placeholder="Java, Spring Boot, PostgreSQL" className="h-11 rounded-xl" />
               </div>
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold">Maximum Salary (TL)</label>
-                  <Input type="number" min="1" value={formData.salaryMax} onChange={(e) => setFormData({ ...formData, salaryMax: e.target.value })} placeholder="120000" className="h-11 rounded-xl" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold">Work Mode *</label>
-                  <select
-                    required
-                    value={formData.workMode}
-                    onChange={(e) => setFormData({ ...formData, workMode: e.target.value as WorkMode })}
-                    className="h-11 rounded-xl w-full border border-input bg-background px-3 text-sm"
-                  >
-                    <option value="">Select work mode...</option>
-                    {WORK_MODES.map((mode) => (
-                      <option key={mode} value={mode}>{workModeLabel[mode]}</option>
-                    ))}
-                  </select>
-                </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold">Work Mode *</label>
+                <select
+                  required
+                  value={formData.workMode}
+                  onChange={(e) => setFormData({ ...formData, workMode: e.target.value as WorkMode })}
+                  className="h-11 rounded-xl w-full border border-input bg-background px-3 text-sm"
+                >
+                  <option value="">Select work mode...</option>
+                  {WORK_MODES.map((mode) => (
+                    <option key={mode} value={mode}>{workModeLabel[mode]}</option>
+                  ))}
+                </select>
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -334,25 +324,19 @@ export default function ClientRoles() {
               <label className="text-sm font-semibold">Required Skills</label>
               <Input value={formData.skills} onChange={(e) => setFormData({ ...formData, skills: e.target.value })} className="h-11 rounded-xl" />
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold">Maximum Salary (TL)</label>
-                <Input type="number" min="1" value={formData.salaryMax} onChange={(e) => setFormData({ ...formData, salaryMax: e.target.value })} className="h-11 rounded-xl" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold">Work Mode *</label>
-                <select
-                  required
-                  value={formData.workMode}
-                  onChange={(e) => setFormData({ ...formData, workMode: e.target.value as WorkMode })}
-                  className="h-11 rounded-xl w-full border border-input bg-background px-3 text-sm"
-                >
-                  <option value="">Select work mode...</option>
-                  {WORK_MODES.map((mode) => (
-                    <option key={mode} value={mode}>{workModeLabel[mode]}</option>
-                  ))}
-                </select>
-              </div>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold">Work Mode *</label>
+              <select
+                required
+                value={formData.workMode}
+                onChange={(e) => setFormData({ ...formData, workMode: e.target.value as WorkMode })}
+                className="h-11 rounded-xl w-full border border-input bg-background px-3 text-sm"
+              >
+                <option value="">Select work mode...</option>
+                {WORK_MODES.map((mode) => (
+                  <option key={mode} value={mode}>{workModeLabel[mode]}</option>
+                ))}
+              </select>
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
@@ -428,9 +412,6 @@ export default function ClientRoles() {
                 {details.employmentTypeLabel ? (
                   <span className="rounded-full bg-slate-100 px-2 py-0.5">{details.employmentTypeLabel}</span>
                 ) : null}
-                {details.salaryLabel ? (
-                  <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">{details.salaryLabel} max</span>
-                ) : null}
               </div>
 
               <p className="text-sm text-slate-500 line-clamp-3 mb-4 flex-1">
@@ -462,7 +443,7 @@ export default function ClientRoles() {
                 </div>
                 <Link
                   href={`/client/roles/${role.id}/candidates`}
-                  className="inline-flex min-h-8 items-center justify-center rounded-lg px-3 text-xs font-medium text-slate-700 transition-all duration-150 hover:-translate-y-0.5 hover:bg-slate-100 hover:text-primary active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  className="inline-flex min-h-9 items-center justify-center rounded-lg border border-primary/20 bg-primary px-3.5 text-xs font-semibold text-white shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-md active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                 >
                   View
                 </Link>

@@ -24,6 +24,7 @@ const STATUS_COLORS: Record<string, string> = {
   draft: "bg-slate-100 text-slate-600",
   pending_approval: "bg-yellow-100 text-yellow-700",
   published: "bg-green-100 text-green-700",
+  on_hold: "bg-orange-100 text-orange-700",
   closed: "bg-slate-100 text-slate-600",
 };
 
@@ -37,6 +38,7 @@ const STATUS_LABELS: Record<string, string> = {
   draft: "Draft",
   pending_approval: "Pending Approval",
   published: "Published",
+  on_hold: "On Hold",
   closed: "Closed",
 };
 

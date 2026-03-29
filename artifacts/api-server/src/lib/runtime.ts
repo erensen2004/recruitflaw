@@ -81,6 +81,30 @@ async function ensureSupportTables() {
         CREATE INDEX IF NOT EXISTS review_thread_messages_thread_idx
         ON public.review_thread_messages (thread_id, created_at ASC)
       `);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS public.password_setup_tokens (
+          id serial PRIMARY KEY,
+          user_id integer NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+          token_hash text NOT NULL UNIQUE,
+          purpose text NOT NULL DEFAULT 'invite',
+          expires_at timestamptz NOT NULL,
+          used_at timestamptz,
+          created_by_user_id integer REFERENCES public.users(id),
+          created_at timestamptz NOT NULL DEFAULT now()
+        )
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS password_setup_tokens_user_idx
+        ON public.password_setup_tokens (user_id, purpose, created_at DESC)
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS password_setup_tokens_active_idx
+        ON public.password_setup_tokens (token_hash, expires_at)
+      `);
+
     } catch (error) {
       console.warn("[runtime] support table bootstrap skipped", error);
     }

@@ -11,6 +11,7 @@ const router = Router();
 
 type WorkModeValue = "full-office" | "hybrid" | "full-remote";
 type EmploymentTypeValue = "full-time" | "part-time" | "other" | "contract" | "freelance";
+type RoleStatusValue = "draft" | "pending_approval" | "published" | "on_hold" | "closed";
 
 function normalizeWorkMode(value: string | null | undefined): WorkModeValue | null {
   if (!value) return null;
@@ -41,7 +42,7 @@ function formatRole(role: {
   location: string | null;
   employmentType: string | null;
   isRemote: boolean;
-  status: string;
+  status: RoleStatusValue;
   companyId: number;
   createdAt: Date;
   updatedAt: Date;
@@ -363,8 +364,8 @@ router.patch(
         return;
       }
 
-      if (status === "published" && userRole !== "admin") {
-        Errors.forbidden(res, "Only admins can publish roles");
+      if ((status === "published" || status === "on_hold" || status === "closed") && userRole !== "admin") {
+        Errors.forbidden(res, "Only admins can publish, hold, or close roles");
         return;
       }
 

@@ -155,6 +155,7 @@ export const JobRoleStatus = {
   draft: "draft",
   pending_approval: "pending_approval",
   published: "published",
+  on_hold: "on_hold",
   closed: "closed",
 } as const;
 
@@ -251,6 +252,7 @@ export const UpdateRoleStatusRequestStatus = {
   draft: "draft",
   pending_approval: "pending_approval",
   published: "published",
+  on_hold: "on_hold",
   closed: "closed",
 } as const;
 
@@ -308,6 +310,7 @@ export interface Candidate {
   status: CandidateStatus;
   roleId: number;
   roleTitle: string;
+  roleStatus?: JobRoleStatus | null;
   vendorCompanyId: number;
   vendorCompanyName: string;
   submittedAt: string;

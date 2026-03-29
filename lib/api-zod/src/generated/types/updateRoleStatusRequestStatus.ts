@@ -13,5 +13,6 @@ export const UpdateRoleStatusRequestStatus = {
   draft: "draft",
   pending_approval: "pending_approval",
   published: "published",
+  on_hold: "on_hold",
   closed: "closed",
 } as const;

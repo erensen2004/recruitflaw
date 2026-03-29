@@ -1,5 +1,5 @@
 import { useDeferredValue, useMemo, useState } from "react";
-import { useListCandidates, useUpdateCandidateStatus } from "@workspace/api-client-react";
+import { useListCandidates, useListCompanies, useListRoles, useUpdateCandidateStatus } from "@workspace/api-client-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
@@ -47,7 +47,10 @@ function getParseBadge(parseStatus: string, reviewRequired: boolean) {
 export default function AdminCandidates() {
   const [activeTab, setActiveTab] = useState<ReviewTab>("all");
   const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [vendorFilter, setVendorFilter] = useState("all");
   const [hasCv, setHasCv] = useState("all");
+  const [sortBy, setSortBy] = useState("recent");
   const [pendingCandidateId, setPendingCandidateId] = useState<number | null>(null);
   const [statusReasonOpen, setStatusReasonOpen] = useState(false);
   const [statusReasonTarget, setStatusReasonTarget] = useState<CandidateStatusValue | null>(null);
@@ -55,8 +58,12 @@ export default function AdminCandidates() {
   const [statusReasonText, setStatusReasonText] = useState("");
   const [statusReasonError, setStatusReasonError] = useState("");
   const deferredSearch = useDeferredValue(search.trim());
+  const { data: roles } = useListRoles();
+  const { data: companies } = useListCompanies();
   const { data: candidates, isLoading } = useListCandidates({
     search: deferredSearch || undefined,
+    roleId: roleFilter === "all" ? undefined : Number(roleFilter),
+    vendorCompanyId: vendorFilter === "all" ? undefined : Number(vendorFilter),
     reviewRequired: activeTab === "normalize" ? true : undefined,
     hasCv: hasCv === "all" ? undefined : hasCv === "yes",
   });
@@ -89,13 +96,29 @@ export default function AdminCandidates() {
   const filteredCandidates = useMemo(() => {
     if (!candidates) return [];
 
-    return candidates.filter((candidate) => {
+    const filtered = candidates.filter((candidate) => {
       if (activeTab === "pending") return candidate.status === "pending_approval";
       if (activeTab === "normalize") return candidate.parseReviewRequired;
       if (activeTab === "ready") return candidate.status !== "pending_approval" && !candidate.parseReviewRequired;
       return true;
     });
-  }, [activeTab, candidates]);
+
+    return [...filtered].sort((left, right) => {
+      switch (sortBy) {
+        case "name":
+          return `${left.firstName} ${left.lastName}`.localeCompare(`${right.firstName} ${right.lastName}`);
+        case "role":
+          return left.roleTitle.localeCompare(right.roleTitle);
+        case "vendor":
+          return left.vendorCompanyName.localeCompare(right.vendorCompanyName);
+        case "oldest":
+          return new Date(left.submittedAt).getTime() - new Date(right.submittedAt).getTime();
+        case "recent":
+        default:
+          return new Date(right.submittedAt).getTime() - new Date(left.submittedAt).getTime();
+      }
+    });
+  }, [activeTab, candidates, sortBy]);
 
   const getSelectStatusValue = (status: string): CandidateStatusSelectValue =>
     status === "pending_approval" || status === "withdrawn"
@@ -147,10 +170,10 @@ export default function AdminCandidates() {
 
   return (
     <DashboardLayout allowedRoles={["admin"]}>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900">All Candidates</h1>
-        <p className="text-slate-500 mt-1">Review pending candidate submissions, normalize the profile where needed, then approve them into the client-facing pipeline.</p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-slate-900">All Candidates</h1>
+        <p className="text-sm text-slate-500 mt-1">Review pending candidate submissions, normalize profiles where needed, then approve them into the client-facing pipeline.</p>
+        <div className="mt-4 flex flex-wrap gap-2">
           {[
             {
               label: "Total queue",
@@ -168,14 +191,14 @@ export default function AdminCandidates() {
               tone: "border-sky-200 bg-sky-50 text-sky-800",
             },
           ].map((card) => (
-            <div key={card.label} className={`rounded-2xl border px-4 py-3 ${card.tone}`}>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">{card.label}</p>
-              <p className="mt-2 text-2xl font-bold">{card.value}</p>
+            <div key={card.label} className={`rounded-full border px-4 py-2 ${card.tone}`}>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">{card.label}</span>
+              <span className="ml-2 text-sm font-bold">{card.value}</span>
             </div>
           ))}
         </div>
 
-        <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="mt-4 flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex flex-wrap gap-2">
             {[
               { key: "all", label: "All queue" },
@@ -187,7 +210,7 @@ export default function AdminCandidates() {
                 key={tab.key}
                 type="button"
                 variant={activeTab === tab.key ? "default" : "outline"}
-                className="rounded-full"
+                className="h-9 rounded-full"
                 onClick={() => setActiveTab(tab.key as ReviewTab)}
               >
                 {tab.label}
@@ -195,24 +218,62 @@ export default function AdminCandidates() {
             ))}
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="relative min-w-[260px]">
+          <div className="grid gap-2 sm:grid-cols-2 xl:flex xl:flex-wrap xl:items-center">
+            <div className="relative min-w-[220px] xl:flex-1">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search candidate, role, company..."
-                className="h-11 rounded-xl pl-11"
+                className="h-10 rounded-xl pl-11"
               />
             </div>
+            <Select value={roleFilter} onValueChange={setRoleFilter}>
+              <SelectTrigger className="h-10 min-w-[150px] rounded-xl">
+                <SelectValue placeholder="Role" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All roles</SelectItem>
+                {(roles ?? []).map((role) => (
+                  <SelectItem key={role.id} value={String(role.id)}>
+                    {role.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={vendorFilter} onValueChange={setVendorFilter}>
+              <SelectTrigger className="h-10 min-w-[160px] rounded-xl">
+                <SelectValue placeholder="Vendor" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All vendors</SelectItem>
+                {(companies ?? []).map((company) => (
+                  <SelectItem key={company.id} value={String(company.id)}>
+                    {company.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={hasCv} onValueChange={setHasCv}>
-              <SelectTrigger className="h-11 min-w-[160px] rounded-xl">
+              <SelectTrigger className="h-10 min-w-[150px] rounded-xl">
                 <SelectValue placeholder="CV availability" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All CV states</SelectItem>
                 <SelectItem value="yes">Has CV</SelectItem>
                 <SelectItem value="no">Missing CV</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger className="h-10 min-w-[140px] rounded-xl">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="recent">Newest</SelectItem>
+                <SelectItem value="oldest">Oldest</SelectItem>
+                <SelectItem value="name">A-Z</SelectItem>
+                <SelectItem value="role">Role</SelectItem>
+                <SelectItem value="vendor">Vendor</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -267,7 +328,12 @@ export default function AdminCandidates() {
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 font-medium text-slate-700">{c.roleTitle}</td>
+                  <td className="px-6 py-4 text-slate-700">
+                    <div className="flex flex-col gap-1">
+                      <span className="font-medium">{c.roleTitle}</span>
+                      {c.roleStatus ? <StatusBadge status={c.roleStatus} className="w-fit" /> : null}
+                    </div>
+                  </td>
                   <td className="px-6 py-4 text-slate-600">{c.vendorCompanyName}</td>
                   <td className="px-6 py-4">
                     {c.cvUrl ? (

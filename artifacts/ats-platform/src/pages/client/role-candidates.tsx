@@ -163,8 +163,10 @@ export default function ClientRoleCandidates() {
                 </div>
               </div>
               <div className="rounded-xl bg-slate-50 px-4 py-3 text-right">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Maximum Salary</div>
-                <div className="mt-1 text-sm font-semibold text-slate-800">{roleDetails?.salaryLabel || "Not specified"}</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Pipeline state</div>
+                <div className="mt-1 text-sm font-semibold text-slate-800">
+                  {role.status === "published" ? "Open for approved candidates" : role.status === "on_hold" ? "Temporarily paused" : role.status === "closed" ? "Closed role" : "Still under admin review"}
+                </div>
               </div>
             </div>
 

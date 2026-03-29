@@ -15,7 +15,7 @@ export const jobRolesTable = pgTable("job_roles", {
     enum: ["full-time", "part-time", "other", "contract", "freelance"],
   }),
   isRemote: boolean("is_remote").notNull().default(false),
-  status: text("status", { enum: ["draft", "pending_approval", "published", "closed"] }).notNull().default("draft"),
+  status: text("status", { enum: ["draft", "pending_approval", "published", "on_hold", "closed"] }).notNull().default("draft"),
   companyId: integer("company_id").notNull().references(() => companiesTable.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

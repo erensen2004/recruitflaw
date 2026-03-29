@@ -8,7 +8,7 @@ import { Loader2, ArrowLeft, Send, FileText, Upload, Sparkles, Tag } from "lucid
 import { useRoute, Link, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { validateResumeFile } from "@/lib/utils";
-import { composeCandidateTags, formatTurkishLira, parseCandidateTags } from "@/lib/candidate-display";
+import { composeCandidateTags, parseCandidateTags } from "@/lib/candidate-display";
 import { parseResumeFileWithFallback, parseResumeText, type ParsedCandidateProfile } from "@/lib/resume-parse";
 import { getRoleSummaryLines } from "@/lib/role-display";
 import { uploadResumeFile } from "@/lib/resume-upload";
@@ -281,9 +281,6 @@ export default function VendorSubmitCandidate() {
                     {roleSummary.employmentTypeLabel}
                   </span>
                 ) : null}
-                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-                  Max salary {role.salaryMax != null ? formatTurkishLira(role.salaryMax) : "Not provided"}
-                </span>
               </div>
             </div>
             <div className="mt-4 grid gap-4 lg:grid-cols-2">
