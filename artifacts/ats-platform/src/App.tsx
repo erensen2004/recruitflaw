@@ -6,6 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 const NotFound = lazy(() => import("@/pages/not-found"));
 const Login = lazy(() => import("@/pages/login"));
+const SetPassword = lazy(() => import("@/pages/set-password"));
+const ChangePassword = lazy(() => import("@/pages/change-password"));
 
 const AdminCompanies = lazy(() => import("@/pages/admin/companies"));
 const AdminUsers = lazy(() => import("@/pages/admin/users"));
@@ -42,8 +44,11 @@ function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
+      <Route path="/set-password" component={SetPassword} />
+      <Route path="/setup-password" component={SetPassword} />
+      <Route path="/change-password" component={ChangePassword} />
 
-      <Route path="/admin" component={() => <Redirect to="/admin/companies" />} />
+      <Route path="/admin" component={() => <Redirect to="/admin/roles" />} />
       <Route path="/admin/companies" component={AdminCompanies} />
       <Route path="/admin/users" component={AdminUsers} />
       <Route path="/admin/roles" component={AdminRoles} />

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useLogin, getGetMeQueryKey } from "@workspace/api-client-react";
 import { Briefcase, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -62,7 +62,7 @@ export default function Login() {
             <Briefcase className="w-8 h-8 text-white" />
           </div>
           <h1 className="text-2xl font-bold text-slate-900">Welcome to RecruitFlow</h1>
-          <p className="text-slate-500 mt-2">Sign in to your account to continue</p>
+          <p className="text-slate-500 mt-2">Sign in with your approved company account.</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
@@ -107,11 +107,14 @@ export default function Login() {
           </Button>
         </form>
 
-        <div className="mt-8 text-center text-sm text-slate-500 space-y-1">
-          <p className="font-medium text-slate-600">Demo Credentials:</p>
-          <p>Admin: admin@ats.com / admin123</p>
-          <p>Client HR: hr@techcorp.com / client123</p>
-          <p>Vendor: vendor@staffingpro.com / vendor123</p>
+        <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+          <p className="font-medium text-slate-700">Invite-only access</p>
+          <p className="mt-1">Accounts are created by the admin team. Use your setup link to create a password, then sign in here.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link href="/set-password" className="inline-flex min-h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-primary hover:text-primary">
+              Set up password
+            </Link>
+          </div>
         </div>
       </motion.div>
     </div>

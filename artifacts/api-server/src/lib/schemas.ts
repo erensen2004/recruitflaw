@@ -11,12 +11,23 @@ const RoleWorkModeSchema = z.enum(["full-office", "hybrid", "full-remote"]);
 const RoleEmploymentTypeSchema = z.enum(["full-time", "part-time", "other"]);
 const LegacyRoleEmploymentTypeSchema = z.enum(["contract", "freelance"]);
 const RoleEmploymentTypeInputSchema = z.union([RoleEmploymentTypeSchema, LegacyRoleEmploymentTypeSchema]);
+const PasswordSchema = z.string().min(8, "Password must be at least 8 characters long").max(200);
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
 export const LoginSchema = z.object({
   email: z.string().email("Invalid email address"),
   password: z.string().min(1, "Password required"),
+});
+
+export const SetupPasswordSchema = z.object({
+  token: z.string().min(1, "Setup token required"),
+  password: PasswordSchema,
+});
+
+export const ChangePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password required"),
+  newPassword: PasswordSchema,
 });
 
 // ─── Candidates ──────────────────────────────────────────────────────────────
@@ -181,7 +192,15 @@ export const UpdateRoleSchema = z.object({
 });
 
 export const RoleStatusSchema = z.object({
-  status: z.enum(["draft", "pending_approval", "published", "closed"]),
+  status: z.enum(["draft", "pending_approval", "published", "on_hold", "closed"]),
+});
+
+export const CreateUserSchema = z.object({
+  email: z.string().email(),
+  name: z.string().trim().min(1).max(200),
+  role: z.enum(["admin", "client", "vendor"]),
+  companyId: z.number().int().positive().nullable().optional(),
+  password: PasswordSchema.optional(),
 });
 
 // ─── Notes ───────────────────────────────────────────────────────────────────

@@ -1,10 +1,14 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
+import crypto from "node:crypto";
 import { db, usersTable, companiesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole } from "../lib/authz.js";
 import { Errors } from "../lib/errors.js";
+import { createPasswordSetupToken } from "../lib/password-setup.js";
+import { CreateUserSchema } from "../lib/schemas.js";
+import { validate } from "../middlewares/validate.js";
 
 const router = Router();
 
@@ -32,22 +36,21 @@ router.get("/", requireAuth, requireRole("admin"), async (_req, res) => {
   }
 });
 
-router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
+router.post("/", requireAuth, requireRole("admin"), validate(CreateUserSchema), async (req, res) => {
   try {
     const { email, name, password, role, companyId } = req.body;
-    if (!email || !name || !password || !role) {
-      Errors.badRequest(res, "email, name, password, role required");
-      return;
-    }
-    if (!["admin", "client", "vendor"].includes(role)) {
-      Errors.badRequest(res, "role must be admin|client|vendor");
-      return;
-    }
-
-    const passwordHash = await bcrypt.hash(password, 10);
+    const inviteOnly = !password?.trim();
+    const passwordHash = await bcrypt.hash(password?.trim() || crypto.randomBytes(24).toString("base64url"), 10);
     const [user] = await db
       .insert(usersTable)
-      .values({ email: email.toLowerCase(), name, passwordHash, role, companyId: companyId ?? null })
+      .values({
+        email: email.toLowerCase(),
+        name,
+        passwordHash,
+        role,
+        companyId: companyId ?? null,
+        isActive: !inviteOnly,
+      })
       .returning({
         id: usersTable.id,
         email: usersTable.email,
@@ -58,7 +61,17 @@ router.post("/", requireAuth, requireRole("admin"), async (req, res) => {
         createdAt: usersTable.createdAt,
       });
 
-    res.status(201).json({ ...user, companyName: null });
+    const setupToken = inviteOnly
+      ? (await createPasswordSetupToken({
+          userId: user.id,
+          createdByUserId: req.user!.userId,
+          purpose: "invite",
+        })).token
+      : null;
+    const origin = req.get("origin") || process.env.PUBLIC_APP_URL || null;
+    const setupUrl = setupToken && origin ? new URL(`/set-password?token=${encodeURIComponent(setupToken)}`, origin).toString() : null;
+
+    res.status(201).json({ ...user, companyName: null, setupToken, setupUrl });
   } catch (err: unknown) {
     if ((err as { code?: string }).code === "23505") {
       Errors.conflict(res, "Email already exists");
