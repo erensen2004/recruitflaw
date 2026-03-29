@@ -30,6 +30,10 @@ export const ChangePasswordSchema = z.object({
   newPassword: PasswordSchema,
 });
 
+export const ForgotPasswordSchema = z.object({
+  email: z.string().email("Invalid email address"),
+});
+
 // ─── Candidates ──────────────────────────────────────────────────────────────
 
 export const CreateCandidateSchema = z.object({
@@ -200,7 +204,6 @@ export const CreateUserSchema = z.object({
   name: z.string().trim().min(1).max(200),
   role: z.enum(["admin", "client", "vendor"]),
   companyId: z.number().int().positive().nullable().optional(),
-  password: PasswordSchema.optional(),
 });
 
 // ─── Notes ───────────────────────────────────────────────────────────────────

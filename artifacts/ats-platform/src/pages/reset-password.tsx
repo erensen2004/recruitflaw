@@ -1,11 +1,11 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Briefcase, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 
-type SetupMeta = {
+type ResetMeta = {
   email: string;
   name: string;
   role: string;
@@ -13,20 +13,18 @@ type SetupMeta = {
   expiresAt: string;
 };
 
-export default function SetupPasswordPage() {
+export default function ResetPasswordPage() {
   const [location, setLocation] = useLocation();
   const [tokenInput, setTokenInput] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [meta, setMeta] = useState<SetupMeta | null>(null);
+  const [meta, setMeta] = useState<ResetMeta | null>(null);
   const [isLoadingMeta, setIsLoadingMeta] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
-  const token = useMemo(() => {
-    const raw = new URLSearchParams(location.split("?")[1] ?? "").get("token") ?? tokenInput.trim();
-    return raw.trim();
-  }, [location, tokenInput]);
+  const queryToken = new URLSearchParams(location.split("?")[1] ?? "").get("token");
+  const token = useMemo(() => (queryToken ?? tokenInput.trim()).trim(), [queryToken, tokenInput]);
 
   useEffect(() => {
     if (!token) {
@@ -37,22 +35,22 @@ export default function SetupPasswordPage() {
     let cancelled = false;
     setIsLoadingMeta(true);
 
-    fetch(`/api/auth/password-setup/${encodeURIComponent(token)}`)
+    fetch(`/api/auth/password-reset/${encodeURIComponent(token)}`)
       .then(async (response) => {
         if (!response.ok) {
           const payload = await response.json().catch(() => null);
-          throw new Error(payload?.message || payload?.error || "This setup link is invalid or expired.");
+          throw new Error(payload?.message || payload?.error || "This reset link is invalid or expired.");
         }
         return response.json();
       })
-      .then((payload: SetupMeta) => {
+      .then((payload: ResetMeta) => {
         if (!cancelled) setMeta(payload);
       })
       .catch((error: Error) => {
         if (!cancelled) {
           setMeta(null);
           toast({
-            title: "Setup link could not be loaded",
+            title: "Reset link could not be loaded",
             description: error.message,
             variant: "destructive",
           });
@@ -70,7 +68,7 @@ export default function SetupPasswordPage() {
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!token) {
-      toast({ title: "Paste your setup token first", variant: "destructive" });
+      toast({ title: "Paste your reset token first", variant: "destructive" });
       return;
     }
     if (password !== confirmPassword) {
@@ -80,7 +78,7 @@ export default function SetupPasswordPage() {
 
     setIsSubmitting(true);
     try {
-      const response = await fetch(`/api/auth/password-setup/${encodeURIComponent(token)}`, {
+      const response = await fetch(`/api/auth/password-reset/${encodeURIComponent(token)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),
@@ -88,15 +86,15 @@ export default function SetupPasswordPage() {
 
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(payload?.message || payload?.error || "Password could not be created.");
+        throw new Error(payload?.message || payload?.error || "Password could not be reset.");
       }
 
       localStorage.setItem("ats_token", payload.token);
-      toast({ title: "Password created", description: "Your account is ready." });
+      toast({ title: "Password updated", description: "You are now signed in." });
       setLocation(`/${payload.user.role}`);
     } catch (error) {
       toast({
-        title: "Password setup failed",
+        title: "Password reset failed",
         description: error instanceof Error ? error.message : "Please try again.",
         variant: "destructive",
       });
@@ -112,18 +110,18 @@ export default function SetupPasswordPage() {
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-white shadow-lg shadow-primary/25">
             <Briefcase className="h-7 w-7" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900">Create your password</h1>
-          <p className="mt-2 text-sm text-slate-500">Accounts are invite-only. Use the setup link shared by your admin team.</p>
+          <h1 className="text-2xl font-bold text-slate-900">Reset your password</h1>
+          <p className="mt-2 text-sm text-slate-500">Use the reset link from your email, then choose a new password.</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {!new URLSearchParams(location.split("?")[1] ?? "").get("token") ? (
+          {!queryToken ? (
             <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Setup token</label>
+              <label className="text-sm font-semibold text-slate-700">Reset token</label>
               <Input
                 value={tokenInput}
                 onChange={(event) => setTokenInput(event.target.value)}
-                placeholder="Paste the token from your setup link"
+                placeholder="Paste the token from your reset email"
                 className="h-11 rounded-xl"
               />
             </div>
@@ -133,7 +131,7 @@ export default function SetupPasswordPage() {
             {isLoadingMeta ? (
               <div className="flex items-center gap-2 text-slate-500">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Validating setup link...
+                Validating reset link...
               </div>
             ) : meta ? (
               <>
@@ -141,7 +139,7 @@ export default function SetupPasswordPage() {
                 <p>{meta.email}</p>
               </>
             ) : (
-              <p>Paste a valid setup token to continue.</p>
+              <p>Paste a valid reset token to continue.</p>
             )}
           </div>
 
@@ -171,8 +169,14 @@ export default function SetupPasswordPage() {
           </div>
 
           <Button type="submit" disabled={!meta || isSubmitting} className="h-11 w-full rounded-xl">
-            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create password"}
+            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save new password"}
           </Button>
+
+          <div className="text-center text-sm text-slate-500">
+            <Link href="/login" className="font-medium text-primary hover:underline">
+              Back to login
+            </Link>
+          </div>
         </form>
       </div>
     </div>

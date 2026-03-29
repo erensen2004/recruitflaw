@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Users, Plus, Loader2, Copy, ExternalLink } from "lucide-react";
+import { Users, Plus, Loader2, Copy, Mail } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -21,8 +21,10 @@ export default function AdminUsers() {
   const { data: users, isLoading } = useListUsers();
   const { data: companies } = useListCompanies();
   const [isOpen, setIsOpen] = useState(false);
-  const [inviteLink, setInviteLink] = useState("");
-  const [inviteName, setInviteName] = useState("");
+  const [createdUserName, setCreatedUserName] = useState("");
+  const [createdUserEmail, setCreatedUserEmail] = useState("");
+  const [temporaryPassword, setTemporaryPassword] = useState("");
+  const [isSendingReset, setIsSendingReset] = useState(false);
   const [formData, setFormData] = useState<CreateUserForm>({
     name: "",
     email: "",
@@ -71,18 +73,15 @@ export default function AdminUsers() {
       }
 
       queryClient.invalidateQueries({ queryKey: getListUsersQueryKey() });
-      const setupUrl =
-        payload?.setupUrl ||
-        (payload?.setupToken ? `${window.location.origin}/set-password?token=${encodeURIComponent(payload.setupToken)}` : "");
-
-      setInviteLink(setupUrl);
-      setInviteName(payload?.name || formData.name.trim());
+      setCreatedUserName(payload?.name || formData.name.trim());
+      setCreatedUserEmail(payload?.email || formData.email.trim().toLowerCase());
+      setTemporaryPassword(payload?.temporaryPassword || "");
       setIsOpen(false);
       resetForm();
 
       toast({
-        title: "Invite created",
-        description: setupUrl ? "A password setup link is ready to copy." : "User created.",
+        title: "User created",
+        description: "Temporary password is ready. The preferred onboarding path is still forgot password.",
       });
     } catch (error) {
       toast({
@@ -93,10 +92,38 @@ export default function AdminUsers() {
     }
   };
 
-  const copyInviteLink = async () => {
-    if (!inviteLink) return;
-    await navigator.clipboard.writeText(inviteLink);
-    toast({ title: "Setup link copied" });
+  const copyTemporaryPassword = async () => {
+    if (!temporaryPassword) return;
+    await navigator.clipboard.writeText(temporaryPassword);
+    toast({ title: "Temporary password copied" });
+  };
+
+  const sendResetEmail = async () => {
+    if (!createdUserEmail) return;
+    setIsSendingReset(true);
+    try {
+      const response = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: createdUserEmail }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(payload?.message || payload?.error || "Reset email could not be sent.");
+      }
+      toast({
+        title: "Reset email queued",
+        description: payload?.message || "If the account exists, a reset link has been sent.",
+      });
+    } catch (error) {
+      toast({
+        title: "Reset email failed",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSendingReset(false);
+    }
   };
 
   return (
@@ -104,7 +131,7 @@ export default function AdminUsers() {
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Users</h1>
-          <p className="mt-1 text-sm text-slate-500">Create controlled workspace access and activate accounts with setup links.</p>
+          <p className="mt-1 text-sm text-slate-500">Create controlled workspace access with a one-time temporary password and reset-first onboarding.</p>
         </div>
 
         <Dialog
@@ -117,14 +144,14 @@ export default function AdminUsers() {
           <DialogTrigger asChild>
             <Button className="h-10 rounded-xl px-5 shadow-md">
               <Plus className="mr-2 h-4 w-4" />
-              Invite User
+              Create User
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-md rounded-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Invite New User</DialogTitle>
+              <DialogTitle>Create New User</DialogTitle>
               <DialogDescription>
-                Create the account now and send a password setup link instead of choosing a permanent password up front.
+                Create the account with a random temporary password. Users can sign in with it or use forgot password to set their own permanent password.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="mt-4 space-y-4">
@@ -164,33 +191,34 @@ export default function AdminUsers() {
                 </div>
               ) : null}
               <Button type="submit" className="mt-4 h-11 w-full rounded-xl">
-                Create Invite
+                Create User
               </Button>
             </form>
           </DialogContent>
         </Dialog>
       </div>
 
-      {inviteLink ? (
+      {temporaryPassword ? (
         <div className="mb-5 rounded-2xl border border-sky-200 bg-sky-50/80 p-4 shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-500">Setup link ready</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-500">Temporary password shown once</p>
               <p className="mt-1 text-sm font-medium text-sky-900">
-                {inviteName} can set their password from this link before first login.
+                {createdUserName} can sign in with this password, but the preferred onboarding path is to use forgot password.
               </p>
-              <p className="mt-1 break-all text-xs text-sky-700">{inviteLink}</p>
+              <p className="mt-1 text-xs text-sky-700">{createdUserEmail}</p>
+              <p className="mt-3 rounded-xl border border-sky-200 bg-white px-4 py-3 font-mono text-sm font-semibold text-slate-900">
+                {temporaryPassword}
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" className="rounded-full" onClick={copyInviteLink}>
+              <Button type="button" variant="outline" className="rounded-full" onClick={copyTemporaryPassword}>
                 <Copy className="mr-2 h-4 w-4" />
-                Copy link
+                Copy password
               </Button>
-              <Button type="button" className="rounded-full" asChild>
-                <a href={inviteLink} target="_blank" rel="noreferrer">
-                  <ExternalLink className="mr-2 h-4 w-4" />
-                  Open link
-                </a>
+              <Button type="button" className="rounded-full" onClick={sendResetEmail} disabled={isSendingReset}>
+                {isSendingReset ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
+                Send reset email
               </Button>
             </div>
           </div>

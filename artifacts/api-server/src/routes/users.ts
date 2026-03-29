@@ -6,7 +6,6 @@ import { eq } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole } from "../lib/authz.js";
 import { Errors } from "../lib/errors.js";
-import { createPasswordSetupToken } from "../lib/password-setup.js";
 import { CreateUserSchema } from "../lib/schemas.js";
 import { validate } from "../middlewares/validate.js";
 
@@ -38,9 +37,9 @@ router.get("/", requireAuth, requireRole("admin"), async (_req, res) => {
 
 router.post("/", requireAuth, requireRole("admin"), validate(CreateUserSchema), async (req, res) => {
   try {
-    const { email, name, password, role, companyId } = req.body;
-    const inviteOnly = !password?.trim();
-    const passwordHash = await bcrypt.hash(password?.trim() || crypto.randomBytes(24).toString("base64url"), 10);
+    const { email, name, role, companyId } = req.body;
+    const temporaryPassword = crypto.randomBytes(9).toString("base64url");
+    const passwordHash = await bcrypt.hash(temporaryPassword, 10);
     const [user] = await db
       .insert(usersTable)
       .values({
@@ -49,7 +48,7 @@ router.post("/", requireAuth, requireRole("admin"), validate(CreateUserSchema), 
         passwordHash,
         role,
         companyId: companyId ?? null,
-        isActive: !inviteOnly,
+        isActive: true,
       })
       .returning({
         id: usersTable.id,
@@ -60,18 +59,11 @@ router.post("/", requireAuth, requireRole("admin"), validate(CreateUserSchema), 
         isActive: usersTable.isActive,
         createdAt: usersTable.createdAt,
       });
-
-    const setupToken = inviteOnly
-      ? (await createPasswordSetupToken({
-          userId: user.id,
-          createdByUserId: req.user!.userId,
-          purpose: "invite",
-        })).token
-      : null;
-    const origin = req.get("origin") || process.env.PUBLIC_APP_URL || null;
-    const setupUrl = setupToken && origin ? new URL(`/set-password?token=${encodeURIComponent(setupToken)}`, origin).toString() : null;
-
-    res.status(201).json({ ...user, companyName: null, setupToken, setupUrl });
+    res.status(201).json({
+      ...user,
+      companyName: null,
+      temporaryPassword,
+    });
   } catch (err: unknown) {
     if ((err as { code?: string }).code === "23505") {
       Errors.conflict(res, "Email already exists");

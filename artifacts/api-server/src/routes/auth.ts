@@ -4,9 +4,10 @@ import { db, usersTable, companiesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth, signToken } from "../lib/auth.js";
 import { validate } from "../middlewares/validate.js";
-import { ChangePasswordSchema, LoginSchema, SetupPasswordSchema } from "../lib/schemas.js";
+import { ChangePasswordSchema, ForgotPasswordSchema, LoginSchema, SetupPasswordSchema } from "../lib/schemas.js";
 import { Errors } from "../lib/errors.js";
-import { consumePasswordSetupToken, getPasswordSetupTokenDetails } from "../lib/password-setup.js";
+import { consumePasswordSetupToken, createPasswordSetupToken, getPasswordSetupTokenDetails } from "../lib/password-setup.js";
+import { sendPasswordResetEmail } from "../lib/email.js";
 
 const router = Router();
 
@@ -29,7 +30,7 @@ router.post("/login", validate(LoginSchema), async (req, res) => {
 
     if (!user || !user.isActive) {
       if (user && !user.isActive) {
-        Errors.forbidden(res, "Account is not activated yet. Use your setup link to create a password.");
+        Errors.forbidden(res, "Account is not active yet. Ask your admin for help or use a valid reset link.");
         return;
       }
       Errors.unauthorized(res, "Invalid email or password");
@@ -69,18 +70,13 @@ router.post("/login", validate(LoginSchema), async (req, res) => {
   }
 });
 
-router.get("/password-setup/:token", async (req, res) => {
+async function respondWithPasswordTokenMeta(token: string, res: Parameters<typeof Errors.unauthorized>[0]) {
   try {
-    const setup = await getPasswordSetupTokenDetails(req.params.token);
+    const setup = await getPasswordSetupTokenDetails(token);
 
     if (!setup) {
-      Errors.unauthorized(res, "Setup link is invalid or expired");
-      return;
-    }
-
-    if (setup.isActive) {
-      Errors.badRequest(res, "This account is already activated");
-      return;
+      Errors.unauthorized(res, "Password link is invalid or expired");
+      return false;
     }
 
     res.json({
@@ -90,27 +86,36 @@ router.get("/password-setup/:token", async (req, res) => {
       purpose: setup.purpose,
       expiresAt: setup.expiresAt,
     });
+    return true;
   } catch (err) {
     console.error(err);
-    Errors.unauthorized(res, "Setup link is invalid or expired");
+    Errors.unauthorized(res, "Password link is invalid or expired");
+    return false;
   }
+}
+
+router.get("/password-setup/:token", async (req, res) => {
+  await respondWithPasswordTokenMeta(req.params.token, res);
 });
 
-router.post("/password-setup/:token", async (req, res) => {
+router.get("/password-reset/:token", async (req, res) => {
+  await respondWithPasswordTokenMeta(req.params.token, res);
+});
+
+async function consumePasswordToken(token: string, password: string, res: Parameters<typeof Errors.unauthorized>[0]) {
   try {
-    const parsed = SetupPasswordSchema.safeParse({ token: req.params.token, password: req.body?.password });
+    const parsed = SetupPasswordSchema.safeParse({ token, password });
     if (!parsed.success) {
       Errors.badRequest(res, parsed.error.issues[0]?.message || "Password is required");
-      return;
+      return false;
     }
 
-    const { token, password } = parsed.data;
-    const passwordHash = await bcrypt.hash(password, 10);
-    const updatedUser = await consumePasswordSetupToken({ token, passwordHash });
+    const passwordHash = await bcrypt.hash(parsed.data.password, 10);
+    const updatedUser = await consumePasswordSetupToken({ token: parsed.data.token, passwordHash });
 
     if (!updatedUser) {
-      Errors.unauthorized(res, "Setup link is invalid or expired");
-      return;
+      Errors.unauthorized(res, "Password link is invalid or expired");
+      return false;
     }
 
     let companyName: string | null = null;
@@ -139,13 +144,74 @@ router.post("/password-setup/:token", async (req, res) => {
         companyName,
       },
     });
+    return true;
   } catch (err) {
     console.error(err);
     if (err instanceof Error && err.message.includes("token")) {
-      Errors.unauthorized(res, "Setup link is invalid or expired");
-      return;
+      Errors.unauthorized(res, "Password link is invalid or expired");
+      return false;
     }
     Errors.internal(res);
+    return false;
+  }
+}
+
+router.post("/password-setup/:token", async (req, res) => {
+  await consumePasswordToken(req.params.token, req.body?.password, res);
+});
+
+router.post("/password-reset/:token", async (req, res) => {
+  await consumePasswordToken(req.params.token, req.body?.password, res);
+});
+
+router.post("/forgot-password", validate(ForgotPasswordSchema), async (req, res) => {
+  try {
+    const email = req.body.email.trim().toLowerCase();
+    const [user] = await db
+      .select({
+        id: usersTable.id,
+        email: usersTable.email,
+        name: usersTable.name,
+      })
+      .from(usersTable)
+      .where(eq(usersTable.email, email));
+
+    if (user) {
+      const reset = await createPasswordSetupToken({
+        userId: user.id,
+        purpose: "reset",
+      });
+      const origin = process.env.PUBLIC_APP_URL?.trim();
+      const resetUrl = origin
+        ? new URL(`/reset-password?token=${encodeURIComponent(reset.token)}`, origin).toString()
+        : null;
+
+      if (resetUrl) {
+        try {
+          await sendPasswordResetEmail({
+            to: user.email,
+            name: user.name,
+            resetUrl,
+            expiresAt: reset.expiresAt,
+          });
+        } catch (emailError) {
+          console.error("[forgot-password] email send failed", emailError);
+        }
+      } else {
+        console.warn("[forgot-password] PUBLIC_APP_URL is not configured; reset email skipped");
+      }
+    }
+
+    res.json({
+      ok: true,
+      message: "If that email exists in RecruitFlow, a password reset link has been sent.",
+    });
+  } catch (err) {
+    console.error(err);
+    res.json({
+      ok: true,
+      message: "If that email exists in RecruitFlow, a password reset link has been sent.",
+    });
   }
 });
 

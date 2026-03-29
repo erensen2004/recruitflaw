@@ -108,11 +108,11 @@ export default function Login() {
         </form>
 
         <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-          <p className="font-medium text-slate-700">Invite-only access</p>
-          <p className="mt-1">Accounts are created by the admin team. Use your setup link to create a password, then sign in here.</p>
+          <p className="font-medium text-slate-700">Admin-created access</p>
+          <p className="mt-1">Accounts are opened by the admin team. Use your temporary password or reset it from the link below.</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Link href="/set-password" className="inline-flex min-h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-primary hover:text-primary">
-              Set up password
+            <Link href="/forgot-password" className="inline-flex min-h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-primary hover:text-primary">
+              Forgot password
             </Link>
           </div>
         </div>
