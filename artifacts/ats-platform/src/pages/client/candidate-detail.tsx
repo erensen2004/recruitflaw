@@ -385,6 +385,13 @@ export default function ClientCandidateDetail() {
   const adminReviewSignals = buildAdminReviewSignals(candidate);
   const completenessScore = getCandidateCompleteness(candidate);
   const decisionGuidance = getCandidateDecisionGuidance(candidate);
+  const audienceParseBadge = isAdminRoute
+    ? parseBadge
+    : candidate.parseStatus === "parsed" && !candidate.parseReviewRequired
+      ? { label: "Final profile", className: "bg-emerald-100 text-emerald-700" }
+      : candidate.parseStatus === "partial" || candidate.parseReviewRequired
+        ? { label: "Candidate brief", className: "bg-sky-100 text-sky-700" }
+        : { label: "Profile captured", className: "bg-slate-100 text-slate-700" };
 
   const submitStatusUpdate = (statusValue: (typeof STATUSES)[number], reason?: string) => {
     if (updatingStatus || candidate.status === statusValue) return;
@@ -513,8 +520,8 @@ export default function ClientCandidateDetail() {
                       {candidate.firstName} {candidate.lastName}
                     </h1>
                     <StatusBadge status={candidate.status} />
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${parseBadge.className}`}>
-                      {parseBadge.label}
+                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${audienceParseBadge.className}`}>
+                      {audienceParseBadge.label}
                     </span>
                   </div>
                   <p className="mt-2 text-slate-500">{candidate.email}</p>
@@ -570,10 +577,14 @@ export default function ClientCandidateDetail() {
                     label: "Expected Salary",
                     value: formatTurkishLira(candidate.expectedSalary),
                   },
-                  {
-                    label: "Parse Provider",
-                    value: candidate.parseProvider || "Fallback/manual",
-                  },
+                  ...(isAdminRoute
+                    ? [
+                        {
+                          label: "Parse Provider",
+                          value: candidate.parseProvider || "Fallback/manual",
+                        },
+                      ]
+                    : []),
                   {
                     label: "Submitted",
                     value: new Date(candidate.submittedAt).toLocaleDateString(),
@@ -586,136 +597,140 @@ export default function ClientCandidateDetail() {
                 ))}
               </div>
 
-              <div className="mt-5 grid gap-4 xl:grid-cols-[1.05fr,0.95fr]">
-                <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-5">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Profile completeness</p>
-                      <p className="mt-2 text-3xl font-bold text-slate-900">{completenessScore}%</p>
-                    </div>
-                    <div className="h-16 w-16 rounded-full border-4 border-primary/15 bg-white flex items-center justify-center text-sm font-bold text-primary shadow-sm">
-                      {completenessScore}
-                    </div>
-                  </div>
-                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                    {[
-                      { label: "Contact", ready: Boolean(candidate.email && candidate.phone) },
-                      { label: "Compensation", ready: candidate.expectedSalary != null },
-                      { label: "Languages", ready: Boolean(cleanLanguages || englishLevel) },
-                      { label: "Structured experience", ready: meaningfulExperience.length > 0 },
-                      { label: "Structured education", ready: meaningfulEducation.length > 0 },
-                      { label: "Recruiter summary", ready: Boolean(cleanSummary) },
-                    ].map((item: { label: string; ready: boolean }) => (
-                      <div key={item.label} className={`rounded-xl px-3 py-2 text-sm font-medium ${item.ready ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
-                        {item.ready ? "✓" : "•"} {item.label}
+              {isAdminRoute ? (
+                <>
+                  <div className="mt-5 grid gap-4 xl:grid-cols-[1.05fr,0.95fr]">
+                    <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Profile completeness</p>
+                          <p className="mt-2 text-3xl font-bold text-slate-900">{completenessScore}%</p>
+                        </div>
+                        <div className="h-16 w-16 rounded-full border-4 border-primary/15 bg-white flex items-center justify-center text-sm font-bold text-primary shadow-sm">
+                          {completenessScore}
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className={`rounded-2xl border p-5 ${getSignalClasses(decisionGuidance.tone)}`}>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em]">Decision guidance</p>
-                  <p className="mt-2 text-lg font-bold">{decisionGuidance.label}</p>
-                  <p className="mt-3 text-sm leading-6">{decisionGuidance.body}</p>
-                </div>
-              </div>
-
-              {readinessSnapshot ? (
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  {[
-                    {
-                      label: "Salary readiness",
-                      value: readinessSnapshot.salaryLabel,
-                      tone: (readinessSnapshot.compensationReady ? "emerald" : "amber") as ReviewSignalTone,
-                    },
-                    {
-                      label: "Language readiness",
-                      value: readinessSnapshot.languageLabel,
-                      tone: (readinessSnapshot.languageReady ? "emerald" : "amber") as ReviewSignalTone,
-                    },
-                    {
-                      label: "Risk posture",
-                      value: readinessSnapshot.riskLevel === "low" ? "Low risk" : readinessSnapshot.riskLevel === "medium" ? "Moderate risk" : "High risk",
-                      tone: (readinessSnapshot.riskLevel === "low" ? "emerald" : readinessSnapshot.riskLevel === "medium" ? "amber" : "rose") as ReviewSignalTone,
-                    },
-                    {
-                      label: "Next action",
-                      value: readinessSnapshot.nextAction,
-                      tone: (readinessSnapshot.riskLevel === "low" ? "emerald" : readinessSnapshot.riskLevel === "medium" ? "amber" : "rose") as ReviewSignalTone,
-                    },
-                  ].map((item: { label: string; value: string; tone: ReviewSignalTone }) => (
-                    <div key={item.label} className={`rounded-2xl border p-4 ${getSignalClasses(item.tone)}`}>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">{item.label}</p>
-                      <p className="mt-2 text-sm font-semibold leading-6">{item.value}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-
-              {executiveBrief ? (
-                <div className="mt-5 rounded-3xl border border-slate-100 bg-gradient-to-br from-sky-50 via-white to-emerald-50/70 p-5 shadow-sm">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Executive intelligence</p>
-                      <p className="mt-2 text-2xl font-bold text-slate-900">{executiveBrief.fitLabel}</p>
-                      <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-700">{executiveBrief.fitSummary}</p>
-                    </div>
-                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center shadow-sm">
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Fit score</p>
-                      <p className="mt-1 text-3xl font-bold text-slate-900">{executiveBrief.fitScore}</p>
-                      <p className="text-xs text-slate-500">out of 100</p>
-                    </div>
-                  </div>
-
-                  {executiveBrief.strengths.length ? (
-                    <div className="mt-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Top strengths</p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {executiveBrief.strengths.map((strength) => (
-                          <span key={strength} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200">
-                            {strength}
-                          </span>
+                      <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                        {[
+                          { label: "Contact", ready: Boolean(candidate.email && candidate.phone) },
+                          { label: "Compensation", ready: candidate.expectedSalary != null },
+                          { label: "Languages", ready: Boolean(cleanLanguages || englishLevel) },
+                          { label: "Structured experience", ready: meaningfulExperience.length > 0 },
+                          { label: "Structured education", ready: meaningfulEducation.length > 0 },
+                          { label: "Recruiter summary", ready: Boolean(cleanSummary) },
+                        ].map((item: { label: string; ready: boolean }) => (
+                          <div key={item.label} className={`rounded-xl px-3 py-2 text-sm font-medium ${item.ready ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                            {item.ready ? "✓" : "•"} {item.label}
+                          </div>
                         ))}
                       </div>
                     </div>
-                  ) : null}
 
-                  <div className="mt-4 grid gap-4 xl:grid-cols-2">
-                    <div className="rounded-2xl border border-rose-100 bg-rose-50/70 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Risk flags</p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {executiveBrief.riskFlags.length ? (
-                          executiveBrief.riskFlags.map((flag) => (
-                            <span key={flag} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-rose-700 ring-1 ring-rose-100">
-                              {flag}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
-                            No critical flags
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-500">Normalization notes</p>
-                      <div className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
-                        {executiveBrief.normalizationNotes.length ? (
-                          executiveBrief.normalizationNotes.map((note) => (
-                            <p key={note} className="rounded-xl bg-white px-3 py-2 shadow-sm ring-1 ring-slate-200">
-                              {note}
-                            </p>
-                          ))
-                        ) : (
-                          <p className="rounded-xl bg-white px-3 py-2 shadow-sm ring-1 ring-slate-200">
-                            Profile is already normalized enough for a quick handoff.
-                          </p>
-                        )}
-                      </div>
+                    <div className={`rounded-2xl border p-5 ${getSignalClasses(decisionGuidance.tone)}`}>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em]">Decision guidance</p>
+                      <p className="mt-2 text-lg font-bold">{decisionGuidance.label}</p>
+                      <p className="mt-3 text-sm leading-6">{decisionGuidance.body}</p>
                     </div>
                   </div>
-                </div>
+
+                  {readinessSnapshot ? (
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      {[
+                        {
+                          label: "Salary readiness",
+                          value: readinessSnapshot.salaryLabel,
+                          tone: (readinessSnapshot.compensationReady ? "emerald" : "amber") as ReviewSignalTone,
+                        },
+                        {
+                          label: "Language readiness",
+                          value: readinessSnapshot.languageLabel,
+                          tone: (readinessSnapshot.languageReady ? "emerald" : "amber") as ReviewSignalTone,
+                        },
+                        {
+                          label: "Risk posture",
+                          value: readinessSnapshot.riskLevel === "low" ? "Low risk" : readinessSnapshot.riskLevel === "medium" ? "Moderate risk" : "High risk",
+                          tone: (readinessSnapshot.riskLevel === "low" ? "emerald" : readinessSnapshot.riskLevel === "medium" ? "amber" : "rose") as ReviewSignalTone,
+                        },
+                        {
+                          label: "Next action",
+                          value: readinessSnapshot.nextAction,
+                          tone: (readinessSnapshot.riskLevel === "low" ? "emerald" : readinessSnapshot.riskLevel === "medium" ? "amber" : "rose") as ReviewSignalTone,
+                        },
+                      ].map((item: { label: string; value: string; tone: ReviewSignalTone }) => (
+                        <div key={item.label} className={`rounded-2xl border p-4 ${getSignalClasses(item.tone)}`}>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">{item.label}</p>
+                          <p className="mt-2 text-sm font-semibold leading-6">{item.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {executiveBrief ? (
+                    <div className="mt-5 rounded-3xl border border-slate-100 bg-gradient-to-br from-sky-50 via-white to-emerald-50/70 p-5 shadow-sm">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Executive intelligence</p>
+                          <p className="mt-2 text-2xl font-bold text-slate-900">{executiveBrief.fitLabel}</p>
+                          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-700">{executiveBrief.fitSummary}</p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center shadow-sm">
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Fit score</p>
+                          <p className="mt-1 text-3xl font-bold text-slate-900">{executiveBrief.fitScore}</p>
+                          <p className="text-xs text-slate-500">out of 100</p>
+                        </div>
+                      </div>
+
+                      {executiveBrief.strengths.length ? (
+                        <div className="mt-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Top strengths</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {executiveBrief.strengths.map((strength) => (
+                              <span key={strength} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200">
+                                {strength}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                        <div className="rounded-2xl border border-rose-100 bg-rose-50/70 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Risk flags</p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {executiveBrief.riskFlags.length ? (
+                              executiveBrief.riskFlags.map((flag) => (
+                                <span key={flag} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-rose-700 ring-1 ring-rose-100">
+                                  {flag}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                                No critical flags
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-500">Normalization notes</p>
+                          <div className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+                            {executiveBrief.normalizationNotes.length ? (
+                              executiveBrief.normalizationNotes.map((note) => (
+                                <p key={note} className="rounded-xl bg-white px-3 py-2 shadow-sm ring-1 ring-slate-200">
+                                  {note}
+                                </p>
+                              ))
+                            ) : (
+                              <p className="rounded-xl bg-white px-3 py-2 shadow-sm ring-1 ring-slate-200">
+                                Profile is already normalized enough for a quick handoff.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
               ) : null}
 
               {parsedSkills.length > 0 ? (
@@ -734,16 +749,18 @@ export default function ClientCandidateDetail() {
               ) : null}
             </div>
 
-            <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-[1px] shadow-2xl shadow-slate-900/10">
-              <div className="rounded-[calc(1.5rem-1px)] bg-white p-8">
+            <div className={`border border-slate-200 ${isAdminRoute ? "rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-[1px] shadow-2xl shadow-slate-900/10" : "rounded-2xl bg-white p-0 shadow-lg shadow-black/5"}`}>
+              <div className={`${isAdminRoute ? "rounded-[calc(1.5rem-1px)] bg-white p-8" : "rounded-2xl bg-white p-8"}`}>
                 <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <div className="flex items-center gap-2">
                       <Sparkles className="h-5 w-5 text-emerald-600" />
-                      <h2 className="text-lg font-bold text-slate-900">Admin review console</h2>
+                      <h2 className="text-lg font-bold text-slate-900">{isAdminRoute ? "Admin review console" : "Candidate brief"}</h2>
                     </div>
                     <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                      This is the normalized candidate brief the client sees after the admin team verifies the profile, polishes the summary, and approves the final pipeline record.
+                      {isAdminRoute
+                        ? "This is the normalized candidate brief the client sees after the admin team verifies the profile, polishes the summary, and approves the final pipeline record."
+                        : "This is the finalized candidate briefing prepared for the client-facing review process."}
                     </p>
                   </div>
                   {isAdminRoute ? (
@@ -754,20 +771,22 @@ export default function ClientCandidateDetail() {
                   ) : null}
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-3">
-                  {adminReviewSignals.map((signal) => (
-                    <div key={signal.label} className={`rounded-2xl border p-4 ${getSignalClasses(signal.tone)}`}>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">{signal.label}</p>
-                      <p className="mt-2 text-sm font-semibold">{signal.value}</p>
-                    </div>
-                  ))}
-                </div>
+                {isAdminRoute ? (
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {adminReviewSignals.map((signal) => (
+                      <div key={signal.label} className={`rounded-2xl border p-4 ${getSignalClasses(signal.tone)}`}>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">{signal.label}</p>
+                        <p className="mt-2 text-sm font-semibold">{signal.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
 
                 <div className="mt-5 grid gap-4 xl:grid-cols-[1.15fr,0.85fr]">
                   <div className="rounded-2xl bg-emerald-50/70 p-5">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recruiter-ready summary</p>
                     <p className="mt-3 text-sm leading-7 text-slate-800">
-                      {cleanSummary || (candidate.parseReviewRequired ? "Awaiting admin approval for the final summary." : "Summary not available yet.")}
+                      {cleanSummary || (isAdminRoute && candidate.parseReviewRequired ? "Awaiting admin approval for the final summary." : "Summary not available yet.")}
                     </p>
                     <div className="mt-4 rounded-2xl border border-white/70 bg-white/80 p-4 text-sm text-slate-600">
                       <p className="font-semibold text-slate-800">Why this matters</p>
@@ -778,7 +797,7 @@ export default function ClientCandidateDetail() {
                   </div>
 
                   <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-5">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Admin-normalized profile</p>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isAdminRoute ? "Admin-normalized profile" : "Finalized profile"}</p>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       {normalizedProfileCards.map((item) => (
                         <div key={item.label} className="rounded-2xl border border-white/80 bg-white p-4 shadow-sm shadow-slate-200/40">
@@ -807,7 +826,7 @@ export default function ClientCandidateDetail() {
                             {cleanSnapshotText(item.title) || candidate.currentTitle || "Experience highlight"}
                           </p>
                           <p className="text-sm text-slate-500">
-                            {cleanSnapshotText(item.company) || "Company details pending normalization"}
+                            {cleanSnapshotText(item.company) || (isAdminRoute ? "Company details pending normalization" : "Company details were not included in the final brief")}
                           </p>
                           {(item.startDate || item.endDate) && (
                             <p className="mt-1 text-xs text-slate-400">
@@ -827,10 +846,12 @@ export default function ClientCandidateDetail() {
                   ) : (
                     <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">
                       {candidate.yearsExperience != null
-                        ? `${candidate.yearsExperience} years of experience captured. Detailed role history still needs admin normalization.`
-                        : candidate.parseReviewRequired
+                        ? isAdminRoute
+                          ? `${candidate.yearsExperience} years of experience captured. Detailed role history still needs admin normalization.`
+                          : `${candidate.yearsExperience} years of experience were captured for the final brief.`
+                        : isAdminRoute && candidate.parseReviewRequired
                           ? "Experience details still need a quick admin review."
-                          : "Structured experience details have not been extracted yet."}
+                          : "Detailed role history was not included in the final brief."}
                     </div>
                   )}
                 </div>
@@ -847,7 +868,7 @@ export default function ClientCandidateDetail() {
                           <p className="text-sm text-slate-600">
                             {cleanSnapshotText([item.fieldOfStudy, item.institution].filter(Boolean).join(" • ")) ||
                               cleanSnapshotText(candidate.education) ||
-                              "Education details pending normalization"}
+                              (isAdminRoute ? "Education details pending normalization" : "Education details were not included in the final brief")}
                           </p>
                           {(item.startDate || item.endDate) ? (
                             <p className="mt-1 text-xs text-slate-400">
@@ -860,15 +881,15 @@ export default function ClientCandidateDetail() {
                   ) : (
                     <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">
                       {cleanSnapshotText(candidate.education) ||
-                        (candidate.parseReviewRequired
+                        (isAdminRoute && candidate.parseReviewRequired
                           ? "Education details need a quick admin review."
-                          : "Structured education details have not been extracted yet.")}
+                          : "Education details were not included in the final brief.")}
                     </div>
                   )}
                   <div className="mt-3 rounded-xl bg-slate-50 p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Languages</p>
                     <p className="mt-1 text-sm text-slate-700">
-                      {cleanLanguages || englishLevel || (candidate.parseReviewRequired ? "Language details pending admin review" : "Language details not available yet")}
+                      {cleanLanguages || englishLevel || (isAdminRoute && candidate.parseReviewRequired ? "Language details pending admin review" : "Language details were not included in the final brief")}
                     </p>
                   </div>
                 </div>
@@ -880,7 +901,7 @@ export default function ClientCandidateDetail() {
           <div className="space-y-6">
             <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-lg shadow-black/5">
               <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-slate-900">
-                <ShieldCheck className="h-5 w-5 text-primary" /> Admin-approved status workflow
+                <ShieldCheck className="h-5 w-5 text-primary" /> {isAdminRoute ? "Admin-approved status workflow" : "Candidate status workflow"}
               </h2>
               <div className="flex flex-wrap gap-2">
                 {STATUSES.map((statusValue) => (
@@ -902,7 +923,9 @@ export default function ClientCandidateDetail() {
                 ))}
               </div>
               <p className="mt-3 text-xs text-slate-500">
-                Interview and rejection steps require a short note so the admin-approved workflow stays documented.
+                {isAdminRoute
+                  ? "Interview and rejection steps require a short note so the admin-approved workflow stays documented."
+                  : "Interview and rejection steps require a short note so the hiring workflow stays documented."}
               </p>
 
               <div className="mt-6">
@@ -942,7 +965,7 @@ export default function ClientCandidateDetail() {
                 <Textarea
                   value={noteText}
                   onChange={(event) => setNoteText(event.target.value)}
-                  placeholder="Add a shared note for the admin and client review team..."
+                  placeholder={isAdminRoute ? "Add a shared note for the admin and client review team..." : "Add a shared note for the hiring team..."}
                   rows={3}
                   className="flex-1 resize-none rounded-xl"
                 />
@@ -977,8 +1000,8 @@ export default function ClientCandidateDetail() {
               scopeType="candidate"
               scopeId={candidate.id}
               actorRole={isAdminRoute ? "admin" : "client"}
-              title="Scoped review thread"
-              description="Keep candidate-specific clarifications, approval notes, and next-step feedback attached to this profile."
+              title={isAdminRoute ? "Scoped review thread" : "Candidate thread"}
+              description={isAdminRoute ? "Keep candidate-specific clarifications, approval notes, and next-step feedback attached to this profile." : "Keep candidate-specific updates and follow-up context attached to this profile."}
             />
           </div>
         </div>

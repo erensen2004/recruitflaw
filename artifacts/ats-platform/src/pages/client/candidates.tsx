@@ -14,12 +14,12 @@ import { PrivateObjectLink } from "@/components/private-object-link";
 
 function getParseBadge(candidate: { parseStatus: string; parseReviewRequired: boolean }) {
   if (candidate.parseStatus === "parsed" && !candidate.parseReviewRequired) {
-    return { label: "Admin-ready", className: "bg-emerald-100 text-emerald-700" };
+    return { label: "Final profile", className: "bg-emerald-100 text-emerald-700" };
   }
   if (candidate.parseStatus === "partial" || candidate.parseReviewRequired) {
-    return { label: "Admin review", className: "bg-amber-100 text-amber-700" };
+    return { label: "Candidate brief", className: "bg-sky-100 text-sky-700" };
   }
-  return { label: "Manual intake", className: "bg-slate-100 text-slate-700" };
+  return { label: "Profile captured", className: "bg-slate-100 text-slate-700" };
 }
 
 export default function ClientCandidates() {

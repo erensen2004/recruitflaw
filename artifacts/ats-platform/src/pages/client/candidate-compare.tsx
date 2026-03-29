@@ -59,8 +59,9 @@ export default function CandidateCompare() {
   const [location, setLocation] = useLocation();
   const [, clientCompareRoute] = useRoute("/client/compare");
   const [, adminCompareRoute] = useRoute("/admin/compare");
+  const isAdminCompare = Boolean(adminCompareRoute);
   const backHref = clientCompareRoute ? "/client/candidates" : "/admin/candidates";
-  const roleLabel = adminCompareRoute ? "Admin" : "Client";
+  const roleLabel = isAdminCompare ? "Admin" : "Client";
   const selectedIds = useMemo(() => parseCompareIds(location).slice(0, 3), [location]);
   const { data: candidates, isLoading } = useListCandidates();
 
@@ -151,11 +152,13 @@ export default function CandidateCompare() {
                 Side-by-side candidate brief for faster final decisions.
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-200">
-                Compare 2-3 candidates using the same executive signals: completeness, role-fit summary, risk flags, compensation readiness, and normalized profile quality.
+                {isAdminCompare
+                  ? "Compare 2-3 candidates using the same executive signals: completeness, role-fit summary, risk flags, compensation readiness, and normalized profile quality."
+                  : "Compare 2-3 finalists side by side using role fit, completeness, compensation, and language coverage."}
               </p>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[420px]">
+            <div className={`grid gap-3 ${isAdminCompare ? "sm:grid-cols-3 lg:min-w-[420px]" : "sm:grid-cols-2 lg:min-w-[280px]"}`}>
               <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">Selected</p>
                 <p className="mt-2 text-2xl font-bold">{selectedCandidates.length}</p>
@@ -168,10 +171,12 @@ export default function CandidateCompare() {
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">Avg fit score</p>
                 <p className="mt-2 text-2xl font-bold">{compareStats.avgFitScore}</p>
               </div>
-              <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">Admin-ready</p>
-                <p className="mt-2 text-2xl font-bold">{compareStats.adminReadyCount}</p>
-              </div>
+              {isAdminCompare ? (
+                <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">Admin-ready</p>
+                  <p className="mt-2 text-2xl font-bold">{compareStats.adminReadyCount}</p>
+                </div>
+              ) : null}
               <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">Salary captured</p>
                 <p className="mt-2 text-2xl font-bold">{compareStats.salaryCapturedCount}</p>
@@ -180,10 +185,12 @@ export default function CandidateCompare() {
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">Language captured</p>
                 <p className="mt-2 text-2xl font-bold">{compareStats.languageCapturedCount}</p>
               </div>
-              <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">High risk</p>
-                <p className="mt-2 text-2xl font-bold">{compareStats.highRiskCount}</p>
-              </div>
+              {isAdminCompare ? (
+                <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">High risk</p>
+                  <p className="mt-2 text-2xl font-bold">{compareStats.highRiskCount}</p>
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -252,12 +259,12 @@ export default function CandidateCompare() {
                           <p className="mt-2 text-xs leading-5 text-slate-500">{brief.spotlight}</p>
                         </div>
                         <div className="rounded-2xl bg-slate-50 p-4">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Admin posture</p>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{isAdminCompare ? "Admin posture" : "Decision signal"}</p>
                           <p className="mt-2 text-sm leading-6 text-slate-700">
-                            {guidance.label}
+                            {isAdminCompare ? guidance.label : readiness.readinessLabel}
                           </p>
                           <p className="mt-2 text-xs leading-5 text-slate-500">
-                            {guidance.body}
+                            {isAdminCompare ? guidance.body : readiness.decisionSummary}
                           </p>
                         </div>
                       </div>
@@ -276,12 +283,14 @@ export default function CandidateCompare() {
                         <p className="mt-2 text-sm leading-6 text-slate-700">{brief.fitSummary}</p>
                       </div>
 
-                      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Decision support</p>
-                        <p className="mt-2 text-sm font-semibold text-slate-900">{readiness.readinessLabel}</p>
-                        <p className="mt-1 text-sm leading-6 text-slate-600">{readiness.decisionSummary}</p>
-                        <p className="mt-2 text-xs leading-5 text-slate-500">Next step: {readiness.nextAction}</p>
-                      </div>
+                      {isAdminCompare ? (
+                        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Decision support</p>
+                          <p className="mt-2 text-sm font-semibold text-slate-900">{readiness.readinessLabel}</p>
+                          <p className="mt-1 text-sm leading-6 text-slate-600">{readiness.decisionSummary}</p>
+                          <p className="mt-2 text-xs leading-5 text-slate-500">Next step: {readiness.nextAction}</p>
+                        </div>
+                      ) : null}
 
                       <div className="space-y-2">
                         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Top strengths</p>
@@ -294,41 +303,43 @@ export default function CandidateCompare() {
                         </div>
                       </div>
 
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-2xl border border-rose-100 bg-rose-50/70 p-4">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-rose-500">Risk flags</p>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {brief.riskFlags.length ? (
-                              brief.riskFlags.slice(0, 4).map((flag) => (
-                                <span key={flag} className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-rose-700 ring-1 ring-rose-100">
-                                  {flag}
+                      {isAdminCompare ? (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-2xl border border-rose-100 bg-rose-50/70 p-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-rose-500">Risk flags</p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {brief.riskFlags.length ? (
+                                brief.riskFlags.slice(0, 4).map((flag) => (
+                                  <span key={flag} className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-rose-700 ring-1 ring-rose-100">
+                                    {flag}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                                  No critical flags
                                 </span>
-                              ))
-                            ) : (
-                              <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-100">
-                                No critical flags
-                              </span>
-                            )}
+                              )}
+                            </div>
                           </div>
-                        </div>
 
-                        <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-500">Normalization notes</p>
-                          <div className="mt-2 space-y-2 text-sm leading-6 text-slate-700">
-                            {brief.normalizationNotes.length ? (
-                              brief.normalizationNotes.slice(0, 3).map((note) => (
-                                <p key={note} className="rounded-xl bg-white px-3 py-2 shadow-sm ring-1 ring-slate-200">
-                                  {note}
+                          <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-500">Normalization notes</p>
+                            <div className="mt-2 space-y-2 text-sm leading-6 text-slate-700">
+                              {brief.normalizationNotes.length ? (
+                                brief.normalizationNotes.slice(0, 3).map((note) => (
+                                  <p key={note} className="rounded-xl bg-white px-3 py-2 shadow-sm ring-1 ring-slate-200">
+                                    {note}
+                                  </p>
+                                ))
+                              ) : (
+                                <p className="rounded-xl bg-white px-3 py-2 shadow-sm ring-1 ring-slate-200">
+                                  Profile is already clean enough for a fast handoff.
                                 </p>
-                              ))
-                            ) : (
-                              <p className="rounded-xl bg-white px-3 py-2 shadow-sm ring-1 ring-slate-200">
-                                Profile is already clean enough for a fast handoff.
-                              </p>
-                            )}
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      ) : null}
 
                       <div className="grid gap-2 text-sm sm:grid-cols-2">
                         <div className="rounded-xl bg-slate-50 p-3">
