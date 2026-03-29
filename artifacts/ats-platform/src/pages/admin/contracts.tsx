@@ -46,7 +46,8 @@ export default function AdminContracts() {
     });
   };
 
-  const hiredCandidates = candidates?.filter(c => c.status === 'hired') || [];
+  const hiredCandidates = candidates?.filter(c => c.status === "hired") || [];
+  const hasHiredCandidates = hiredCandidates.length > 0;
 
   return (
     <DashboardLayout allowedRoles={["admin"]}>
@@ -67,20 +68,39 @@ export default function AdminContracts() {
             <DialogHeader>
               <DialogTitle>Create Contract</DialogTitle>
               <DialogDescription>
-                Create a contract for a hired candidate by choosing the placement dates and agreed daily rate.
+                {hasHiredCandidates
+                  ? "Create a contract for a hired candidate by choosing the placement dates and agreed daily rate."
+                  : "There are no hired candidates yet. Move a candidate to Hired from All Candidates before creating a contract."}
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4 mt-4">
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Hired Candidate</label>
-                <Select required value={formData.candidateId} onValueChange={v => setFormData({...formData, candidateId: v})}>
-                  <SelectTrigger className="h-11 rounded-xl"><SelectValue placeholder="Select candidate" /></SelectTrigger>
+                <Select
+                  required
+                  disabled={!hasHiredCandidates}
+                  value={formData.candidateId}
+                  onValueChange={v => setFormData({ ...formData, candidateId: v })}
+                >
+                  <SelectTrigger className="h-11 rounded-xl">
+                    <SelectValue placeholder={hasHiredCandidates ? "Select candidate" : "No hired candidates available"} />
+                  </SelectTrigger>
                   <SelectContent>
                     {hiredCandidates.map(c => (
                       <SelectItem key={c.id} value={c.id.toString()}>{c.firstName} {c.lastName} ({c.vendorCompanyName})</SelectItem>
                     ))}
+                    {!hasHiredCandidates ? (
+                      <div className="px-3 py-2 text-sm text-slate-500">
+                        No hired candidates are available yet.
+                      </div>
+                    ) : null}
                   </SelectContent>
                 </Select>
+                {!hasHiredCandidates ? (
+                  <p className="text-xs text-slate-500">
+                    Go to All Candidates, move the selected profile to <span className="font-semibold">Hired</span>, then return here to create the contract.
+                  </p>
+                ) : null}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -93,10 +113,10 @@ export default function AdminContracts() {
                 </div>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-semibold">Daily Rate ($)</label>
+                <label className="text-sm font-semibold">Daily Rate (TL)</label>
                 <Input type="number" min="0" step="0.01" required value={formData.dailyRate} onChange={e => setFormData({...formData, dailyRate: e.target.value})} className="h-11 rounded-xl" />
               </div>
-              <Button disabled={isPending} type="submit" className="w-full h-11 rounded-xl mt-6">
+              <Button disabled={isPending || !hasHiredCandidates} type="submit" className="w-full h-11 rounded-xl mt-6">
                 {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Create Contract"}
               </Button>
             </form>

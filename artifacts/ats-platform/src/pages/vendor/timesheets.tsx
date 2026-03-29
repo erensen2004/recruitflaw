@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Plus, Clock } from "lucide-react";
 import { motion } from "framer-motion";
+import { formatCurrency } from "@/lib/utils";
 
 export default function VendorTimesheets() {
   const { data: timesheets, isLoading, refetch } = useListTimesheets();
@@ -75,7 +76,7 @@ export default function VendorTimesheets() {
               </div>
               <div className="text-right">
                 <p className="text-lg font-bold text-slate-900">
-                  ${ts.totalAmount.toLocaleString()}
+                  {formatCurrency(ts.totalAmount)}
                 </p>
                 <p className="text-xs text-slate-500 mt-1">
                   {new Date(ts.submittedAt).toLocaleDateString()}
