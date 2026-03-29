@@ -19,6 +19,8 @@ export async function resolveCandidateAccess(
   roleId: number;
   vendorCompanyId: number;
   roleCompanyId: number | null;
+  roleTitle: string | null;
+  email: string;
   phone: string | null;
   expectedSalary: string | null;
 } | null> {
@@ -30,9 +32,11 @@ export async function resolveCandidateAccess(
       status: candidatesTable.status,
       roleId: candidatesTable.roleId,
       vendorCompanyId: candidatesTable.vendorCompanyId,
+      email: candidatesTable.email,
       phone: candidatesTable.phone,
       expectedSalary: candidatesTable.expectedSalary,
       roleCompanyId: jobRolesTable.companyId,
+      roleTitle: jobRolesTable.title,
     })
     .from(candidatesTable)
     .leftJoin(jobRolesTable, eq(candidatesTable.roleId, jobRolesTable.id))

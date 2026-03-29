@@ -71,6 +71,15 @@ function normalizeNullableString(value: string | null | undefined) {
   return trimmed ? trimmed : null;
 }
 
+function normalizeEmailForDuplicateCheck(value: string | null | undefined) {
+  return normalizeNullableString(value)?.toLowerCase() ?? null;
+}
+
+function normalizePhoneForDuplicateCheck(value: string | null | undefined) {
+  const normalized = normalizeNullableString(value)?.replace(/[^\d+]/g, "") ?? null;
+  return normalized || null;
+}
+
 function normalizeTags(value: string | string[] | null | undefined) {
   if (value == null) return null;
   if (Array.isArray(value)) {
@@ -81,6 +90,57 @@ function normalizeTags(value: string | string[] | null | undefined) {
     return joined ? joined : null;
   }
   return normalizeNullableString(value);
+}
+
+async function findDuplicateCandidateForRole(input: {
+  roleId: number;
+  email?: string | null;
+  phone?: string | null;
+  excludeCandidateId?: number;
+}) {
+  const normalizedEmail = normalizeEmailForDuplicateCheck(input.email);
+  const normalizedPhone = normalizePhoneForDuplicateCheck(input.phone);
+
+  if (!normalizedEmail && !normalizedPhone) return null;
+
+  const rows = await db
+    .select({
+      id: candidatesTable.id,
+      firstName: candidatesTable.firstName,
+      lastName: candidatesTable.lastName,
+      email: candidatesTable.email,
+      phone: candidatesTable.phone,
+      status: candidatesTable.status,
+    })
+    .from(candidatesTable)
+    .where(eq(candidatesTable.roleId, input.roleId));
+
+  return (
+    rows.find((row) => {
+      if (input.excludeCandidateId && row.id === input.excludeCandidateId) return false;
+      if (row.status === "withdrawn") return false;
+
+      const rowEmail = normalizeEmailForDuplicateCheck(row.email);
+      const rowPhone = normalizePhoneForDuplicateCheck(row.phone);
+
+      return Boolean(
+        (normalizedEmail && rowEmail && normalizedEmail === rowEmail) ||
+          (normalizedPhone && rowPhone && normalizedPhone === rowPhone),
+      );
+    }) ?? null
+  );
+}
+
+function buildDuplicateCandidateMessage(input: {
+  duplicate: {
+    firstName: string;
+    lastName: string;
+    status: string;
+  };
+  roleTitle: string;
+}) {
+  const candidateName = `${input.duplicate.firstName} ${input.duplicate.lastName}`.trim();
+  return `${candidateName || "This candidate"} is already in the ${input.roleTitle} pipeline with status "${input.duplicate.status}".`;
 }
 
 async function getActorLabel(userId: number): Promise<string> {
@@ -433,14 +493,27 @@ router.post(
         return;
       }
 
-      const normalizedEmail = email.toLowerCase();
-      const [duplicate] = await db
-        .select()
-        .from(candidatesTable)
-        .where(and(eq(candidatesTable.email, normalizedEmail), eq(candidatesTable.roleId, roleId)));
+      const normalizedEmail = normalizeEmailForDuplicateCheck(email);
+      const normalizedPhone = normalizePhoneForDuplicateCheck(phone);
+      const storedPhone = normalizeNullableString(phone);
+      if (!normalizedEmail) {
+        Errors.badRequest(res, "Candidate email is required");
+        return;
+      }
+      const duplicate = await findDuplicateCandidateForRole({
+        roleId,
+        email: normalizedEmail,
+        phone: normalizedPhone,
+      });
 
       if (duplicate) {
-        Errors.conflict(res, "This candidate has already been submitted for this role");
+        Errors.conflict(
+          res,
+          buildDuplicateCandidateMessage({
+            duplicate,
+            roleTitle: role.title,
+          }),
+        );
         return;
       }
 
@@ -460,7 +533,7 @@ router.post(
           firstName,
           lastName,
           email: normalizedEmail,
-          phone: phone ?? null,
+          phone: storedPhone,
           expectedSalary: expectedSalary != null ? String(expectedSalary) : null,
           status: "pending_approval",
           roleId,
@@ -565,6 +638,7 @@ router.patch(
       } = req.body;
 
       const finalPhone = phone !== undefined ? normalizeNullableString(phone) : access.phone;
+      const finalPhoneForDuplicateCheck = normalizePhoneForDuplicateCheck(finalPhone);
       const finalExpectedSalary =
         expectedSalary !== undefined
           ? expectedSalary != null
@@ -580,11 +654,34 @@ router.patch(
         return;
       }
 
+      const finalEmail = email !== undefined ? normalizeEmailForDuplicateCheck(email) : access.email;
+      if (!finalEmail) {
+        Errors.badRequest(res, "Candidate email is required");
+        return;
+      }
+      const duplicate = await findDuplicateCandidateForRole({
+        roleId: access.roleId,
+        email: finalEmail,
+        phone: finalPhoneForDuplicateCheck,
+        excludeCandidateId: id,
+      });
+
+      if (duplicate) {
+        Errors.conflict(
+          res,
+          buildDuplicateCandidateMessage({
+            duplicate,
+            roleTitle: access.roleTitle ?? "selected role",
+          }),
+        );
+        return;
+      }
+
       const updates: Record<string, unknown> = { updatedAt: new Date() };
       if (firstName !== undefined) updates.firstName = firstName.trim();
       if (lastName !== undefined) updates.lastName = lastName.trim();
-      if (email !== undefined) updates.email = email.trim().toLowerCase();
-      if (phone !== undefined) updates.phone = normalizeNullableString(phone);
+      if (email !== undefined) updates.email = finalEmail;
+      if (phone !== undefined) updates.phone = finalPhone;
       if (expectedSalary !== undefined) updates.expectedSalary = expectedSalary != null ? String(expectedSalary) : null;
       if (cvUrl !== undefined) updates.cvUrl = normalizeNullableString(cvUrl);
       if (originalCvFileName !== undefined) updates.originalCvFileName = normalizeNullableString(originalCvFileName);
