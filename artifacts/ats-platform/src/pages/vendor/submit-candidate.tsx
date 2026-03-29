@@ -304,18 +304,6 @@ export default function VendorSubmitCandidate() {
           </div>
         ) : null}
 
-        {role ? (
-          <div className="mb-6">
-            <ReviewThreadPanel
-              scopeType="role"
-              scopeId={roleId}
-              actorRole="vendor"
-              title="Role clarification thread"
-              description="Keep vendor-side role questions and clarifications attached to this exact position instead of spreading them across calls or chat."
-            />
-          </div>
-        ) : null}
-
         {parsedProfile && (
           <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-5">
             <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
@@ -510,6 +498,18 @@ export default function VendorSubmitCandidate() {
             )}
           </Button>
         </form>
+
+        {role ? (
+          <div className="mt-6">
+            <ReviewThreadPanel
+              scopeType="role"
+              scopeId={roleId}
+              actorRole="vendor"
+              title="Role clarification thread"
+              description="Keep vendor-side role questions and clarifications attached to this exact position instead of spreading them across calls or chat."
+            />
+          </div>
+        ) : null}
       </div>
     </DashboardLayout>
   );
