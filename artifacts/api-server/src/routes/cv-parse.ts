@@ -12,6 +12,7 @@ const MAX_VERCEL_FILE_BYTES = Number(process.env.MAX_CV_PARSE_BYTES || "4000000"
 
 const DEFAULT_OPENROUTER_MODELS = [
   "liquid/lfm-2.5-1.2b-instruct:free",
+  "arcee-ai/trinity-large-preview:free",
   "google/gemma-3-27b-it:free",
   "meta-llama/llama-3.3-70b-instruct:free",
   "meta-llama/llama-3.2-3b-instruct:free",
