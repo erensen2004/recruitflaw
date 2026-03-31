@@ -25,7 +25,6 @@ import {
   FileText,
   Tag,
   MessageSquare,
-  Download,
   Pencil,
   ShieldCheck,
   Sparkles,
@@ -483,16 +482,16 @@ export default function ClientCandidateDetail() {
     }
   };
 
-  const handleExportStandardizedCv = async () => {
+  const handlePreviewStandardizedCv = async () => {
     if (exportingPdf) return;
     setExportingPdf(true);
     try {
-      const { exportStandardizedCandidatePdf } = await import("@/lib/standardized-cv");
-      await exportStandardizedCandidatePdf(candidate);
+      const { previewStandardizedCandidatePdf } = await import("@/lib/standardized-cv");
+      await previewStandardizedCandidatePdf(candidate);
     } catch (error) {
       toast({
-        title: "Export failed",
-        description: error instanceof Error ? error.message : "The standardized CV could not be generated.",
+        title: "Preview failed",
+        description: error instanceof Error ? error.message : "The standardized CV preview could not be opened.",
         variant: "destructive",
       });
     } finally {
@@ -559,10 +558,10 @@ export default function ClientCandidateDetail() {
                     size="sm"
                     className="rounded-xl gap-2"
                     disabled={exportingPdf}
-                    onClick={handleExportStandardizedCv}
+                    onClick={handlePreviewStandardizedCv}
                   >
-                    {exportingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                    Download Standardized CV
+                    {exportingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                    View Standardized CV
                   </Button>
                 </div>
               </div>

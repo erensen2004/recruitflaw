@@ -24,7 +24,7 @@ function educationToLines(education: CandidateParsedEducation[]) {
   );
 }
 
-export async function exportStandardizedCandidatePdf(candidate: Candidate) {
+async function buildStandardizedCandidatePdf(candidate: Candidate) {
   const { englishLevel } = parseCandidateTags(candidate.tags);
   const brief = getCandidateExecutiveBrief(candidate);
   const { default: jsPDF } = await import("jspdf");
@@ -145,6 +145,26 @@ export async function exportStandardizedCandidatePdf(candidate: Candidate) {
     brief.adminReady ? "Admin-ready: yes" : "Admin-ready: needs review",
   ]);
 
-  const safeName = `${candidate.firstName}_${candidate.lastName}`.replace(/\s+/g, "_");
+  return doc;
+}
+
+function getSafeCandidateFileName(candidate: Candidate) {
+  return `${candidate.firstName}_${candidate.lastName}`.replace(/\s+/g, "_");
+}
+
+export async function previewStandardizedCandidatePdf(candidate: Candidate) {
+  const doc = await buildStandardizedCandidatePdf(candidate);
+  const blob = doc.output("blob");
+  const url = URL.createObjectURL(blob);
+  const opened = window.open(url, "_blank", "noopener,noreferrer");
+  if (!opened) {
+    throw new Error("The preview could not be opened. Please allow pop-ups and try again.");
+  }
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+export async function exportStandardizedCandidatePdf(candidate: Candidate) {
+  const doc = await buildStandardizedCandidatePdf(candidate);
+  const safeName = getSafeCandidateFileName(candidate);
   doc.save(`${safeName}_recruitflow_standardized_cv.pdf`);
 }
