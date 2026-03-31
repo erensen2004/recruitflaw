@@ -227,6 +227,19 @@ export default function VendorSubmitCandidate() {
         languages: parsedProfile?.languages || undefined,
         summary: parsedProfile?.summary || undefined,
         standardizedProfile: parsedProfile?.standardizedProfile || undefined,
+        executiveHeadline: parsedProfile?.executiveHeadline || undefined,
+        professionalSnapshot: parsedProfile?.professionalSnapshot || undefined,
+        domainFocus: parsedProfile?.domainFocus?.length ? parsedProfile.domainFocus : undefined,
+        senioritySignal: parsedProfile?.senioritySignal || undefined,
+        candidateStrengths: parsedProfile?.candidateStrengths?.length ? parsedProfile.candidateStrengths : undefined,
+        candidateRisks: parsedProfile?.candidateRisks?.length ? parsedProfile.candidateRisks : undefined,
+        notableAchievements: parsedProfile?.notableAchievements?.length ? parsedProfile.notableAchievements : undefined,
+        inferredWorkModel: parsedProfile?.inferredWorkModel || undefined,
+        locationFlexibility: parsedProfile?.locationFlexibility || undefined,
+        salarySignal: parsedProfile?.salarySignal || undefined,
+        languageItems: parsedProfile?.languageItems?.length ? parsedProfile.languageItems : undefined,
+        fieldConfidence: parsedProfile?.fieldConfidence ?? undefined,
+        evidence: parsedProfile?.evidence?.length ? parsedProfile.evidence : undefined,
         parseStatus: parsedProfile?.parseStatus || undefined,
         parseConfidence: parsedProfile?.parseConfidence ?? undefined,
         parseReviewRequired: parsedProfile?.parseReviewRequired ?? undefined,
@@ -310,6 +323,11 @@ export default function VendorSubmitCandidate() {
             <p className="mt-2 text-sm text-emerald-800">
               The form was pre-filled from the uploaded resume. The admin and client teams will see the full standardized output during review.
             </p>
+            {parsedProfile.executiveHeadline ? (
+              <div className="mt-3 rounded-xl border border-white/70 bg-white/80 p-3 text-sm font-semibold text-slate-800">
+                {parsedProfile.executiveHeadline}
+              </div>
+            ) : null}
             <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-slate-600">
               Parse quality {parsedProfile.parseConfidence ?? 0}% • {parsedProfile.parseReviewRequired ? "Review suggested" : "Ready"}
             </div>

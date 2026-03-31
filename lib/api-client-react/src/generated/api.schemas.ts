@@ -141,14 +141,6 @@ export const JobRoleEmploymentType = {
   freelance: "freelance",
 } as const;
 
-export type JobRoleWorkMode = (typeof JobRoleWorkMode)[keyof typeof JobRoleWorkMode];
-
-export const JobRoleWorkMode = {
-  "full-office": "full-office",
-  hybrid: "hybrid",
-  "full-remote": "full-remote",
-} as const;
-
 export type JobRoleStatus = (typeof JobRoleStatus)[keyof typeof JobRoleStatus];
 
 export const JobRoleStatus = {
@@ -168,8 +160,6 @@ export interface JobRole {
   salaryMax?: number | null;
   location?: string | null;
   employmentType?: JobRoleEmploymentType;
-  workMode?: JobRoleWorkMode;
-  otherEmploymentTypeDescription?: string | null;
   isRemote: boolean;
   status: JobRoleStatus;
   companyId: number;
@@ -208,7 +198,7 @@ export interface CreateRoleRequest {
   location?: string;
   employmentType?: CreateRoleRequestEmploymentType;
   workMode?: CreateRoleRequestWorkMode;
-  otherEmploymentTypeDescription?: string | null;
+  otherEmploymentTypeDescription?: string;
   isRemote?: boolean;
 }
 
@@ -241,7 +231,7 @@ export interface UpdateRoleRequest {
   location?: string;
   employmentType?: UpdateRoleRequestEmploymentType;
   workMode?: UpdateRoleRequestWorkMode;
-  otherEmploymentTypeDescription?: string | null;
+  otherEmploymentTypeDescription?: string;
   isRemote?: boolean;
 }
 
@@ -271,6 +261,7 @@ export const CandidateStatus = {
   offer: "offer",
   hired: "hired",
   rejected: "rejected",
+  withdrawn: "withdrawn",
 } as const;
 
 export type CandidateParseStatus =
@@ -284,12 +275,33 @@ export const CandidateParseStatus = {
   failed: "failed",
 } as const;
 
+export interface CandidateLanguageItem {
+  name?: string | null;
+  level?: string | null;
+  confidence?: number | null;
+  source?: string | null;
+}
+
+export interface CandidateFieldConfidence {
+  contact?: number | null;
+  experience?: number | null;
+  education?: number | null;
+  languages?: number | null;
+  compensation?: number | null;
+  summary?: number | null;
+}
+
 export interface CandidateParsedExperience {
   company?: string | null;
   title?: string | null;
   startDate?: string | null;
   endDate?: string | null;
   highlights?: string[];
+  scope?: string | null;
+  techStack?: string[];
+  impactHighlights?: string[];
+  current?: boolean | null;
+  seniorityContribution?: string | null;
 }
 
 export interface CandidateParsedEducation {
@@ -298,6 +310,7 @@ export interface CandidateParsedEducation {
   fieldOfStudy?: string | null;
   startDate?: string | null;
   endDate?: string | null;
+  confidence?: number | null;
 }
 
 export interface Candidate {
@@ -310,7 +323,7 @@ export interface Candidate {
   status: CandidateStatus;
   roleId: number;
   roleTitle: string;
-  roleStatus?: JobRoleStatus | null;
+  roleStatus: JobRoleStatus | null;
   vendorCompanyId: number;
   vendorCompanyName: string;
   submittedAt: string;
@@ -330,6 +343,19 @@ export interface Candidate {
   languages?: string | null;
   summary?: string | null;
   standardizedProfile?: string | null;
+  executiveHeadline?: string | null;
+  professionalSnapshot?: string | null;
+  domainFocus?: string[];
+  senioritySignal?: string | null;
+  candidateStrengths?: string[];
+  candidateRisks?: string[];
+  notableAchievements?: string[];
+  inferredWorkModel?: string | null;
+  locationFlexibility?: string | null;
+  salarySignal?: string | null;
+  languageItems?: CandidateLanguageItem[];
+  fieldConfidence?: CandidateFieldConfidence;
+  evidence?: string[];
   parsedSkills: string[];
   parsedExperience: CandidateParsedExperience[];
   parsedEducation: CandidateParsedEducation[];
@@ -376,6 +402,19 @@ export interface SubmitCandidateRequest {
   languages?: string;
   summary?: string;
   standardizedProfile?: string;
+  executiveHeadline?: string;
+  professionalSnapshot?: string;
+  domainFocus?: string[];
+  senioritySignal?: string;
+  candidateStrengths?: string[];
+  candidateRisks?: string[];
+  notableAchievements?: string[];
+  inferredWorkModel?: string;
+  locationFlexibility?: string;
+  salarySignal?: string;
+  languageItems?: CandidateLanguageItem[];
+  fieldConfidence?: CandidateFieldConfidence;
+  evidence?: string[];
   parseStatus?: SubmitCandidateRequestParseStatus;
   parseConfidence?: number;
   parseReviewRequired?: boolean;

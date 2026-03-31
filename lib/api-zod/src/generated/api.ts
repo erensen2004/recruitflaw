@@ -151,10 +151,16 @@ export const ListRolesResponseItem = zod.object({
   salaryMax: zod.number().nullish(),
   location: zod.string().nullish(),
   employmentType: zod
-    .enum(["full-time", "part-time", "contract", "freelance"])
+    .enum(["full-time", "part-time", "other", "contract", "freelance"])
     .nullish(),
   isRemote: zod.boolean(),
-  status: zod.enum(["draft", "pending_approval", "published", "on_hold", "closed"]),
+  status: zod.enum([
+    "draft",
+    "pending_approval",
+    "published",
+    "on_hold",
+    "closed",
+  ]),
   companyId: zod.number(),
   companyName: zod.string(),
   candidateCount: zod.number(),
@@ -174,8 +180,10 @@ export const CreateRoleBody = zod.object({
   salaryMax: zod.number().optional(),
   location: zod.string().optional(),
   employmentType: zod
-    .enum(["full-time", "part-time", "contract", "freelance"])
+    .enum(["full-time", "part-time", "other", "contract", "freelance"])
     .optional(),
+  workMode: zod.enum(["full-office", "hybrid", "full-remote"]).optional(),
+  otherEmploymentTypeDescription: zod.string().optional(),
   isRemote: zod.boolean().optional(),
 });
 
@@ -195,10 +203,16 @@ export const GetRoleResponse = zod.object({
   salaryMax: zod.number().nullish(),
   location: zod.string().nullish(),
   employmentType: zod
-    .enum(["full-time", "part-time", "contract", "freelance"])
+    .enum(["full-time", "part-time", "other", "contract", "freelance"])
     .nullish(),
   isRemote: zod.boolean(),
-  status: zod.enum(["draft", "pending_approval", "published", "on_hold", "closed"]),
+  status: zod.enum([
+    "draft",
+    "pending_approval",
+    "published",
+    "on_hold",
+    "closed",
+  ]),
   companyId: zod.number(),
   companyName: zod.string(),
   candidateCount: zod.number(),
@@ -221,8 +235,10 @@ export const UpdateRoleBody = zod.object({
   salaryMax: zod.number().optional(),
   location: zod.string().optional(),
   employmentType: zod
-    .enum(["full-time", "part-time", "contract", "freelance"])
+    .enum(["full-time", "part-time", "other", "contract", "freelance"])
     .optional(),
+  workMode: zod.enum(["full-office", "hybrid", "full-remote"]).optional(),
+  otherEmploymentTypeDescription: zod.string().optional(),
   isRemote: zod.boolean().optional(),
 });
 
@@ -235,10 +251,16 @@ export const UpdateRoleResponse = zod.object({
   salaryMax: zod.number().nullish(),
   location: zod.string().nullish(),
   employmentType: zod
-    .enum(["full-time", "part-time", "contract", "freelance"])
+    .enum(["full-time", "part-time", "other", "contract", "freelance"])
     .nullish(),
   isRemote: zod.boolean(),
-  status: zod.enum(["draft", "pending_approval", "published", "on_hold", "closed"]),
+  status: zod.enum([
+    "draft",
+    "pending_approval",
+    "published",
+    "on_hold",
+    "closed",
+  ]),
   companyId: zod.number(),
   companyName: zod.string(),
   candidateCount: zod.number(),
@@ -254,7 +276,13 @@ export const UpdateRoleStatusParams = zod.object({
 });
 
 export const UpdateRoleStatusBody = zod.object({
-  status: zod.enum(["draft", "pending_approval", "published", "on_hold", "closed"]),
+  status: zod.enum([
+    "draft",
+    "pending_approval",
+    "published",
+    "on_hold",
+    "closed",
+  ]),
 });
 
 export const UpdateRoleStatusResponse = zod.object({
@@ -266,10 +294,16 @@ export const UpdateRoleStatusResponse = zod.object({
   salaryMax: zod.number().nullish(),
   location: zod.string().nullish(),
   employmentType: zod
-    .enum(["full-time", "part-time", "contract", "freelance"])
+    .enum(["full-time", "part-time", "other", "contract", "freelance"])
     .nullish(),
   isRemote: zod.boolean(),
-  status: zod.enum(["draft", "pending_approval", "published", "on_hold", "closed"]),
+  status: zod.enum([
+    "draft",
+    "pending_approval",
+    "published",
+    "on_hold",
+    "closed",
+  ]),
   companyId: zod.number(),
   companyName: zod.string(),
   candidateCount: zod.number(),
@@ -299,16 +333,18 @@ export const ListCandidatesResponseItem = zod.object({
   phone: zod.string().nullish(),
   expectedSalary: zod.number().nullish(),
   status: zod.enum([
+    "pending_approval",
     "submitted",
     "screening",
     "interview",
     "offer",
     "hired",
     "rejected",
+    "withdrawn",
   ]),
   roleId: zod.number(),
   roleTitle: zod.string(),
-  roleStatus: zod.enum(["draft", "pending_approval", "published", "on_hold", "closed"]).nullish(),
+  roleStatus: zod.unknown().nullable(),
   vendorCompanyId: zod.number(),
   vendorCompanyName: zod.string(),
   submittedAt: zod.date(),
@@ -334,6 +370,37 @@ export const ListCandidatesResponseItem = zod.object({
   languages: zod.string().nullish(),
   summary: zod.string().nullish(),
   standardizedProfile: zod.string().nullish(),
+  executiveHeadline: zod.string().nullish(),
+  professionalSnapshot: zod.string().nullish(),
+  domainFocus: zod.array(zod.string()).optional(),
+  senioritySignal: zod.string().nullish(),
+  candidateStrengths: zod.array(zod.string()).optional(),
+  candidateRisks: zod.array(zod.string()).optional(),
+  notableAchievements: zod.array(zod.string()).optional(),
+  inferredWorkModel: zod.string().nullish(),
+  locationFlexibility: zod.string().nullish(),
+  salarySignal: zod.string().nullish(),
+  languageItems: zod
+    .array(
+      zod.object({
+        name: zod.string().nullish(),
+        level: zod.string().nullish(),
+        confidence: zod.number().nullish(),
+        source: zod.string().nullish(),
+      }),
+    )
+    .optional(),
+  fieldConfidence: zod
+    .object({
+      contact: zod.number().nullish(),
+      experience: zod.number().nullish(),
+      education: zod.number().nullish(),
+      languages: zod.number().nullish(),
+      compensation: zod.number().nullish(),
+      summary: zod.number().nullish(),
+    })
+    .optional(),
+  evidence: zod.array(zod.string()).optional(),
   parsedSkills: zod.array(zod.string()),
   parsedExperience: zod.array(
     zod.object({
@@ -342,6 +409,11 @@ export const ListCandidatesResponseItem = zod.object({
       startDate: zod.string().nullish(),
       endDate: zod.string().nullish(),
       highlights: zod.array(zod.string()).optional(),
+      scope: zod.string().nullish(),
+      techStack: zod.array(zod.string()).optional(),
+      impactHighlights: zod.array(zod.string()).optional(),
+      current: zod.boolean().nullish(),
+      seniorityContribution: zod.string().nullish(),
     }),
   ),
   parsedEducation: zod.array(
@@ -351,6 +423,7 @@ export const ListCandidatesResponseItem = zod.object({
       fieldOfStudy: zod.string().nullish(),
       startDate: zod.string().nullish(),
       endDate: zod.string().nullish(),
+      confidence: zod.number().nullish(),
     }),
   ),
   tags: zod.string().nullish(),
@@ -378,6 +451,37 @@ export const SubmitCandidateBody = zod.object({
   languages: zod.string().optional(),
   summary: zod.string().optional(),
   standardizedProfile: zod.string().optional(),
+  executiveHeadline: zod.string().optional(),
+  professionalSnapshot: zod.string().optional(),
+  domainFocus: zod.array(zod.string()).optional(),
+  senioritySignal: zod.string().optional(),
+  candidateStrengths: zod.array(zod.string()).optional(),
+  candidateRisks: zod.array(zod.string()).optional(),
+  notableAchievements: zod.array(zod.string()).optional(),
+  inferredWorkModel: zod.string().optional(),
+  locationFlexibility: zod.string().optional(),
+  salarySignal: zod.string().optional(),
+  languageItems: zod
+    .array(
+      zod.object({
+        name: zod.string().nullish(),
+        level: zod.string().nullish(),
+        confidence: zod.number().nullish(),
+        source: zod.string().nullish(),
+      }),
+    )
+    .optional(),
+  fieldConfidence: zod
+    .object({
+      contact: zod.number().nullish(),
+      experience: zod.number().nullish(),
+      education: zod.number().nullish(),
+      languages: zod.number().nullish(),
+      compensation: zod.number().nullish(),
+      summary: zod.number().nullish(),
+    })
+    .optional(),
+  evidence: zod.array(zod.string()).optional(),
   parseStatus: zod
     .enum(["not_started", "processing", "parsed", "partial", "failed"])
     .optional(),
@@ -393,6 +497,11 @@ export const SubmitCandidateBody = zod.object({
         startDate: zod.string().nullish(),
         endDate: zod.string().nullish(),
         highlights: zod.array(zod.string()).optional(),
+        scope: zod.string().nullish(),
+        techStack: zod.array(zod.string()).optional(),
+        impactHighlights: zod.array(zod.string()).optional(),
+        current: zod.boolean().nullish(),
+        seniorityContribution: zod.string().nullish(),
       }),
     )
     .optional(),
@@ -404,6 +513,7 @@ export const SubmitCandidateBody = zod.object({
         fieldOfStudy: zod.string().nullish(),
         startDate: zod.string().nullish(),
         endDate: zod.string().nullish(),
+        confidence: zod.number().nullish(),
       }),
     )
     .optional(),
@@ -424,16 +534,18 @@ export const GetCandidateResponse = zod.object({
   phone: zod.string().nullish(),
   expectedSalary: zod.number().nullish(),
   status: zod.enum([
+    "pending_approval",
     "submitted",
     "screening",
     "interview",
     "offer",
     "hired",
     "rejected",
+    "withdrawn",
   ]),
   roleId: zod.number(),
   roleTitle: zod.string(),
-  roleStatus: zod.enum(["draft", "pending_approval", "published", "on_hold", "closed"]).nullish(),
+  roleStatus: zod.unknown().nullable(),
   vendorCompanyId: zod.number(),
   vendorCompanyName: zod.string(),
   submittedAt: zod.date(),
@@ -459,6 +571,37 @@ export const GetCandidateResponse = zod.object({
   languages: zod.string().nullish(),
   summary: zod.string().nullish(),
   standardizedProfile: zod.string().nullish(),
+  executiveHeadline: zod.string().nullish(),
+  professionalSnapshot: zod.string().nullish(),
+  domainFocus: zod.array(zod.string()).optional(),
+  senioritySignal: zod.string().nullish(),
+  candidateStrengths: zod.array(zod.string()).optional(),
+  candidateRisks: zod.array(zod.string()).optional(),
+  notableAchievements: zod.array(zod.string()).optional(),
+  inferredWorkModel: zod.string().nullish(),
+  locationFlexibility: zod.string().nullish(),
+  salarySignal: zod.string().nullish(),
+  languageItems: zod
+    .array(
+      zod.object({
+        name: zod.string().nullish(),
+        level: zod.string().nullish(),
+        confidence: zod.number().nullish(),
+        source: zod.string().nullish(),
+      }),
+    )
+    .optional(),
+  fieldConfidence: zod
+    .object({
+      contact: zod.number().nullish(),
+      experience: zod.number().nullish(),
+      education: zod.number().nullish(),
+      languages: zod.number().nullish(),
+      compensation: zod.number().nullish(),
+      summary: zod.number().nullish(),
+    })
+    .optional(),
+  evidence: zod.array(zod.string()).optional(),
   parsedSkills: zod.array(zod.string()),
   parsedExperience: zod.array(
     zod.object({
@@ -467,6 +610,11 @@ export const GetCandidateResponse = zod.object({
       startDate: zod.string().nullish(),
       endDate: zod.string().nullish(),
       highlights: zod.array(zod.string()).optional(),
+      scope: zod.string().nullish(),
+      techStack: zod.array(zod.string()).optional(),
+      impactHighlights: zod.array(zod.string()).optional(),
+      current: zod.boolean().nullish(),
+      seniorityContribution: zod.string().nullish(),
     }),
   ),
   parsedEducation: zod.array(
@@ -476,6 +624,7 @@ export const GetCandidateResponse = zod.object({
       fieldOfStudy: zod.string().nullish(),
       startDate: zod.string().nullish(),
       endDate: zod.string().nullish(),
+      confidence: zod.number().nullish(),
     }),
   ),
   tags: zod.string().nullish(),
@@ -529,16 +678,18 @@ export const UpdateCandidateStatusResponse = zod.object({
   phone: zod.string().nullish(),
   expectedSalary: zod.number().nullish(),
   status: zod.enum([
+    "pending_approval",
     "submitted",
     "screening",
     "interview",
     "offer",
     "hired",
     "rejected",
+    "withdrawn",
   ]),
   roleId: zod.number(),
   roleTitle: zod.string(),
-  roleStatus: zod.enum(["draft", "pending_approval", "published", "on_hold", "closed"]).nullish(),
+  roleStatus: zod.unknown().nullable(),
   vendorCompanyId: zod.number(),
   vendorCompanyName: zod.string(),
   submittedAt: zod.date(),
@@ -564,6 +715,37 @@ export const UpdateCandidateStatusResponse = zod.object({
   languages: zod.string().nullish(),
   summary: zod.string().nullish(),
   standardizedProfile: zod.string().nullish(),
+  executiveHeadline: zod.string().nullish(),
+  professionalSnapshot: zod.string().nullish(),
+  domainFocus: zod.array(zod.string()).optional(),
+  senioritySignal: zod.string().nullish(),
+  candidateStrengths: zod.array(zod.string()).optional(),
+  candidateRisks: zod.array(zod.string()).optional(),
+  notableAchievements: zod.array(zod.string()).optional(),
+  inferredWorkModel: zod.string().nullish(),
+  locationFlexibility: zod.string().nullish(),
+  salarySignal: zod.string().nullish(),
+  languageItems: zod
+    .array(
+      zod.object({
+        name: zod.string().nullish(),
+        level: zod.string().nullish(),
+        confidence: zod.number().nullish(),
+        source: zod.string().nullish(),
+      }),
+    )
+    .optional(),
+  fieldConfidence: zod
+    .object({
+      contact: zod.number().nullish(),
+      experience: zod.number().nullish(),
+      education: zod.number().nullish(),
+      languages: zod.number().nullish(),
+      compensation: zod.number().nullish(),
+      summary: zod.number().nullish(),
+    })
+    .optional(),
+  evidence: zod.array(zod.string()).optional(),
   parsedSkills: zod.array(zod.string()),
   parsedExperience: zod.array(
     zod.object({
@@ -572,6 +754,11 @@ export const UpdateCandidateStatusResponse = zod.object({
       startDate: zod.string().nullish(),
       endDate: zod.string().nullish(),
       highlights: zod.array(zod.string()).optional(),
+      scope: zod.string().nullish(),
+      techStack: zod.array(zod.string()).optional(),
+      impactHighlights: zod.array(zod.string()).optional(),
+      current: zod.boolean().nullish(),
+      seniorityContribution: zod.string().nullish(),
     }),
   ),
   parsedEducation: zod.array(
@@ -581,6 +768,7 @@ export const UpdateCandidateStatusResponse = zod.object({
       fieldOfStudy: zod.string().nullish(),
       startDate: zod.string().nullish(),
       endDate: zod.string().nullish(),
+      confidence: zod.number().nullish(),
     }),
   ),
   tags: zod.string().nullish(),

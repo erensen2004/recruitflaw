@@ -12,6 +12,31 @@ export type ParsedCandidateProfile = {
   languages?: string | null;
   summary?: string | null;
   standardizedProfile?: string | null;
+  executiveHeadline?: string | null;
+  professionalSnapshot?: string | null;
+  domainFocus?: string[];
+  senioritySignal?: string | null;
+  candidateStrengths?: string[];
+  candidateRisks?: string[];
+  notableAchievements?: string[];
+  inferredWorkModel?: string | null;
+  locationFlexibility?: string | null;
+  salarySignal?: string | null;
+  languageItems?: Array<{
+    name?: string | null;
+    level?: string | null;
+    confidence?: number | null;
+    source?: string | null;
+  }>;
+  fieldConfidence?: {
+    contact?: number | null;
+    experience?: number | null;
+    education?: number | null;
+    languages?: number | null;
+    compensation?: number | null;
+    summary?: number | null;
+  } | null;
+  evidence?: string[];
   parsedSkills?: string[];
   parsedExperience?: Array<{
     company?: string | null;
@@ -19,6 +44,11 @@ export type ParsedCandidateProfile = {
     startDate?: string | null;
     endDate?: string | null;
     highlights?: string[];
+    scope?: string | null;
+    techStack?: string[];
+    impactHighlights?: string[];
+    current?: boolean | null;
+    seniorityContribution?: string | null;
   }>;
   parsedEducation?: Array<{
     institution?: string | null;
@@ -26,6 +56,7 @@ export type ParsedCandidateProfile = {
     fieldOfStudy?: string | null;
     startDate?: string | null;
     endDate?: string | null;
+    confidence?: number | null;
   }>;
   parseStatus?: "not_started" | "processing" | "parsed" | "partial" | "failed";
   parseConfidence?: number | null;
@@ -60,6 +91,8 @@ function signalScore(parsed: ParsedCandidateProfile) {
   if (parsed.currentTitle) score += 10;
   if (parsed.location) score += 6;
   if (parsed.summary) score += 12;
+  if (parsed.executiveHeadline) score += 8;
+  if (parsed.professionalSnapshot) score += 10;
   if (parsed.parsedSkills?.length) score += Math.min(18, parsed.parsedSkills.length * 3);
   if (parsed.parsedExperience?.length) score += Math.min(20, parsed.parsedExperience.length * 8);
   if (parsed.parsedEducation?.length) score += Math.min(12, parsed.parsedEducation.length * 6);
@@ -126,6 +159,22 @@ function mergeParsedProfiles(primary: ParsedCandidateProfile, secondary: ParsedC
     languages: primary.languages ?? secondary.languages ?? null,
     summary: primary.summary ?? secondary.summary ?? null,
     standardizedProfile: primary.standardizedProfile ?? secondary.standardizedProfile ?? null,
+    executiveHeadline: primary.executiveHeadline ?? secondary.executiveHeadline ?? null,
+    professionalSnapshot: primary.professionalSnapshot ?? secondary.professionalSnapshot ?? null,
+    domainFocus: primary.domainFocus?.length ? primary.domainFocus : secondary.domainFocus ?? [],
+    senioritySignal: primary.senioritySignal ?? secondary.senioritySignal ?? null,
+    candidateStrengths:
+      primary.candidateStrengths?.length ? primary.candidateStrengths : secondary.candidateStrengths ?? [],
+    candidateRisks:
+      primary.candidateRisks?.length ? primary.candidateRisks : secondary.candidateRisks ?? [],
+    notableAchievements:
+      primary.notableAchievements?.length ? primary.notableAchievements : secondary.notableAchievements ?? [],
+    inferredWorkModel: primary.inferredWorkModel ?? secondary.inferredWorkModel ?? null,
+    locationFlexibility: primary.locationFlexibility ?? secondary.locationFlexibility ?? null,
+    salarySignal: primary.salarySignal ?? secondary.salarySignal ?? null,
+    languageItems: primary.languageItems?.length ? primary.languageItems : secondary.languageItems ?? [],
+    fieldConfidence: primary.fieldConfidence ?? secondary.fieldConfidence ?? null,
+    evidence: primary.evidence?.length ? primary.evidence : secondary.evidence ?? [],
     parsedSkills: primary.parsedSkills?.length ? primary.parsedSkills : secondary.parsedSkills ?? [],
     parsedExperience:
       primary.parsedExperience?.length ? primary.parsedExperience : secondary.parsedExperience ?? [],

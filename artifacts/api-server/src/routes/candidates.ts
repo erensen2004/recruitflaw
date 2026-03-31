@@ -51,13 +51,19 @@ function inferParseStatus(input: {
   parseConfidence?: number | null;
   currentTitle?: string | null;
   summary?: string | null;
+  professionalSnapshot?: string | null;
+  executiveHeadline?: string | null;
   parsedSkills?: string[] | null;
+  domainFocus?: string[] | null;
 }) {
   if (input.parseStatus) return input.parseStatus;
   const hasSignals = Boolean(
     input.currentTitle ||
       input.summary ||
-      (Array.isArray(input.parsedSkills) && input.parsedSkills.length > 0),
+      input.professionalSnapshot ||
+      input.executiveHeadline ||
+      (Array.isArray(input.parsedSkills) && input.parsedSkills.length > 0) ||
+      (Array.isArray(input.domainFocus) && input.domainFocus.length > 0),
   );
   if (!hasSignals) return "not_started";
   if (input.parseReviewRequired) return "partial";
@@ -190,6 +196,19 @@ function formatCandidate(c: {
   languages?: string | null;
   summary?: string | null;
   standardizedProfile?: string | null;
+  executiveHeadline?: string | null;
+  professionalSnapshot?: string | null;
+  domainFocus?: string[] | null;
+  senioritySignal?: string | null;
+  candidateStrengths?: string[] | null;
+  candidateRisks?: string[] | null;
+  notableAchievements?: string[] | null;
+  inferredWorkModel?: string | null;
+  locationFlexibility?: string | null;
+  salarySignal?: string | null;
+  languageItems?: unknown[] | null;
+  fieldConfidence?: Record<string, unknown> | null;
+  evidence?: string[] | null;
   parsedSkills?: string[] | null;
   parsedExperience?: unknown[] | null;
   parsedEducation?: unknown[] | null;
@@ -225,6 +244,19 @@ function formatCandidate(c: {
     languages: c.languages ?? null,
     summary: c.summary ?? null,
     standardizedProfile: c.standardizedProfile ?? null,
+    executiveHeadline: c.executiveHeadline ?? null,
+    professionalSnapshot: c.professionalSnapshot ?? null,
+    domainFocus: c.domainFocus ?? [],
+    senioritySignal: c.senioritySignal ?? null,
+    candidateStrengths: c.candidateStrengths ?? [],
+    candidateRisks: c.candidateRisks ?? [],
+    notableAchievements: c.notableAchievements ?? [],
+    inferredWorkModel: c.inferredWorkModel ?? null,
+    locationFlexibility: c.locationFlexibility ?? null,
+    salarySignal: c.salarySignal ?? null,
+    languageItems: c.languageItems ?? [],
+    fieldConfidence: c.fieldConfidence ?? null,
+    evidence: c.evidence ?? [],
     parsedSkills: c.parsedSkills ?? [],
     parsedExperience: c.parsedExperience ?? [],
     parsedEducation: c.parsedEducation ?? [],
@@ -317,6 +349,19 @@ router.get("/", requireAuth, async (req, res) => {
         languages: candidatesTable.languages,
         summary: candidatesTable.summary,
         standardizedProfile: candidatesTable.standardizedProfile,
+        executiveHeadline: candidatesTable.executiveHeadline,
+        professionalSnapshot: candidatesTable.professionalSnapshot,
+        domainFocus: candidatesTable.domainFocus,
+        senioritySignal: candidatesTable.senioritySignal,
+        candidateStrengths: candidatesTable.candidateStrengths,
+        candidateRisks: candidatesTable.candidateRisks,
+        notableAchievements: candidatesTable.notableAchievements,
+        inferredWorkModel: candidatesTable.inferredWorkModel,
+        locationFlexibility: candidatesTable.locationFlexibility,
+        salarySignal: candidatesTable.salarySignal,
+        languageItems: candidatesTable.languageItems,
+        fieldConfidence: candidatesTable.fieldConfidence,
+        evidence: candidatesTable.evidence,
         parsedSkills: candidatesTable.parsedSkills,
         parsedExperience: candidatesTable.parsedExperience,
         parsedEducation: candidatesTable.parsedEducation,
@@ -418,6 +463,19 @@ router.get("/:id", requireAuth, async (req, res) => {
         languages: candidatesTable.languages,
         summary: candidatesTable.summary,
         standardizedProfile: candidatesTable.standardizedProfile,
+        executiveHeadline: candidatesTable.executiveHeadline,
+        professionalSnapshot: candidatesTable.professionalSnapshot,
+        domainFocus: candidatesTable.domainFocus,
+        senioritySignal: candidatesTable.senioritySignal,
+        candidateStrengths: candidatesTable.candidateStrengths,
+        candidateRisks: candidatesTable.candidateRisks,
+        notableAchievements: candidatesTable.notableAchievements,
+        inferredWorkModel: candidatesTable.inferredWorkModel,
+        locationFlexibility: candidatesTable.locationFlexibility,
+        salarySignal: candidatesTable.salarySignal,
+        languageItems: candidatesTable.languageItems,
+        fieldConfidence: candidatesTable.fieldConfidence,
+        evidence: candidatesTable.evidence,
         parsedSkills: candidatesTable.parsedSkills,
         parsedExperience: candidatesTable.parsedExperience,
         parsedEducation: candidatesTable.parsedEducation,
@@ -470,6 +528,19 @@ router.post(
         languages,
         summary,
         standardizedProfile,
+        executiveHeadline,
+        professionalSnapshot,
+        domainFocus,
+        senioritySignal,
+        candidateStrengths,
+        candidateRisks,
+        notableAchievements,
+        inferredWorkModel,
+        locationFlexibility,
+        salarySignal,
+        languageItems,
+        fieldConfidence,
+        evidence,
         parseStatus,
         parseConfidence,
         parseReviewRequired,
@@ -527,7 +598,10 @@ router.post(
         parseConfidence,
         currentTitle,
         summary,
+        professionalSnapshot,
+        executiveHeadline,
         parsedSkills,
+        domainFocus,
       });
 
       const [candidate] = await db
@@ -552,6 +626,19 @@ router.post(
           languages: languages ?? null,
           summary: summary ?? null,
           standardizedProfile: standardizedProfile ?? null,
+          executiveHeadline: executiveHeadline ?? null,
+          professionalSnapshot: professionalSnapshot ?? null,
+          domainFocus: domainFocus ?? null,
+          senioritySignal: senioritySignal ?? null,
+          candidateStrengths: candidateStrengths ?? null,
+          candidateRisks: candidateRisks ?? null,
+          notableAchievements: notableAchievements ?? null,
+          inferredWorkModel: inferredWorkModel ?? null,
+          locationFlexibility: locationFlexibility ?? null,
+          salarySignal: salarySignal ?? null,
+          languageItems: languageItems ?? null,
+          fieldConfidence: fieldConfidence ?? null,
+          evidence: evidence ?? null,
           parseStatus: effectiveParseStatus as any,
           parseConfidence: parseConfidence ?? null,
           parseReviewRequired: parseReviewRequired ?? false,
@@ -631,6 +718,19 @@ router.patch(
         languages,
         summary,
         standardizedProfile,
+        executiveHeadline,
+        professionalSnapshot,
+        domainFocus,
+        senioritySignal,
+        candidateStrengths,
+        candidateRisks,
+        notableAchievements,
+        inferredWorkModel,
+        locationFlexibility,
+        salarySignal,
+        languageItems,
+        fieldConfidence,
+        evidence,
         parseStatus,
         parseConfidence,
         parseReviewRequired,
@@ -697,6 +797,19 @@ router.patch(
       if (languages !== undefined) updates.languages = normalizeNullableString(languages);
       if (summary !== undefined) updates.summary = normalizeNullableString(summary);
       if (standardizedProfile !== undefined) updates.standardizedProfile = normalizeNullableString(standardizedProfile);
+      if (executiveHeadline !== undefined) updates.executiveHeadline = normalizeNullableString(executiveHeadline);
+      if (professionalSnapshot !== undefined) updates.professionalSnapshot = normalizeNullableString(professionalSnapshot);
+      if (domainFocus !== undefined) updates.domainFocus = domainFocus;
+      if (senioritySignal !== undefined) updates.senioritySignal = normalizeNullableString(senioritySignal);
+      if (candidateStrengths !== undefined) updates.candidateStrengths = candidateStrengths;
+      if (candidateRisks !== undefined) updates.candidateRisks = candidateRisks;
+      if (notableAchievements !== undefined) updates.notableAchievements = notableAchievements;
+      if (inferredWorkModel !== undefined) updates.inferredWorkModel = normalizeNullableString(inferredWorkModel);
+      if (locationFlexibility !== undefined) updates.locationFlexibility = normalizeNullableString(locationFlexibility);
+      if (salarySignal !== undefined) updates.salarySignal = normalizeNullableString(salarySignal);
+      if (languageItems !== undefined) updates.languageItems = languageItems;
+      if (fieldConfidence !== undefined) updates.fieldConfidence = fieldConfidence;
+      if (evidence !== undefined) updates.evidence = evidence;
       if (parseStatus !== undefined) updates.parseStatus = parseStatus;
       if (parseConfidence !== undefined) updates.parseConfidence = parseConfidence;
       if (parseReviewRequired !== undefined) updates.parseReviewRequired = parseReviewRequired;

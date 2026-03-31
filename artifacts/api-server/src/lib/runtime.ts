@@ -105,6 +105,71 @@ async function ensureSupportTables() {
         ON public.password_setup_tokens (token_hash, expires_at)
       `);
 
+      await pool.query(`
+        ALTER TABLE public.candidates
+        ADD COLUMN IF NOT EXISTS executive_headline text
+      `);
+
+      await pool.query(`
+        ALTER TABLE public.candidates
+        ADD COLUMN IF NOT EXISTS professional_snapshot text
+      `);
+
+      await pool.query(`
+        ALTER TABLE public.candidates
+        ADD COLUMN IF NOT EXISTS domain_focus jsonb
+      `);
+
+      await pool.query(`
+        ALTER TABLE public.candidates
+        ADD COLUMN IF NOT EXISTS seniority_signal text
+      `);
+
+      await pool.query(`
+        ALTER TABLE public.candidates
+        ADD COLUMN IF NOT EXISTS candidate_strengths jsonb
+      `);
+
+      await pool.query(`
+        ALTER TABLE public.candidates
+        ADD COLUMN IF NOT EXISTS candidate_risks jsonb
+      `);
+
+      await pool.query(`
+        ALTER TABLE public.candidates
+        ADD COLUMN IF NOT EXISTS notable_achievements jsonb
+      `);
+
+      await pool.query(`
+        ALTER TABLE public.candidates
+        ADD COLUMN IF NOT EXISTS inferred_work_model text
+      `);
+
+      await pool.query(`
+        ALTER TABLE public.candidates
+        ADD COLUMN IF NOT EXISTS location_flexibility text
+      `);
+
+      await pool.query(`
+        ALTER TABLE public.candidates
+        ADD COLUMN IF NOT EXISTS salary_signal text
+      `);
+
+      await pool.query(`
+        ALTER TABLE public.candidates
+        ADD COLUMN IF NOT EXISTS language_items jsonb
+      `);
+
+      await pool.query(`
+        ALTER TABLE public.candidates
+        ADD COLUMN IF NOT EXISTS field_confidence jsonb
+      `);
+
+      await pool.query(`
+        ALTER TABLE public.candidates
+        ADD COLUMN IF NOT EXISTS evidence jsonb
+      `);
+
     } catch (error) {
       console.warn("[runtime] support table bootstrap skipped", error);
     }

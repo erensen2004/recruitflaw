@@ -17,4 +17,5 @@ export const CandidateStatus = {
   offer: "offer",
   hired: "hired",
   rejected: "rejected",
+  withdrawn: "withdrawn",
 } as const;

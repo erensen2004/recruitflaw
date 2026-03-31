@@ -13,6 +13,7 @@ export type JobRoleEmploymentType =
 export const JobRoleEmploymentType = {
   "full-time": "full-time",
   "part-time": "part-time",
+  other: "other",
   contract: "contract",
   freelance: "freelance",
 } as const;

@@ -10,6 +10,11 @@ export type CandidateExperienceItem = {
   startDate?: string | null;
   endDate?: string | null;
   highlights?: string[] | null;
+  scope?: string | null;
+  techStack?: string[] | null;
+  impactHighlights?: string[] | null;
+  current?: boolean | null;
+  seniorityContribution?: string | null;
 };
 
 export type CandidateEducationItem = {
@@ -18,6 +23,23 @@ export type CandidateEducationItem = {
   fieldOfStudy?: string | null;
   startDate?: string | null;
   endDate?: string | null;
+  confidence?: number | null;
+};
+
+export type CandidateLanguageItem = {
+  name?: string | null;
+  level?: string | null;
+  confidence?: number | null;
+  source?: string | null;
+};
+
+export type CandidateFieldConfidence = {
+  contact?: number | null;
+  experience?: number | null;
+  education?: number | null;
+  languages?: number | null;
+  compensation?: number | null;
+  summary?: number | null;
 };
 
 export const candidatesTable = pgTable("candidates", {
@@ -58,6 +80,19 @@ export const candidatesTable = pgTable("candidates", {
   languages: text("languages"),
   summary: text("summary"),
   standardizedProfile: text("standardized_profile"),
+  executiveHeadline: text("executive_headline"),
+  professionalSnapshot: text("professional_snapshot"),
+  domainFocus: jsonb("domain_focus").$type<string[] | null>(),
+  senioritySignal: text("seniority_signal"),
+  candidateStrengths: jsonb("candidate_strengths").$type<string[] | null>(),
+  candidateRisks: jsonb("candidate_risks").$type<string[] | null>(),
+  notableAchievements: jsonb("notable_achievements").$type<string[] | null>(),
+  inferredWorkModel: text("inferred_work_model"),
+  locationFlexibility: text("location_flexibility"),
+  salarySignal: text("salary_signal"),
+  languageItems: jsonb("language_items").$type<CandidateLanguageItem[] | null>(),
+  fieldConfidence: jsonb("field_confidence").$type<CandidateFieldConfidence | null>(),
+  evidence: jsonb("evidence").$type<string[] | null>(),
   parsedSkills: jsonb("parsed_skills").$type<string[] | null>(),
   parsedExperience: jsonb("parsed_experience").$type<CandidateExperienceItem[] | null>(),
   parsedEducation: jsonb("parsed_education").$type<CandidateEducationItem[] | null>(),

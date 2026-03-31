@@ -92,16 +92,49 @@ type CandidateIntelligenceInput = {
   summary?: string | null;
   standardizedProfile?: string | null;
   tags?: string | null;
+  executiveHeadline?: string | null;
+  professionalSnapshot?: string | null;
+  domainFocus?: string[] | null;
+  senioritySignal?: string | null;
+  candidateStrengths?: string[] | null;
+  candidateRisks?: string[] | null;
+  notableAchievements?: string[] | null;
+  inferredWorkModel?: string | null;
+  locationFlexibility?: string | null;
+  salarySignal?: string | null;
+  languageItems?: Array<{
+    name?: string | null;
+    level?: string | null;
+    confidence?: number | null;
+    source?: string | null;
+  }> | null;
+  fieldConfidence?: {
+    contact?: number | null;
+    experience?: number | null;
+    education?: number | null;
+    languages?: number | null;
+    compensation?: number | null;
+    summary?: number | null;
+  } | null;
+  evidence?: string[] | null;
 };
 
 export function getCandidateLanguageReadiness(input: CandidateIntelligenceInput) {
   const { englishLevel } = parseCandidateTags(input.tags);
   const languagesText = input.languages?.trim();
+  const normalizedLanguageItems =
+    input.languageItems
+      ?.map((item) => {
+        const label = [item.name, item.level].filter(Boolean).join(" ");
+        return label.trim() || item.name || null;
+      })
+      .filter((item): item is string => Boolean(item)) ?? [];
 
   return {
     englishLevel,
-    languageLabel: englishLevel ?? languagesText ?? "Not provided",
-    languageReady: Boolean(englishLevel || languagesText),
+    languageLabel: englishLevel ?? normalizedLanguageItems[0] ?? languagesText ?? "Not provided",
+    languageReady: Boolean(englishLevel || normalizedLanguageItems.length || languagesText),
+    languageItems: normalizedLanguageItems,
   };
 }
 
@@ -112,11 +145,13 @@ export function getCandidateCompleteness(input: CandidateIntelligenceInput) {
     Boolean(input.location?.trim()),
     Boolean(input.phone),
     input.expectedSalary != null,
-    Boolean(input.languages?.trim()),
-    Boolean(input.summary?.trim()),
+    Boolean(input.languages?.trim() || input.languageItems?.length),
+    Boolean(input.professionalSnapshot?.trim() || input.summary?.trim()),
     Boolean(input.parsedSkills?.length),
     Boolean(input.parsedExperience?.length),
     Boolean(input.parsedEducation?.length),
+    Boolean(input.executiveHeadline?.trim()),
+    Boolean(input.domainFocus?.length),
   ];
 
   const completed = checks.filter(Boolean).length;
@@ -126,7 +161,7 @@ export function getCandidateCompleteness(input: CandidateIntelligenceInput) {
 export function getCandidateReadinessSnapshot(input: CandidateIntelligenceInput) {
   const completeness = getCandidateCompleteness(input);
   const confidence = input.parseConfidence ?? 0;
-  const { englishLevel, languageLabel, languageReady } = getCandidateLanguageReadiness(input);
+  const { englishLevel, languageLabel, languageReady, languageItems } = getCandidateLanguageReadiness(input);
   const salaryLabel = formatTurkishLira(input.expectedSalary);
   const compensationReady = input.expectedSalary != null;
   const experienceReady = Boolean(input.parsedExperience?.length);
@@ -143,6 +178,7 @@ export function getCandidateReadinessSnapshot(input: CandidateIntelligenceInput)
     !educationReady ? "Education details are thin" : null,
     input.parseReviewRequired ? "Admin normalization required" : null,
     confidence > 0 && confidence < 70 ? "Parse confidence is below the preferred review threshold" : null,
+    ...(input.candidateRisks ?? []),
   ].filter((item): item is string => Boolean(item));
 
   const riskLevel = !contactReady || !compensationReady || !experienceReady || confidence < 70 || input.parseReviewRequired
@@ -193,6 +229,7 @@ export function getCandidateReadinessSnapshot(input: CandidateIntelligenceInput)
     englishLevel,
     languageLabel,
     languageReady,
+    languageItems,
     salaryLabel,
     compensationReady,
     experienceReady,
@@ -211,9 +248,16 @@ type CandidateExecutiveBrief = {
   fitScore: number;
   fitLabel: string;
   fitSummary: string;
+  headline: string;
+  professionalSnapshot: string;
+  domainFocus: string[];
   strengths: string[];
   riskFlags: string[];
+  notableAchievements: string[];
   normalizationNotes: string[];
+  workModel: string | null;
+  locationFlexibility: string | null;
+  salarySignal: string | null;
   adminReady: boolean;
   spotlight: string;
 };
@@ -275,8 +319,21 @@ export function getCandidateExecutiveBrief(input: CandidateIntelligenceInput): C
   const completeness = snapshot.completeness;
   const confidence = snapshot.confidence;
   const { englishLevel } = snapshot;
+  const professionalSnapshot = firstMeaningful([
+    input.professionalSnapshot,
+    input.summary,
+    input.standardizedProfile,
+  ]) ?? "Candidate profile summary is still being normalized.";
+  const domainFocus = (input.domainFocus ?? []).filter(Boolean).slice(0, 5);
+  const headline =
+    firstMeaningful([
+      input.executiveHeadline,
+      input.currentTitle,
+      input.roleTitle ? `${input.roleTitle} profile` : null,
+    ]) ?? "Candidate profile";
 
   const strengths = [
+    ...(input.candidateStrengths ?? []),
     input.currentTitle ? `Current title: ${input.currentTitle}` : null,
     input.yearsExperience != null ? `Experience: ${input.yearsExperience} years` : null,
     input.location ? `Location: ${input.location}` : null,
@@ -288,6 +345,7 @@ export function getCandidateExecutiveBrief(input: CandidateIntelligenceInput): C
   ].filter((item): item is string => Boolean(item));
 
   const riskFlags = [
+    ...(input.candidateRisks ?? []),
     !input.phone ? "Missing phone number" : null,
     input.expectedSalary == null ? "Compensation not captured" : null,
     !input.parsedExperience?.length ? "Experience structure is thin" : null,
@@ -301,7 +359,7 @@ export function getCandidateExecutiveBrief(input: CandidateIntelligenceInput): C
   const normalizationNotes = [
     input.phone ? null : "Confirm a phone number before client outreach.",
     input.expectedSalary == null ? "Capture compensation expectations before publishing." : null,
-    input.summary || input.standardizedProfile ? null : "Write a recruiter-ready summary before the handoff.",
+    input.professionalSnapshot || input.summary || input.standardizedProfile ? null : "Write a recruiter-ready summary before the handoff.",
     input.parsedExperience?.length ? null : "Normalize the experience timeline so the brief reads cleanly.",
     input.parsedEducation?.length ? null : "Normalize education details if they are available in the source CV.",
     englishLevel ? null : "Record language proficiency before the final client review.",
@@ -313,6 +371,7 @@ export function getCandidateExecutiveBrief(input: CandidateIntelligenceInput): C
   const skillKeywords = normalizeKeywordSet(input.parsedSkills?.join(" "));
   const overlap = [...roleKeywords].filter((keyword) => titleKeywords.has(keyword) || skillKeywords.has(keyword));
   const overlapSummary = firstMeaningful([
+    input.professionalSnapshot,
     overlap.length ? `Alignment around ${overlap.slice(0, 3).join(", ")}.` : null,
     input.currentTitle && input.roleTitle
       ? `Current title and submitted role should be normalized together before approval.`
@@ -348,11 +407,19 @@ export function getCandidateExecutiveBrief(input: CandidateIntelligenceInput): C
     fitScore,
     fitLabel,
     fitSummary: overlapSummary,
-    strengths: strengths.slice(0, 5),
+    headline,
+    professionalSnapshot,
+    domainFocus,
+    strengths: strengths.slice(0, 6),
     riskFlags: riskFlags.slice(0, 6),
+    notableAchievements: (input.notableAchievements ?? []).filter(Boolean).slice(0, 4),
     normalizationNotes: normalizationNotes.slice(0, 5),
+    workModel: input.inferredWorkModel ?? null,
+    locationFlexibility: input.locationFlexibility ?? null,
+    salarySignal: input.salarySignal ?? (snapshot.compensationReady ? `Compensation: ${snapshot.salaryLabel}` : null),
     adminReady: fitScore >= 80 && !input.parseReviewRequired && completeness >= 80 && confidence >= 70,
     spotlight: firstMeaningful([
+      input.executiveHeadline,
       input.currentTitle,
       input.roleTitle,
       strengths[0],

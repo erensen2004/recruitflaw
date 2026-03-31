@@ -46,6 +46,11 @@ type ParsedExperienceItem = {
   startDate: string | null;
   endDate: string | null;
   highlights: string[] | null;
+  scope: string | null;
+  techStack: string[] | null;
+  impactHighlights: string[] | null;
+  current: boolean | null;
+  seniorityContribution: string | null;
 };
 
 type ParsedEducationItem = {
@@ -54,6 +59,23 @@ type ParsedEducationItem = {
   fieldOfStudy: string | null;
   startDate: string | null;
   endDate: string | null;
+  confidence: number | null;
+};
+
+type ParsedLanguageItem = {
+  name: string | null;
+  level: string | null;
+  confidence: number | null;
+  source: string | null;
+};
+
+type ParsedFieldConfidence = {
+  contact: number | null;
+  experience: number | null;
+  education: number | null;
+  languages: number | null;
+  compensation: number | null;
+  summary: number | null;
 };
 
 type ParsedCandidate = {
@@ -70,6 +92,19 @@ type ParsedCandidate = {
   languages: string | null;
   summary: string | null;
   standardizedProfile: string | null;
+  executiveHeadline: string | null;
+  professionalSnapshot: string | null;
+  domainFocus: string[];
+  senioritySignal: string | null;
+  candidateStrengths: string[];
+  candidateRisks: string[];
+  notableAchievements: string[];
+  inferredWorkModel: string | null;
+  locationFlexibility: string | null;
+  salarySignal: string | null;
+  languageItems: ParsedLanguageItem[];
+  fieldConfidence: ParsedFieldConfidence | null;
+  evidence: string[];
   parsedSkills: string[];
   parsedExperience: ParsedExperienceItem[];
   parsedEducation: ParsedEducationItem[];
@@ -237,6 +272,19 @@ function createEmptyParse(provider: string | null, warning: string): ParsedCandi
     languages: null,
     summary: null,
     standardizedProfile: null,
+    executiveHeadline: null,
+    professionalSnapshot: null,
+    domainFocus: [],
+    senioritySignal: null,
+    candidateStrengths: [],
+    candidateRisks: [],
+    notableAchievements: [],
+    inferredWorkModel: null,
+    locationFlexibility: null,
+    salarySignal: null,
+    languageItems: [],
+    fieldConfidence: null,
+    evidence: [],
     parsedSkills: [],
     parsedExperience: [],
     parsedEducation: [],
@@ -307,8 +355,13 @@ function normalizeExperience(value: unknown): ParsedExperienceItem[] {
       startDate: normalizeString(record.startDate),
       endDate: normalizeString(record.endDate),
       highlights: normalizeStringList(record.highlights),
+      scope: normalizeString(record.scope),
+      techStack: normalizeStringList(record.techStack),
+      impactHighlights: normalizeStringList(record.impactHighlights),
+      current: typeof record.current === "boolean" ? record.current : null,
+      seniorityContribution: normalizeString(record.seniorityContribution),
     };
-  });
+  }).filter((item) => item.company || item.title || item.startDate || item.endDate || item.highlights?.length || item.scope || item.techStack?.length || item.impactHighlights?.length);
 }
 
 function normalizeEducation(value: unknown): ParsedEducationItem[] {
@@ -321,8 +374,39 @@ function normalizeEducation(value: unknown): ParsedEducationItem[] {
       fieldOfStudy: normalizeString(record.fieldOfStudy),
       startDate: normalizeString(record.startDate),
       endDate: normalizeString(record.endDate),
+      confidence: toNumber(record.confidence),
     };
-  });
+  }).filter((item) => item.institution || item.degree || item.fieldOfStudy || item.startDate || item.endDate || item.confidence != null);
+}
+
+function normalizeLanguageItems(value: unknown): ParsedLanguageItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      const record = typeof item === "object" && item ? (item as Record<string, unknown>) : {};
+      return {
+        name: normalizeString(record.name),
+        level: normalizeString(record.level),
+        confidence: toNumber(record.confidence),
+        source: normalizeString(record.source),
+      };
+    })
+    .filter((item) => item.name || item.level || item.confidence != null || item.source);
+}
+
+function normalizeFieldConfidence(value: unknown): ParsedFieldConfidence | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const normalized: ParsedFieldConfidence = {
+    contact: toNumber(record.contact),
+    experience: toNumber(record.experience),
+    education: toNumber(record.education),
+    languages: toNumber(record.languages),
+    compensation: toNumber(record.compensation),
+    summary: toNumber(record.summary),
+  };
+
+  return Object.values(normalized).some((item) => item != null) ? normalized : null;
 }
 
 function toNumber(value: unknown): number | null {
@@ -572,6 +656,310 @@ function buildStandardizedProfile(candidate: ParsedCandidate): string | null {
   return sections.length ? sections.join("\n") : null;
 }
 
+function looksCurrentValue(value?: string | null) {
+  return Boolean(value && /\b(current|present|now|ongoing)\b/i.test(value));
+}
+
+function inferSenioritySignal(candidate: ParsedCandidate): string | null {
+  const title = (candidate.currentTitle || candidate.parsedExperience[0]?.title || "").toLowerCase();
+  const years = candidate.yearsExperience ?? 0;
+
+  if (/\b(principal|staff|head|director)\b/.test(title)) return "Principal-level profile";
+  if (/\b(lead|manager)\b/.test(title)) return "Lead-level profile";
+  if (/\b(senior|sr)\b/.test(title) || years >= 8) return "Senior-level profile";
+  if (years >= 5) return "Mid-to-senior profile";
+  if (years >= 3) return "Mid-level profile";
+  if (years > 0) return "Early-career profile";
+  return title ? "Experience level inferred from current title" : null;
+}
+
+function inferWorkModel(candidate: ParsedCandidate): string | null {
+  const text = [candidate.location, candidate.summary, candidate.standardizedProfile].filter(Boolean).join(" ").toLowerCase();
+  if (!text) return null;
+  if (/\bremote\b/.test(text)) return "Remote-friendly";
+  if (/\bhybrid\b/.test(text)) return "Hybrid-friendly";
+  if (/\boffice|on-site|onsite\b/.test(text)) return "Office-based";
+  return null;
+}
+
+function inferLocationFlexibility(candidate: ParsedCandidate): string | null {
+  const workModel = inferWorkModel(candidate);
+  if (candidate.location && workModel) return `${candidate.location} • ${workModel}`;
+  if (candidate.location) return `Based in ${candidate.location}`;
+  return workModel;
+}
+
+function inferSalarySignal(candidate: ParsedCandidate): string | null {
+  if (candidate.expectedSalary != null) {
+    return `Compensation expectation captured at ${Math.round(candidate.expectedSalary).toLocaleString("tr-TR")} TL`;
+  }
+  return "Compensation expectations still need confirmation";
+}
+
+function normalizeFocusKeywords(value?: string | null) {
+  return new Set(
+    (value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9çğıöşü\s]+/gi, " ")
+      .split(/\s+/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .filter(
+        (part) =>
+          part.length > 2 &&
+          ![
+            "senior",
+            "junior",
+            "lead",
+            "staff",
+            "principal",
+            "associate",
+            "intern",
+            "full",
+            "part",
+            "time",
+            "remote",
+            "hybrid",
+            "based",
+            "candidate",
+            "profile",
+          ].includes(part),
+      ),
+  );
+}
+
+function deriveDomainFocus(candidate: ParsedCandidate): string[] {
+  const titleKeywords = normalizeFocusKeywords(candidate.currentTitle);
+  const summaryKeywords = normalizeFocusKeywords(candidate.summary);
+  const skillSignals = getSummarySkills(candidate);
+  const highlightKeywords = dedupeList(
+    candidate.parsedExperience.flatMap((item) =>
+      [...(item.techStack ?? []), ...(item.impactHighlights ?? []), ...(item.highlights ?? [])]
+        .flatMap((value) => normalizeStringList(String(value))),
+    ),
+  );
+
+  return dedupeList([
+    ...skillSignals,
+    ...[...titleKeywords].slice(0, 2),
+    ...[...summaryKeywords].slice(0, 2),
+    ...highlightKeywords,
+  ]).slice(0, 5);
+}
+
+function deriveLanguageItems(candidate: ParsedCandidate): ParsedLanguageItem[] {
+  const raw = normalizeString(candidate.languages);
+  if (!raw) return [];
+
+  return dedupeList(
+    raw
+      .split(/,|\/|\||•|·/)
+      .map((item) => normalizeString(item))
+      .filter((item): item is string => Boolean(item)),
+  )
+    .map((entry) => {
+      const levelMatch = entry.match(/^(.*?)(?:\s*[:(-]\s*|\s+)(A1|A2|B1|B2|C1|C2|native|fluent|professional|advanced|intermediate|basic)(?:\)|\s*)?$/i);
+      if (levelMatch) {
+        return {
+          name: normalizeString(levelMatch[1]),
+          level: normalizeString(levelMatch[2]),
+          confidence: 86,
+          source: "parsed-text",
+        };
+      }
+
+      return {
+        name: entry,
+        level: null,
+        confidence: 70,
+        source: "parsed-text",
+      };
+    })
+    .filter((item) => item.name);
+}
+
+function buildFieldConfidence(candidate: ParsedCandidate): ParsedFieldConfidence {
+  const base = candidate.parseConfidence ?? 50;
+  const score = (boost: number, penalty = 0) => Math.max(15, Math.min(100, Math.round(base + boost - penalty)));
+
+  return {
+    contact: score(candidate.email ? 12 : -10, candidate.phone ? 0 : 14),
+    experience: score(candidate.parsedExperience.length ? 8 : -12, candidate.parsedExperience.length >= 2 ? 0 : 10),
+    education: score(candidate.parsedEducation.length ? 6 : -8),
+    languages: score(candidate.languages || candidate.languageItems.length ? 5 : -10),
+    compensation: score(candidate.expectedSalary != null ? 6 : -12),
+    summary: score(candidate.summary ? 8 : -12, candidate.standardizedProfile ? 0 : 6),
+  };
+}
+
+function enrichExperienceItems(candidate: ParsedCandidate): ParsedExperienceItem[] {
+  return candidate.parsedExperience.map((item) => {
+    const highlights = dedupeList(item.highlights ?? []).slice(0, 4);
+    const techStack = dedupeList([
+      ...(item.techStack ?? []),
+      ...getSummarySkills(candidate).filter((skill) =>
+        highlights.join(" ").toLowerCase().includes(skill.toLowerCase()) ||
+        (item.title || "").toLowerCase().includes(skill.toLowerCase()),
+      ),
+    ]).slice(0, 5);
+
+    return {
+      ...item,
+      current: item.current ?? (item.endDate ? looksCurrentValue(item.endDate) : null),
+      scope:
+        item.scope ??
+        normalizeString(highlights.slice(0, 2).join(" • ")) ??
+        normalizeString([item.title, item.company].filter(Boolean).join(" @ ")),
+      techStack: techStack.length ? techStack : null,
+      impactHighlights: (item.impactHighlights?.length ? dedupeList(item.impactHighlights) : highlights).slice(0, 3),
+      seniorityContribution:
+        item.seniorityContribution ??
+        normalizeString(
+          [item.title, inferSenioritySignal(candidate)]
+            .filter(Boolean)
+            .join(" • "),
+        ),
+    };
+  });
+}
+
+function enrichEducationItems(candidate: ParsedCandidate): ParsedEducationItem[] {
+  return candidate.parsedEducation.map((item) => {
+    const fieldCount = [item.institution, item.degree, item.fieldOfStudy, item.startDate, item.endDate].filter(Boolean).length;
+    return {
+      ...item,
+      confidence: item.confidence ?? Math.min(95, 40 + fieldCount * 12),
+    };
+  });
+}
+
+function deriveNotableAchievements(candidate: ParsedCandidate): string[] {
+  return dedupeList(
+    candidate.parsedExperience.flatMap((item) => item.impactHighlights ?? item.highlights ?? []),
+  ).slice(0, 4);
+}
+
+function buildExecutiveHeadline(candidate: ParsedCandidate): string | null {
+  const title = getPrimaryTitle(candidate);
+  const years = formatExperienceYears(candidate.yearsExperience);
+  const focus = deriveDomainFocus(candidate);
+
+  if (!title && !focus.length) return null;
+
+  const parts = [
+    title,
+    years ? `with ${years}` : null,
+    focus.length ? `across ${formatNaturalList(focus.slice(0, 3), "and")}` : null,
+  ].filter(Boolean);
+
+  return parts.length ? `${parts.join(" ")}.`.replace(/\.\s*\.$/, ".") : null;
+}
+
+function buildProfessionalSnapshot(candidate: ParsedCandidate): string | null {
+  const title = getPrimaryTitle(candidate);
+  const years = formatExperienceYears(candidate.yearsExperience);
+  const focus = deriveDomainFocus(candidate);
+  const languages = deriveLanguageItems(candidate).map((item) => item.level ? `${item.name} (${item.level})` : item.name).filter(Boolean) as string[];
+  const achievements = deriveNotableAchievements(candidate);
+  const sentences: string[] = [];
+
+  if (title) {
+    const intro = [
+      title,
+      years ? `with ${years} of experience` : null,
+      candidate.location ? `based in ${candidate.location}` : null,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    sentences.push(`${intro}.`);
+  }
+
+  if (focus.length) {
+    sentences.push(`Primary focus areas include ${formatNaturalList(focus.slice(0, 4))}.`);
+  }
+
+  if (achievements.length) {
+    sentences.push(`Recent experience highlights include ${formatNaturalList(achievements.slice(0, 2))}.`);
+  }
+
+  if (languages.length || candidate.expectedSalary != null) {
+    const meta = [
+      languages.length ? `Languages: ${formatNaturalList(languages)}` : null,
+      candidate.expectedSalary != null ? inferSalarySignal(candidate) : null,
+    ]
+      .filter(Boolean)
+      .join(". ");
+    if (meta) sentences.push(`${meta}.`);
+  }
+
+  return sentences.length ? sentences.join(" ") : buildProfessionalSummary(candidate);
+}
+
+function buildDeterministicEnrichment(candidate: ParsedCandidate): ParsedCandidate {
+  const enrichedExperience = enrichExperienceItems(candidate);
+  const enrichedEducation = enrichEducationItems(candidate);
+  const languageItems = deriveLanguageItems(candidate);
+  const domainFocus = deriveDomainFocus(candidate);
+  const notableAchievements = deriveNotableAchievements({ ...candidate, parsedExperience: enrichedExperience });
+  const fieldConfidence = buildFieldConfidence({ ...candidate, parsedExperience: enrichedExperience, parsedEducation: enrichedEducation, languageItems } as ParsedCandidate);
+  const candidateStrengths = dedupeList(
+    [
+      getPrimaryTitle(candidate),
+      candidate.yearsExperience != null ? `${candidate.yearsExperience} years of experience` : null,
+      ...domainFocus,
+      ...notableAchievements,
+      languageItems.length
+        ? `Languages: ${formatNaturalList(
+            languageItems
+              .map((item) => (item.level ? `${item.name} (${item.level})` : item.name))
+              .filter(Boolean) as string[],
+          )}`
+        : null,
+    ].filter((value): value is string => Boolean(value)),
+  ).slice(0, 6);
+
+  const candidateRisks = dedupeList(
+    [
+      !candidate.phone ? "Phone number is missing" : null,
+      candidate.expectedSalary == null ? "Compensation expectations are missing" : null,
+      !enrichedExperience.length ? "Experience structure is thin" : null,
+      !enrichedEducation.length ? "Education structure is thin" : null,
+      !languageItems.length ? "Language coverage is still unclear" : null,
+      candidate.parseReviewRequired ? "Admin normalization is still recommended" : null,
+      (candidate.parseConfidence ?? 0) < 70 ? `Parse confidence is ${candidate.parseConfidence ?? 0}%` : null,
+    ].filter((value): value is string => Boolean(value)),
+  ).slice(0, 6);
+
+  const evidence = dedupeList(
+    [
+      getPrimaryTitle(candidate) ? `Title signal: ${getPrimaryTitle(candidate)}` : null,
+      candidate.location ? `Location signal: ${candidate.location}` : null,
+      domainFocus.length ? `Domain signal: ${formatNaturalList(domainFocus.slice(0, 3))}` : null,
+      enrichedExperience[0]?.company ? `Employer signal: ${enrichedExperience[0].company}` : null,
+      notableAchievements[0] ? `Achievement signal: ${notableAchievements[0]}` : null,
+    ].filter((value): value is string => Boolean(value)),
+  ).slice(0, 6);
+
+  return {
+    ...candidate,
+    parsedExperience: enrichedExperience,
+    parsedEducation: enrichedEducation,
+    languageItems,
+    fieldConfidence,
+    executiveHeadline: candidate.executiveHeadline ?? buildExecutiveHeadline(candidate),
+    professionalSnapshot: candidate.professionalSnapshot ?? buildProfessionalSnapshot(candidate),
+    domainFocus,
+    senioritySignal: candidate.senioritySignal ?? inferSenioritySignal(candidate),
+    candidateStrengths,
+    candidateRisks,
+    notableAchievements,
+    inferredWorkModel: candidate.inferredWorkModel ?? inferWorkModel(candidate),
+    locationFlexibility: candidate.locationFlexibility ?? inferLocationFlexibility(candidate),
+    salarySignal: candidate.salarySignal ?? inferSalarySignal(candidate),
+    evidence,
+  };
+}
+
 function hasUsefulSignals(candidate: ParsedCandidate): boolean {
   return Boolean(
     candidate.firstName ||
@@ -682,6 +1070,11 @@ function extractHeuristicCandidate(cvText: string): ParsedCandidate {
           ),
           endDate: null,
           highlights: experienceLines.slice(2, 7).map((line) => line.replace(/^[•\-–]\s*/, "")).filter(Boolean),
+          scope: null,
+          techStack: null,
+          impactHighlights: null,
+          current: null,
+          seniorityContribution: null,
         },
       ]
     : [];
@@ -694,6 +1087,7 @@ function extractHeuristicCandidate(cvText: string): ParsedCandidate {
           fieldOfStudy: normalizeString(educationLines[2]),
           startDate: null,
           endDate: null,
+          confidence: null,
         },
       ]
     : [];
@@ -757,6 +1151,19 @@ function mergeParsedCandidates(primary: ParsedCandidate, fallback: ParsedCandida
     languages: primary.languages ?? fallback.languages,
     summary: primary.summary ?? fallback.summary,
     standardizedProfile: sanitizeStandardizedProfile(primary.standardizedProfile) ?? buildStandardizedProfile({ ...fallback, ...primary }),
+    executiveHeadline: primary.executiveHeadline ?? fallback.executiveHeadline,
+    professionalSnapshot: primary.professionalSnapshot ?? fallback.professionalSnapshot,
+    domainFocus: primary.domainFocus.length ? primary.domainFocus : fallback.domainFocus,
+    senioritySignal: primary.senioritySignal ?? fallback.senioritySignal,
+    candidateStrengths: primary.candidateStrengths.length ? primary.candidateStrengths : fallback.candidateStrengths,
+    candidateRisks: primary.candidateRisks.length ? primary.candidateRisks : fallback.candidateRisks,
+    notableAchievements: primary.notableAchievements.length ? primary.notableAchievements : fallback.notableAchievements,
+    inferredWorkModel: primary.inferredWorkModel ?? fallback.inferredWorkModel,
+    locationFlexibility: primary.locationFlexibility ?? fallback.locationFlexibility,
+    salarySignal: primary.salarySignal ?? fallback.salarySignal,
+    languageItems: primary.languageItems.length ? primary.languageItems : fallback.languageItems,
+    fieldConfidence: primary.fieldConfidence ?? fallback.fieldConfidence,
+    evidence: primary.evidence.length ? primary.evidence : fallback.evidence,
     parsedSkills: primary.parsedSkills.length ? primary.parsedSkills : fallback.parsedSkills,
     parsedExperience: primary.parsedExperience.length ? primary.parsedExperience : fallback.parsedExperience,
     parsedEducation: primary.parsedEducation.length ? primary.parsedEducation : fallback.parsedEducation,
@@ -782,6 +1189,7 @@ function normalizeParsedCandidate(parsed: Record<string, unknown>, provider: str
   const parsedSkills = normalizeStringList(parsed.parsedSkills ?? parsed.skills);
   const parsedExperience = normalizeExperience(parsed.parsedExperience ?? parsed.experience);
   const parsedEducation = normalizeEducation(parsed.parsedEducation ?? parsed.educationItems);
+  const languageItems = normalizeLanguageItems(parsed.languageItems);
   const parseConfidenceRaw = toNumber(parsed.parseConfidence);
 
   const candidate: ParsedCandidate = {
@@ -798,6 +1206,19 @@ function normalizeParsedCandidate(parsed: Record<string, unknown>, provider: str
     languages: normalizeString(parsed.languages),
     summary: normalizeString(parsed.summary),
     standardizedProfile: sanitizeStandardizedProfile(normalizeString(parsed.standardizedProfile)),
+    executiveHeadline: normalizeString(parsed.executiveHeadline),
+    professionalSnapshot: normalizeString(parsed.professionalSnapshot),
+    domainFocus: normalizeStringList(parsed.domainFocus),
+    senioritySignal: normalizeString(parsed.senioritySignal),
+    candidateStrengths: normalizeStringList(parsed.candidateStrengths),
+    candidateRisks: normalizeStringList(parsed.candidateRisks),
+    notableAchievements: normalizeStringList(parsed.notableAchievements),
+    inferredWorkModel: normalizeString(parsed.inferredWorkModel),
+    locationFlexibility: normalizeString(parsed.locationFlexibility),
+    salarySignal: normalizeString(parsed.salarySignal),
+    languageItems,
+    fieldConfidence: normalizeFieldConfidence(parsed.fieldConfidence),
+    evidence: normalizeStringList(parsed.evidence),
     parsedSkills,
     parsedExperience,
     parsedEducation,
@@ -1001,14 +1422,116 @@ async function parseWithGeminiText(cvText: string): Promise<ParsedCandidate> {
   return normalizeParsedCandidate(extractJsonObject(result.response.text()), `gemini:${gemini.model}`);
 }
 
-function finalizeResponse(candidate: ParsedCandidate, extraWarnings: string[] = []): ParsedCandidate {
+function buildEnrichmentPrompt(candidate: ParsedCandidate, sourceText?: string) {
+  return [
+    "You are enriching a structured candidate profile for a recruiter-facing briefing.",
+    "Use only the evidence in the structured JSON and optional resume text. Never invent employers, dates, projects, skills, or education.",
+    "Return exactly one JSON object and nothing else.",
+    "Prefer short, factual, recruiter-friendly output.",
+    "If a field is weak or unsupported, return null or an empty array.",
+    "Update summary so it becomes a professional 3-4 sentence recruiter summary.",
+    "executiveHeadline should be one short line, not a paragraph.",
+    "professionalSnapshot should read like a polished candidate intro.",
+    "candidateStrengths and candidateRisks should each contain concise evidence-based bullets.",
+    "notableAchievements should only include concrete work signals already present in the source.",
+    "parsedExperience may be enriched with scope, techStack, impactHighlights, current, and seniorityContribution only when supported.",
+    "parsedEducation may be enriched with confidence only when support exists.",
+    "languageItems should include name, level, confidence, and source.",
+    "fieldConfidence should include contact, experience, education, languages, compensation, summary as 0-100 integers.",
+    "Required JSON keys: summary, executiveHeadline, professionalSnapshot, domainFocus, senioritySignal, candidateStrengths, candidateRisks, notableAchievements, inferredWorkModel, locationFlexibility, salarySignal, languageItems, fieldConfidence, evidence, parsedExperience, parsedEducation, standardizedProfile.",
+    "",
+    "Structured candidate JSON:",
+    JSON.stringify(candidate),
+    sourceText
+      ? ["", "Resume text excerpt:", sourceText.slice(0, 14000)].join("\n")
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function enrichWithOpenAi(candidate: ParsedCandidate, sourceText?: string): Promise<ParsedCandidate | null> {
+  const config = getAiClientConfig();
+  if (!config) return null;
+
+  const { client, models, provider } = config;
+  const prompt = buildEnrichmentPrompt(candidate, sourceText);
+  let lastError: Error | null = null;
+
+  for (const model of models) {
+    try {
+      const completion = await client.chat.completions.create({
+        model,
+        messages: [
+          { role: "system", content: "You enrich parsed candidate profiles into recruiter-safe JSON." },
+          { role: "user", content: prompt },
+        ],
+        temperature: 0.1,
+        response_format: { type: "json_object" },
+      });
+
+      const raw = completion.choices[0]?.message?.content ?? "{}";
+      return normalizeParsedCandidate(extractJsonObject(raw), `${provider}:${model}:enrichment`);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.warn(`[CV Enrich] provider=${provider} model=${model} failed: ${lastError.message}`);
+      if (lastError.message.includes("rate") || lastError.message.includes("429")) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    }
+  }
+
+  if (lastError) {
+    console.warn("[CV Enrich] OpenAI-compatible enrichment failed.", lastError.message);
+  }
+
+  return null;
+}
+
+async function enrichWithGemini(candidate: ParsedCandidate, sourceText?: string): Promise<ParsedCandidate | null> {
+  const gemini = getGeminiClient();
+  if (!gemini) return null;
+
+  try {
+    const model = gemini.genAI.getGenerativeModel({ model: gemini.model });
+    const result = await model.generateContent({
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: buildEnrichmentPrompt(candidate, sourceText) }],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.1,
+        responseMimeType: "application/json",
+      },
+    } as any);
+
+    return normalizeParsedCandidate(extractJsonObject(result.response.text()), `gemini:${gemini.model}:enrichment`);
+  } catch (error) {
+    console.warn("[CV Enrich] Gemini enrichment failed.", error);
+    return null;
+  }
+}
+
+async function enrichCandidate(candidate: ParsedCandidate, sourceText?: string): Promise<ParsedCandidate> {
+  const deterministic = buildDeterministicEnrichment(candidate);
+  const enriched = (await enrichWithOpenAi(deterministic, sourceText)) ?? (await enrichWithGemini(deterministic, sourceText));
+  if (!enriched) return deterministic;
+  return buildDeterministicEnrichment(mergeParsedCandidates(enriched, deterministic));
+}
+
+async function finalizeResponse(candidate: ParsedCandidate, extraWarnings: string[] = [], sourceText?: string): Promise<ParsedCandidate> {
   const mergedWarnings = [...candidate.warnings, ...extraWarnings].filter(Boolean);
   const dedupedWarnings = Array.from(new Set(mergedWarnings));
+  const enriched = await enrichCandidate(candidate, sourceText);
   const normalized = {
-    ...candidate,
-    summary: buildProfessionalSummary(candidate) ?? normalizeString(candidate.summary),
+    ...enriched,
+    summary: normalizeString(enriched.summary) ?? buildProfessionalSummary(enriched),
+    executiveHeadline: normalizeString(enriched.executiveHeadline) ?? buildExecutiveHeadline(enriched),
+    professionalSnapshot: normalizeString(enriched.professionalSnapshot) ?? buildProfessionalSnapshot(enriched),
     warnings: dedupedWarnings,
-    standardizedProfile: buildStandardizedProfile(candidate),
+    standardizedProfile: buildStandardizedProfile(enriched),
   };
   normalized.parseStatus = deriveStatus(normalized);
   normalized.parseReviewRequired =
@@ -1041,22 +1564,25 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
       const heuristicCandidate = extractHeuristicCandidate(bodyValidation.data.cvText);
       try {
         if (!directGeminiAvailable) throw new Error("Gemini is not configured.");
-        const parsed = finalizeResponse(
+        const parsed = await finalizeResponse(
           mergeParsedCandidates(await parseWithGeminiText(bodyValidation.data.cvText), heuristicCandidate),
+          [],
+          bodyValidation.data.cvText,
         );
         res.json(parsed);
       } catch (geminiError) {
         console.warn("[CV Parse] Gemini text path failed, using fallback text provider.", geminiError);
         if (textProviderAvailable) {
           res.json(
-            finalizeResponse(
+            await finalizeResponse(
               mergeParsedCandidates(await parseWithOpenAiText(bodyValidation.data.cvText), heuristicCandidate),
               ["A fallback text parser was used for this resume."],
+              bodyValidation.data.cvText,
             ),
           );
           return;
         }
-        res.json(finalizeResponse(heuristicCandidate, ["Resume text heuristics were used because AI parsing is unavailable."]));
+        res.json(await finalizeResponse(heuristicCandidate, ["Resume text heuristics were used because AI parsing is unavailable."], bodyValidation.data.cvText));
       }
       return;
     }
@@ -1099,7 +1625,7 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
           mimeType: req.headers["content-type"] || (kind === "pdf" ? "application/pdf" : "image/jpeg"),
           fileName,
         });
-        res.json(finalizeResponse(parsed));
+        res.json(await finalizeResponse(parsed));
         return;
       } catch (geminiError) {
         console.warn("[CV Parse] Gemini document path failed.", geminiError);
@@ -1121,7 +1647,7 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
 
     if (!extractedText && kind === "image") {
       res.json(
-        finalizeResponse(
+        await finalizeResponse(
           createEmptyParse("image-fallback", "This image CV needs Gemini OCR or manual review."),
           warnings,
         ),
@@ -1131,7 +1657,7 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
 
     if (!extractedText) {
       res.json(
-        finalizeResponse(
+        await finalizeResponse(
           createEmptyParse(null, "The document could not be converted into text automatically."),
           warnings,
         ),
@@ -1144,7 +1670,7 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
     try {
       if (!directGeminiAvailable) throw new Error("Gemini is not configured.");
       const parsed = await parseWithGeminiText(extractedText);
-      res.json(finalizeResponse(mergeParsedCandidates(parsed, heuristicCandidate), warnings));
+      res.json(await finalizeResponse(mergeParsedCandidates(parsed, heuristicCandidate), warnings, extractedText));
       return;
     } catch (geminiTextError) {
       console.warn("[CV Parse] Gemini text fallback failed.", geminiTextError);
@@ -1153,11 +1679,11 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
 
     if (textProviderAvailable) {
       const fallback = await parseWithOpenAiText(extractedText);
-      res.json(finalizeResponse(mergeParsedCandidates(fallback, heuristicCandidate), warnings));
+      res.json(await finalizeResponse(mergeParsedCandidates(fallback, heuristicCandidate), warnings, extractedText));
       return;
     }
 
-    res.json(finalizeResponse(heuristicCandidate, [...warnings, "Resume text heuristics were used because no AI provider is configured."]));
+    res.json(await finalizeResponse(heuristicCandidate, [...warnings, "Resume text heuristics were used because no AI provider is configured."], extractedText));
   } catch (err) {
     console.error("CV parse error:", err);
     Errors.internal(res, "CV parsing failed");

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CreateRoleRequestEmploymentType } from "./createRoleRequestEmploymentType";
+import type { CreateRoleRequestWorkMode } from "./createRoleRequestWorkMode";
 
 export interface CreateRoleRequest {
   title: string;
@@ -15,5 +16,7 @@ export interface CreateRoleRequest {
   salaryMax?: number;
   location?: string;
   employmentType?: CreateRoleRequestEmploymentType;
+  workMode?: CreateRoleRequestWorkMode;
+  otherEmploymentTypeDescription?: string;
   isRemote?: boolean;
 }

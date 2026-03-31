@@ -5,6 +5,8 @@
  * ATS Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { CandidateFieldConfidence } from "./candidateFieldConfidence";
+import type { CandidateLanguageItem } from "./candidateLanguageItem";
 import type { CandidateParsedEducation } from "./candidateParsedEducation";
 import type { CandidateParsedExperience } from "./candidateParsedExperience";
 import type { CandidateParseStatus } from "./candidateParseStatus";
@@ -21,7 +23,7 @@ export interface Candidate {
   status: CandidateStatus;
   roleId: number;
   roleTitle: string;
-  roleStatus?: JobRoleStatus | null;
+  roleStatus: JobRoleStatus | null;
   vendorCompanyId: number;
   vendorCompanyName: string;
   submittedAt: Date;
@@ -41,6 +43,19 @@ export interface Candidate {
   languages?: string | null;
   summary?: string | null;
   standardizedProfile?: string | null;
+  executiveHeadline?: string | null;
+  professionalSnapshot?: string | null;
+  domainFocus?: string[];
+  senioritySignal?: string | null;
+  candidateStrengths?: string[];
+  candidateRisks?: string[];
+  notableAchievements?: string[];
+  inferredWorkModel?: string | null;
+  locationFlexibility?: string | null;
+  salarySignal?: string | null;
+  languageItems?: CandidateLanguageItem[];
+  fieldConfidence?: CandidateFieldConfidence;
+  evidence?: string[];
   parsedSkills: string[];
   parsedExperience: CandidateParsedExperience[];
   parsedEducation: CandidateParsedEducation[];

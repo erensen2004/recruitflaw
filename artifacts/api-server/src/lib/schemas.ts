@@ -12,6 +12,41 @@ const RoleEmploymentTypeSchema = z.enum(["full-time", "part-time", "other"]);
 const LegacyRoleEmploymentTypeSchema = z.enum(["contract", "freelance"]);
 const RoleEmploymentTypeInputSchema = z.union([RoleEmploymentTypeSchema, LegacyRoleEmploymentTypeSchema]);
 const PasswordSchema = z.string().min(8, "Password must be at least 8 characters long").max(200);
+const NullableStringArraySchema = z.array(z.string().max(500)).max(100).nullable().optional();
+const CandidateLanguageItemSchema = z.object({
+  name: z.string().max(100).nullable().optional(),
+  level: z.string().max(100).nullable().optional(),
+  confidence: z.number().int().min(0).max(100).nullable().optional(),
+  source: z.string().max(100).nullable().optional(),
+});
+const CandidateFieldConfidenceSchema = z.object({
+  contact: z.number().int().min(0).max(100).nullable().optional(),
+  experience: z.number().int().min(0).max(100).nullable().optional(),
+  education: z.number().int().min(0).max(100).nullable().optional(),
+  languages: z.number().int().min(0).max(100).nullable().optional(),
+  compensation: z.number().int().min(0).max(100).nullable().optional(),
+  summary: z.number().int().min(0).max(100).nullable().optional(),
+});
+const CandidateParsedExperienceItemSchema = z.object({
+  company: z.string().max(200).nullable().optional(),
+  title: z.string().max(200).nullable().optional(),
+  startDate: z.string().max(50).nullable().optional(),
+  endDate: z.string().max(50).nullable().optional(),
+  highlights: z.array(z.string().max(500)).max(20).nullable().optional(),
+  scope: z.string().max(1000).nullable().optional(),
+  techStack: z.array(z.string().max(200)).max(20).nullable().optional(),
+  impactHighlights: z.array(z.string().max(500)).max(20).nullable().optional(),
+  current: z.boolean().nullable().optional(),
+  seniorityContribution: z.string().max(200).nullable().optional(),
+});
+const CandidateParsedEducationItemSchema = z.object({
+  institution: z.string().max(300).nullable().optional(),
+  degree: z.string().max(300).nullable().optional(),
+  fieldOfStudy: z.string().max(300).nullable().optional(),
+  startDate: z.string().max(50).nullable().optional(),
+  endDate: z.string().max(50).nullable().optional(),
+  confidence: z.number().int().min(0).max(100).nullable().optional(),
+});
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
@@ -54,29 +89,26 @@ export const CreateCandidateSchema = z.object({
   languages: z.string().max(1000).nullable().optional(),
   summary: z.string().max(5000).nullable().optional(),
   standardizedProfile: z.string().max(10000).nullable().optional(),
+  executiveHeadline: z.string().max(500).nullable().optional(),
+  professionalSnapshot: z.string().max(5000).nullable().optional(),
+  domainFocus: NullableStringArraySchema,
+  senioritySignal: z.string().max(200).nullable().optional(),
+  candidateStrengths: NullableStringArraySchema,
+  candidateRisks: NullableStringArraySchema,
+  notableAchievements: NullableStringArraySchema,
+  inferredWorkModel: z.string().max(200).nullable().optional(),
+  locationFlexibility: z.string().max(300).nullable().optional(),
+  salarySignal: z.string().max(300).nullable().optional(),
+  languageItems: z.array(CandidateLanguageItemSchema).max(20).nullable().optional(),
+  fieldConfidence: CandidateFieldConfidenceSchema.nullable().optional(),
+  evidence: NullableStringArraySchema,
   parseStatus: z.enum(["not_started", "processing", "parsed", "partial", "failed"]).optional(),
   parseConfidence: z.number().int().min(0).max(100).nullable().optional(),
   parseReviewRequired: z.boolean().optional(),
   parseProvider: z.string().max(100).nullable().optional(),
   parsedSkills: z.array(z.string().max(200)).max(100).nullable().optional(),
-  parsedExperience: z.array(
-    z.object({
-      company: z.string().max(200).nullable().optional(),
-      title: z.string().max(200).nullable().optional(),
-      startDate: z.string().max(50).nullable().optional(),
-      endDate: z.string().max(50).nullable().optional(),
-      highlights: z.array(z.string().max(500)).max(20).nullable().optional(),
-    }),
-  ).max(50).nullable().optional(),
-  parsedEducation: z.array(
-    z.object({
-      institution: z.string().max(300).nullable().optional(),
-      degree: z.string().max(300).nullable().optional(),
-      fieldOfStudy: z.string().max(300).nullable().optional(),
-      startDate: z.string().max(50).nullable().optional(),
-      endDate: z.string().max(50).nullable().optional(),
-    }),
-  ).max(50).nullable().optional(),
+  parsedExperience: z.array(CandidateParsedExperienceItemSchema).max(50).nullable().optional(),
+  parsedEducation: z.array(CandidateParsedEducationItemSchema).max(50).nullable().optional(),
 });
 
 const CandidateStatusBaseSchema = z.object({
@@ -121,29 +153,26 @@ export const UpdateCandidateSchema = z.object({
   languages: z.string().max(1000).nullable().optional(),
   summary: z.string().max(5000).nullable().optional(),
   standardizedProfile: z.string().max(10000).nullable().optional(),
+  executiveHeadline: z.string().max(500).nullable().optional(),
+  professionalSnapshot: z.string().max(5000).nullable().optional(),
+  domainFocus: NullableStringArraySchema,
+  senioritySignal: z.string().max(200).nullable().optional(),
+  candidateStrengths: NullableStringArraySchema,
+  candidateRisks: NullableStringArraySchema,
+  notableAchievements: NullableStringArraySchema,
+  inferredWorkModel: z.string().max(200).nullable().optional(),
+  locationFlexibility: z.string().max(300).nullable().optional(),
+  salarySignal: z.string().max(300).nullable().optional(),
+  languageItems: z.array(CandidateLanguageItemSchema).max(20).nullable().optional(),
+  fieldConfidence: CandidateFieldConfidenceSchema.nullable().optional(),
+  evidence: NullableStringArraySchema,
   parseStatus: z.enum(["not_started", "processing", "parsed", "partial", "failed"]).optional(),
   parseConfidence: z.number().int().min(0).max(100).nullable().optional(),
   parseReviewRequired: z.boolean().optional(),
   parseProvider: z.string().max(100).nullable().optional(),
   parsedSkills: z.array(z.string().max(200)).max(100).nullable().optional(),
-  parsedExperience: z.array(
-    z.object({
-      company: z.string().max(200).nullable().optional(),
-      title: z.string().max(200).nullable().optional(),
-      startDate: z.string().max(50).nullable().optional(),
-      endDate: z.string().max(50).nullable().optional(),
-      highlights: z.array(z.string().max(500)).max(20).nullable().optional(),
-    }),
-  ).max(50).nullable().optional(),
-  parsedEducation: z.array(
-    z.object({
-      institution: z.string().max(300).nullable().optional(),
-      degree: z.string().max(300).nullable().optional(),
-      fieldOfStudy: z.string().max(300).nullable().optional(),
-      startDate: z.string().max(50).nullable().optional(),
-      endDate: z.string().max(50).nullable().optional(),
-    }),
-  ).max(50).nullable().optional(),
+  parsedExperience: z.array(CandidateParsedExperienceItemSchema).max(50).nullable().optional(),
+  parsedEducation: z.array(CandidateParsedEducationItemSchema).max(50).nullable().optional(),
 });
 
 export const WithdrawCandidateSchema = z.object({
@@ -271,25 +300,22 @@ export const CvParseResponseSchema = z.object({
   languages: z.string().nullable().optional(),
   summary: z.string().nullable().optional(),
   standardizedProfile: z.string().nullable().optional(),
+  executiveHeadline: z.string().nullable().optional(),
+  professionalSnapshot: z.string().nullable().optional(),
+  domainFocus: z.array(z.string()).nullable().optional(),
+  senioritySignal: z.string().nullable().optional(),
+  candidateStrengths: z.array(z.string()).nullable().optional(),
+  candidateRisks: z.array(z.string()).nullable().optional(),
+  notableAchievements: z.array(z.string()).nullable().optional(),
+  inferredWorkModel: z.string().nullable().optional(),
+  locationFlexibility: z.string().nullable().optional(),
+  salarySignal: z.string().nullable().optional(),
+  languageItems: z.array(CandidateLanguageItemSchema).nullable().optional(),
+  fieldConfidence: CandidateFieldConfidenceSchema.nullable().optional(),
+  evidence: z.array(z.string()).nullable().optional(),
   parsedSkills: z.array(z.string()).nullable().optional(),
-  parsedExperience: z.array(
-    z.object({
-      company: z.string().nullable().optional(),
-      title: z.string().nullable().optional(),
-      startDate: z.string().nullable().optional(),
-      endDate: z.string().nullable().optional(),
-      highlights: z.array(z.string()).nullable().optional(),
-    }),
-  ).nullable().optional(),
-  parsedEducation: z.array(
-    z.object({
-      institution: z.string().nullable().optional(),
-      degree: z.string().nullable().optional(),
-      fieldOfStudy: z.string().nullable().optional(),
-      startDate: z.string().nullable().optional(),
-      endDate: z.string().nullable().optional(),
-    }),
-  ).nullable().optional(),
+  parsedExperience: z.array(CandidateParsedExperienceItemSchema).nullable().optional(),
+  parsedEducation: z.array(CandidateParsedEducationItemSchema).nullable().optional(),
   parseConfidence: z.number().int().min(0).max(100).nullable().optional(),
   parseReviewRequired: z.boolean().nullable().optional(),
   parseStatus: z.enum(["not_started", "processing", "parsed", "partial", "failed"]).nullable().optional(),

@@ -5,6 +5,8 @@
  * ATS Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { CandidateFieldConfidence } from "./candidateFieldConfidence";
+import type { CandidateLanguageItem } from "./candidateLanguageItem";
 import type { CandidateParsedEducation } from "./candidateParsedEducation";
 import type { CandidateParsedExperience } from "./candidateParsedExperience";
 import type { SubmitCandidateRequestParseStatus } from "./submitCandidateRequestParseStatus";
@@ -27,6 +29,19 @@ export interface SubmitCandidateRequest {
   languages?: string;
   summary?: string;
   standardizedProfile?: string;
+  executiveHeadline?: string;
+  professionalSnapshot?: string;
+  domainFocus?: string[];
+  senioritySignal?: string;
+  candidateStrengths?: string[];
+  candidateRisks?: string[];
+  notableAchievements?: string[];
+  inferredWorkModel?: string;
+  locationFlexibility?: string;
+  salarySignal?: string;
+  languageItems?: CandidateLanguageItem[];
+  fieldConfidence?: CandidateFieldConfidence;
+  evidence?: string[];
   parseStatus?: SubmitCandidateRequestParseStatus;
   parseConfidence?: number;
   parseReviewRequired?: boolean;

@@ -12,4 +12,9 @@ export interface CandidateParsedExperience {
   startDate?: string | null;
   endDate?: string | null;
   highlights?: string[];
+  scope?: string | null;
+  techStack?: string[];
+  impactHighlights?: string[];
+  current?: boolean | null;
+  seniorityContribution?: string | null;
 }

@@ -854,7 +854,7 @@ components:
           nullable: true
         employmentType:
           type: string
-          enum: [full-time, part-time, contract, freelance]
+          enum: [full-time, part-time, other, contract, freelance]
           nullable: true
         isRemote:
           type: boolean
@@ -901,7 +901,12 @@ components:
           type: string
         employmentType:
           type: string
-          enum: [full-time, part-time, contract, freelance]
+          enum: [full-time, part-time, other, contract, freelance]
+        workMode:
+          type: string
+          enum: [full-office, hybrid, full-remote]
+        otherEmploymentTypeDescription:
+          type: string
         isRemote:
           type: boolean
       required:
@@ -924,7 +929,12 @@ components:
           type: string
         employmentType:
           type: string
-          enum: [full-time, part-time, contract, freelance]
+          enum: [full-time, part-time, other, contract, freelance]
+        workMode:
+          type: string
+          enum: [full-office, hybrid, full-remote]
+        otherEmploymentTypeDescription:
+          type: string
         isRemote:
           type: boolean
 
@@ -956,7 +966,7 @@ components:
           nullable: true
         status:
           type: string
-          enum: [submitted, screening, interview, offer, hired, rejected]
+          enum: [pending_approval, submitted, screening, interview, offer, hired, rejected, withdrawn]
         roleId:
           type: integer
         roleTitle:
@@ -1018,6 +1028,50 @@ components:
         standardizedProfile:
           type: string
           nullable: true
+        executiveHeadline:
+          type: string
+          nullable: true
+        professionalSnapshot:
+          type: string
+          nullable: true
+        domainFocus:
+          type: array
+          items:
+            type: string
+        senioritySignal:
+          type: string
+          nullable: true
+        candidateStrengths:
+          type: array
+          items:
+            type: string
+        candidateRisks:
+          type: array
+          items:
+            type: string
+        notableAchievements:
+          type: array
+          items:
+            type: string
+        inferredWorkModel:
+          type: string
+          nullable: true
+        locationFlexibility:
+          type: string
+          nullable: true
+        salarySignal:
+          type: string
+          nullable: true
+        languageItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/CandidateLanguageItem'
+        fieldConfidence:
+          $ref: '#/components/schemas/CandidateFieldConfidence'
+        evidence:
+          type: array
+          items:
+            type: string
         parsedSkills:
           type: array
           items:
@@ -1071,6 +1125,23 @@ components:
           type: array
           items:
             type: string
+        scope:
+          type: string
+          nullable: true
+        techStack:
+          type: array
+          items:
+            type: string
+        impactHighlights:
+          type: array
+          items:
+            type: string
+        current:
+          type: boolean
+          nullable: true
+        seniorityContribution:
+          type: string
+          nullable: true
 
     CandidateParsedEducation:
       type: object
@@ -1089,6 +1160,47 @@ components:
           nullable: true
         endDate:
           type: string
+          nullable: true
+        confidence:
+          type: integer
+          nullable: true
+
+    CandidateLanguageItem:
+      type: object
+      properties:
+        name:
+          type: string
+          nullable: true
+        level:
+          type: string
+          nullable: true
+        confidence:
+          type: integer
+          nullable: true
+        source:
+          type: string
+          nullable: true
+
+    CandidateFieldConfidence:
+      type: object
+      properties:
+        contact:
+          type: integer
+          nullable: true
+        experience:
+          type: integer
+          nullable: true
+        education:
+          type: integer
+          nullable: true
+        languages:
+          type: integer
+          nullable: true
+        compensation:
+          type: integer
+          nullable: true
+        summary:
+          type: integer
           nullable: true
 
     CandidateStatusHistoryItem:
@@ -1159,6 +1271,44 @@ components:
           type: string
         standardizedProfile:
           type: string
+        executiveHeadline:
+          type: string
+        professionalSnapshot:
+          type: string
+        domainFocus:
+          type: array
+          items:
+            type: string
+        senioritySignal:
+          type: string
+        candidateStrengths:
+          type: array
+          items:
+            type: string
+        candidateRisks:
+          type: array
+          items:
+            type: string
+        notableAchievements:
+          type: array
+          items:
+            type: string
+        inferredWorkModel:
+          type: string
+        locationFlexibility:
+          type: string
+        salarySignal:
+          type: string
+        languageItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/CandidateLanguageItem'
+        fieldConfidence:
+          $ref: '#/components/schemas/CandidateFieldConfidence'
+        evidence:
+          type: array
+          items:
+            type: string
         parseStatus:
           type: string
           enum: [not_started, processing, parsed, partial, failed]

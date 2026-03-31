@@ -1,1 +1,2 @@
-export * from "./generated/api";
+export * as ApiSchemas from "./generated/api";
+export * from "./generated/types";

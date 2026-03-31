@@ -11,8 +11,10 @@ function experienceToLines(experience: CandidateParsedExperience[]) {
   return experience.flatMap((item) => {
     const header = [item.title, item.company].filter(Boolean).join(" @ ");
     const dates = [item.startDate, item.endDate].filter(Boolean).join(" - ");
-    const highlights = item.highlights?.filter(Boolean).map((line) => `• ${line}`) ?? [];
-    return [header, dates, ...highlights].filter(Boolean);
+    const scope = item.scope ? [`Scope: ${item.scope}`] : [];
+    const techStack = item.techStack?.length ? [`Tech stack: ${item.techStack.join(", ")}`] : [];
+    const highlights = (item.impactHighlights?.filter(Boolean) ?? item.highlights?.filter(Boolean) ?? []).map((line) => `• ${line}`);
+    return [header, dates, ...scope, ...techStack, ...highlights].filter(Boolean);
   });
 }
 
@@ -127,23 +129,44 @@ async function buildStandardizedCandidatePdf(candidate: Candidate) {
     y += 34;
   }
 
-  writeBlock("Executive Summary", [
-    brief.fitSummary,
-    candidate.summary || candidate.standardizedProfile || "Admin-normalized summary not available yet.",
+  writeBlock("Executive Headline", [
+    brief.headline,
+  ], { compact: true });
+  writeBlock("Professional Snapshot", [
+    brief.professionalSnapshot,
   ]);
   writeBulletBlock("Top Strengths", brief.strengths, { compact: true });
-  writeBulletBlock("Risk Flags", brief.riskFlags, { compact: true });
-  writeBulletBlock("Normalization Notes", brief.normalizationNotes, { compact: true });
+  writeBulletBlock("Domain Focus", brief.domainFocus, { compact: true });
+  writeBulletBlock("Notable Achievements", brief.notableAchievements, { compact: true });
+  writeBulletBlock("Risk & Ambiguity Notes", brief.riskFlags, { compact: true });
   writeBlock("Key Skills", [candidate.parsedSkills.length ? candidate.parsedSkills.join(", ") : candidate.tags || "Skills not available"], { compact: true });
   writeBlock("Experience", experienceToLines(candidate.parsedExperience));
   writeBlock("Education", educationToLines(candidate.parsedEducation));
   writeBlock("Additional Details", [
     candidate.languages ? `Languages: ${candidate.languages}` : "",
     englishLevel ? `English level: ${englishLevel}` : "",
+    brief.workModel ? `Work model: ${brief.workModel}` : "",
+    brief.locationFlexibility ? `Location: ${brief.locationFlexibility}` : "",
+    brief.salarySignal ? brief.salarySignal : "",
     candidate.yearsExperience != null ? `Years of experience: ${candidate.yearsExperience}` : "",
     candidate.expectedSalary != null ? `Expected salary: ${formatTurkishLira(candidate.expectedSalary)}` : "",
     brief.adminReady ? "Admin-ready: yes" : "Admin-ready: needs review",
   ]);
+
+  if (candidate.fieldConfidence) {
+    writeBlock("Profile Confidence", [
+      [
+        candidate.fieldConfidence.contact != null ? `Contact ${candidate.fieldConfidence.contact}%` : null,
+        candidate.fieldConfidence.experience != null ? `Experience ${candidate.fieldConfidence.experience}%` : null,
+        candidate.fieldConfidence.education != null ? `Education ${candidate.fieldConfidence.education}%` : null,
+        candidate.fieldConfidence.languages != null ? `Languages ${candidate.fieldConfidence.languages}%` : null,
+        candidate.fieldConfidence.compensation != null ? `Compensation ${candidate.fieldConfidence.compensation}%` : null,
+        candidate.fieldConfidence.summary != null ? `Summary ${candidate.fieldConfidence.summary}%` : null,
+      ]
+        .filter(Boolean)
+        .join("  •  "),
+    ], { compact: true });
+  }
 
   return doc;
 }

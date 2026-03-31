@@ -282,6 +282,7 @@ export default function ClientCandidateDetail() {
     [candidate?.tags],
   );
   const cleanSummary = cleanSnapshotText(candidate?.summary);
+  const cleanProfessionalSnapshot = cleanSnapshotText(candidate?.professionalSnapshot);
   const cleanStandardizedProfile = cleanSnapshotText(candidate?.standardizedProfile);
   const cleanLanguages = cleanSnapshotText(candidate?.languages);
   const meaningfulExperience = useMemo(() => (candidate ? getMeaningfulExperience(candidate) : []), [candidate]);
@@ -770,6 +771,22 @@ export default function ClientCandidateDetail() {
                   ) : null}
                 </div>
 
+                {executiveBrief?.headline ? (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Executive headline</p>
+                    <p className="mt-2 text-lg font-semibold text-slate-900">{executiveBrief.headline}</p>
+                    {executiveBrief.domainFocus.length ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {executiveBrief.domainFocus.map((focus) => (
+                          <span key={focus} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200">
+                            {focus}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 {isAdminRoute ? (
                   <div className="grid gap-3 md:grid-cols-3">
                     {adminReviewSignals.map((signal) => (
@@ -783,16 +800,24 @@ export default function ClientCandidateDetail() {
 
                 <div className="mt-5 grid gap-4 xl:grid-cols-[1.15fr,0.85fr]">
                   <div className="rounded-2xl bg-emerald-50/70 p-5">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recruiter-ready summary</p>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Professional snapshot</p>
                     <p className="mt-3 text-sm leading-7 text-slate-800">
-                      {cleanSummary || (isAdminRoute && candidate.parseReviewRequired ? "Awaiting admin approval for the final summary." : "Summary not available yet.")}
+                      {cleanProfessionalSnapshot ||
+                        cleanSummary ||
+                        (isAdminRoute && candidate.parseReviewRequired ? "Awaiting admin approval for the final summary." : "Summary not available yet.")}
                     </p>
                     <div className="mt-4 rounded-2xl border border-white/70 bg-white/80 p-4 text-sm text-slate-600">
                       <p className="font-semibold text-slate-800">Why this matters</p>
                       <p className="mt-1 leading-6">
-                        A strong summary gives the client a fast, polished briefing instead of forcing them to read the raw CV first.
+                        A polished executive snapshot gives the client a fast understanding of the candidate before they ever need to open the raw CV.
                       </p>
                     </div>
+                    {cleanSummary && cleanProfessionalSnapshot && cleanSummary !== cleanProfessionalSnapshot ? (
+                      <div className="mt-4 rounded-2xl border border-white/70 bg-white/80 p-4 text-sm text-slate-700">
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Recruiter-ready summary</p>
+                        <p className="mt-2 leading-6">{cleanSummary}</p>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-5">
@@ -809,6 +834,19 @@ export default function ClientCandidateDetail() {
                       <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Compact export line</p>
                         <p className="mt-2 text-sm leading-6 text-slate-700">{cleanStandardizedProfile}</p>
+                      </div>
+                    ) : null}
+
+                    {executiveBrief?.strengths.length ? (
+                      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Top strengths</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {executiveBrief.strengths.map((strength) => (
+                            <span key={strength} className="rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                              {strength}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     ) : null}
                   </div>
@@ -832,9 +870,19 @@ export default function ClientCandidateDetail() {
                               {[item.startDate, item.endDate].filter(Boolean).join(" - ")}
                             </p>
                           )}
+                          {item.scope ? <p className="mt-2 text-sm leading-6 text-slate-700">{item.scope}</p> : null}
+                          {item.techStack?.length ? (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {item.techStack.map((tech) => (
+                                <span key={tech} className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">
+                                  {tech}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
                           {item.highlights?.length ? (
                             <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-slate-700">
-                              {item.highlights.map((highlight, highlightIndex) => (
+                              {(item.impactHighlights?.length ? item.impactHighlights : item.highlights).map((highlight, highlightIndex) => (
                                 <li key={`${highlight}-${highlightIndex}`}>{highlight}</li>
                               ))}
                             </ul>
@@ -888,11 +936,29 @@ export default function ClientCandidateDetail() {
                   <div className="mt-3 rounded-xl bg-slate-50 p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Languages</p>
                     <p className="mt-1 text-sm text-slate-700">
-                      {cleanLanguages || englishLevel || (isAdminRoute && candidate.parseReviewRequired ? "Language details pending admin review" : "Language details were not included in the final brief")}
+                      {candidate.languageItems?.length
+                        ? candidate.languageItems
+                            .map((item) => [item.name, item.level].filter(Boolean).join(" "))
+                            .filter(Boolean)
+                            .join(", ")
+                        : cleanLanguages || englishLevel || (isAdminRoute && candidate.parseReviewRequired ? "Language details pending admin review" : "Language details were not included in the final brief")}
                     </p>
                   </div>
                 </div>
                 </div>
+
+                {executiveBrief?.notableAchievements.length ? (
+                  <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Notable achievements</p>
+                    <div className="mt-3 grid gap-2">
+                      {executiveBrief.notableAchievements.map((achievement) => (
+                        <p key={achievement} className="rounded-xl bg-white px-3 py-2 text-sm leading-6 text-slate-700 shadow-sm ring-1 ring-slate-200">
+                          {achievement}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
