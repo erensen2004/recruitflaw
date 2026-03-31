@@ -23,7 +23,7 @@ export default function ResetPasswordPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
-  const queryToken = new URLSearchParams(location.split("?")[1] ?? "").get("token");
+  const queryToken = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("token") : null;
   const token = useMemo(() => (queryToken ?? tokenInput.trim()).trim(), [queryToken, tokenInput]);
 
   useEffect(() => {

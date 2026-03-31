@@ -5,11 +5,9 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Search, FileText, Eye, AlertTriangle, Columns3, ArrowUpDown, X } from "lucide-react";
+import { Loader2, Search, FileText, Eye, AlertTriangle, ArrowUpDown } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { getCandidateCompleteness, parseCandidateTags } from "@/lib/candidate-display";
-import { useToast } from "@/hooks/use-toast";
 import { PrivateObjectLink } from "@/components/private-object-link";
 
 function getParseBadge(candidate: { parseStatus: string; parseReviewRequired: boolean }) {
@@ -33,9 +31,7 @@ export default function ClientCandidates() {
   const [sortBy, setSortBy] = useState("recent");
   const [highCompletenessOnly, setHighCompletenessOnly] = useState(false);
   const [adminApprovedOnly, setAdminApprovedOnly] = useState(false);
-  const [selectedCandidateIds, setSelectedCandidateIds] = useState<number[]>([]);
   const deferredSearch = useDeferredValue(search.trim());
-  const { toast } = useToast();
   const { data: roles } = useListRoles();
 
   const { data: candidates, isLoading } = useListCandidates({
@@ -89,43 +85,6 @@ export default function ClientCandidates() {
       }
     });
   }, [adminApprovedOnly, candidates, highCompletenessOnly, sortBy]);
-
-  const selectedCandidates = useMemo(
-    () => (candidates ?? []).filter((candidate) => selectedCandidateIds.includes(candidate.id)).slice(0, 3),
-    [candidates, selectedCandidateIds],
-  );
-
-  const compareCandidates = () => {
-    if (selectedCandidates.length < 2) {
-      toast({
-        title: "Pick at least two candidates",
-        description: "Select 2-3 candidates to open the compare view.",
-      });
-      return;
-    }
-
-    setLocation(`/client/compare?ids=${selectedCandidates.map((candidate) => candidate.id).join(",")}`);
-  };
-
-  const toggleCandidateSelection = (candidateId: number) => {
-    setSelectedCandidateIds((current) => {
-      if (current.includes(candidateId)) {
-        return current.filter((id) => id !== candidateId);
-      }
-
-      if (current.length >= 3) {
-        toast({
-          title: "Compare tray is full",
-          description: "You can compare up to 3 candidates at a time.",
-        });
-        return current;
-      }
-
-      return [...current, candidateId];
-    });
-  };
-
-  const clearSelection = () => setSelectedCandidateIds([]);
 
   return (
     <DashboardLayout allowedRoles={["client"]}>
@@ -255,45 +214,11 @@ export default function ClientCandidates() {
             setSortBy("recent");
             setHighCompletenessOnly(false);
             setAdminApprovedOnly(false);
-            clearSelection();
           }}
         >
           Clear filters
         </Button>
       </div>
-
-      {selectedCandidates.length ? (
-        <div className="mb-5 rounded-2xl border border-sky-200 bg-sky-50/80 p-4 shadow-sm">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-500">Compare tray</p>
-              <p className="mt-1 text-sm leading-6 text-sky-900">Open the side-by-side intelligence view for the selected shortlist.</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {selectedCandidates.map((candidate) => (
-                  <button
-                    key={candidate.id}
-                    type="button"
-                    onClick={() => toggleCandidateSelection(candidate.id)}
-                    className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white px-3 py-1.5 text-xs font-semibold text-sky-800 shadow-sm transition hover:border-sky-300 hover:bg-sky-50"
-                  >
-                    {candidate.firstName} {candidate.lastName}
-                    <X className="h-3 w-3" />
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" className="rounded-full" onClick={clearSelection}>
-                Clear selection
-              </Button>
-              <Button type="button" className="rounded-full gap-2" disabled={selectedCandidates.length < 2} onClick={compareCandidates}>
-                <Columns3 className="h-4 w-4" />
-                Compare selected
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       {!isLoading && candidates?.length ? (
         <p className="mb-6 text-sm text-slate-500">
@@ -315,7 +240,7 @@ export default function ClientCandidates() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-100">
               <tr>
-        {["", "Candidate", "Role", "Company", "Tags", "Status", "CV", ""].map(h => (
+        {["Candidate", "Role", "Company", "Tags", "Status", "CV", ""].map(h => (
                   <th key={h} className="text-left text-xs font-semibold text-slate-500 px-5 py-3">{h}</th>
                 ))}
               </tr>
@@ -325,17 +250,8 @@ export default function ClientCandidates() {
                 const { visibleTags: tags, englishLevel } = parseCandidateTags(c.tags);
                 const parseBadge = getParseBadge(c);
                 const completeness = getCandidateCompleteness(c);
-                const isSelected = selectedCandidateIds.includes(c.id);
                 return (
-                  <tr key={c.id} className={`transition-colors hover:bg-slate-50/50 ${isSelected ? "bg-sky-50/70" : ""}`}>
-                    <td className="px-5 py-4 align-top">
-                      <Checkbox
-                        checked={isSelected}
-                        onCheckedChange={() => toggleCandidateSelection(c.id)}
-                        aria-label={`Select ${c.firstName} ${c.lastName} for comparison`}
-                        className="mt-1"
-                      />
-                    </td>
+                  <tr key={c.id} className="transition-colors hover:bg-slate-50/50">
                     <td className="px-5 py-4">
                       <p className="font-semibold text-slate-900">{c.firstName} {c.lastName}</p>
                       <p className="text-slate-400 text-xs mt-0.5">{c.email}</p>

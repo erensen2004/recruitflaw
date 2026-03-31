@@ -11,9 +11,10 @@ const router = Router();
 const MAX_VERCEL_FILE_BYTES = Number(process.env.MAX_CV_PARSE_BYTES || "4000000");
 
 const DEFAULT_OPENROUTER_MODELS = [
-  "nvidia/nemotron-3-nano-30b-a3b:free",
-  "nvidia/nemotron-3-super-120b-a12b:free",
   "liquid/lfm-2.5-1.2b-instruct:free",
+  "google/gemma-3-27b-it:free",
+  "meta-llama/llama-3.3-70b-instruct:free",
+  "meta-llama/llama-3.2-3b-instruct:free",
 ];
 
 const NULLISH_STRINGS = new Set([
