@@ -9,6 +9,7 @@
     "vercel:prepare-static": "node ./scripts/prepare-vercel-static.mjs",
     "smoke:api": "node ./scripts/api-smoke.mjs",
     "benchmark:cv-models": "pnpm --filter @workspace/scripts exec tsx ./src/benchmark-free-parse-models.ts",
+    "benchmark:real-cvs": "pnpm --filter @workspace/scripts exec tsx ./src/benchmark-real-cv-corpus.ts",
     "db:load-demo": "sh ./scripts/load-demo-data.sh",
     "typecheck:libs": "tsc --build",
     "typecheck:vercel": "tsc -p tsconfig.vercel.json --noEmit",

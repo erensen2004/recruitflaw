@@ -1,0 +1,18 @@
+{
+  "baseUrl": "https://recruitflaw.vercel.app",
+  "vendorAuth": {
+    "email": "vendor@staffingpro.com",
+    "passwordEnv": "SMOKE_VENDOR_PASSWORD"
+  },
+  "files": [
+    {
+      "path": "/absolute/path/to/example-cv.pdf",
+      "languageProfile": "mixed",
+      "notes": "Optional free-form hint for later review"
+    },
+    {
+      "path": "/absolute/path/to/example-cv.docx",
+      "languageProfile": "tr"
+    }
+  ]
+}
