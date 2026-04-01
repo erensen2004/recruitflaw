@@ -1568,7 +1568,7 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; debug
       debug: createExtractionDebug({
         extractionMethod: "pdfreader",
         extractionFallbackUsed: true,
-        extractionFailureClass: classifyExtractionError(primaryError),
+        extractionFailureClass: null,
         sourceTextLength: prepared.sourceTextLength,
         sourceTextTruncated: prepared.sourceTextTruncated,
       }),
