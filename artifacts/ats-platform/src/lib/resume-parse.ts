@@ -63,6 +63,11 @@ export type ParsedCandidateProfile = {
   parseReviewRequired?: boolean;
   parseProvider?: string | null;
   warnings?: string[];
+  extractionMethod?: string | null;
+  extractionFallbackUsed?: boolean;
+  extractionFailureClass?: "runtime" | "timeout" | "empty_text" | "oversized" | "ocr_required" | null;
+  sourceTextLength?: number | null;
+  sourceTextTruncated?: boolean;
 };
 
 type ProgressCallback = (message: string) => void;
@@ -135,7 +140,10 @@ function looksWeak(parsed: ParsedCandidateProfile) {
     confidence < 50 ||
     structuredSections === 0 ||
     identitySignals < 2 ||
+    parsed.extractionFailureClass === "runtime" ||
+    parsed.extractionFailureClass === "timeout" ||
     (parsed.parseReviewRequired && structuredSections < 2) ||
+    (parsed.sourceTextTruncated && structuredSections < 2) ||
     /could not read|could not be converted|no resume content provided|heuristics were used|fallback text parser was used/.test(
       warningText,
     )

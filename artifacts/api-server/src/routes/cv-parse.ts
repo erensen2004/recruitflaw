@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import OpenAI from "openai";
 import mammoth from "mammoth";
+import { PdfReader } from "pdfreader";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole } from "../lib/authz.js";
@@ -9,6 +10,14 @@ import { Errors } from "../lib/errors.js";
 
 const router = Router();
 const MAX_VERCEL_FILE_BYTES = Number(process.env.MAX_CV_PARSE_BYTES || "4000000");
+const MODEL_INPUT_CHAR_LIMIT = Number(process.env.MAX_CV_MODEL_INPUT_CHARS || "22000");
+const ENRICHMENT_SOURCE_CHAR_LIMIT = Number(process.env.MAX_CV_ENRICHMENT_CHARS || "14000");
+const DIRECT_DOCUMENT_TIMEOUT_MS = Number(process.env.CV_DIRECT_DOCUMENT_TIMEOUT_MS || "18000");
+const MODEL_TIMEOUT_MS = Number(process.env.CV_MODEL_TIMEOUT_MS || "30000");
+const ENRICHMENT_TIMEOUT_MS = Number(process.env.CV_ENRICHMENT_TIMEOUT_MS || "18000");
+const MAX_PARSE_SOURCE_TEXT_CHARS = Number(process.env.MAX_CV_PARSE_SOURCE_TEXT_CHARS || "24000");
+const DOCX_EXTRACTION_TIMEOUT_MS = Number(process.env.CV_DOCX_EXTRACTION_TIMEOUT_MS || "12000");
+const PDF_EXTRACTION_TIMEOUT_MS = Number(process.env.CV_PDF_EXTRACTION_TIMEOUT_MS || "12000");
 
 const DEFAULT_OPENROUTER_MODELS = [
   "liquid/lfm-2.5-1.2b-instruct:free",
@@ -78,6 +87,16 @@ type ParsedFieldConfidence = {
   summary: number | null;
 };
 
+type ExtractionFailureClass = "runtime" | "timeout" | "empty_text" | "oversized" | "ocr_required" | null;
+
+type ExtractionDebug = {
+  extractionMethod: string | null;
+  extractionFallbackUsed: boolean;
+  extractionFailureClass: ExtractionFailureClass;
+  sourceTextLength: number | null;
+  sourceTextTruncated: boolean;
+};
+
 type ParsedCandidate = {
   firstName: string | null;
   lastName: string | null;
@@ -113,9 +132,19 @@ type ParsedCandidate = {
   parseStatus: "not_started" | "processing" | "parsed" | "partial" | "failed";
   parseProvider: string | null;
   warnings: string[];
+  extractionMethod: string | null;
+  extractionFallbackUsed: boolean;
+  extractionFailureClass: ExtractionFailureClass;
+  sourceTextLength: number | null;
+  sourceTextTruncated: boolean;
 };
 
 type DocumentKind = "pdf" | "docx" | "image" | "text" | "json" | "unsupported";
+type TextExtractionResult = {
+  text: string;
+  method: "pdf-parse" | "pdfreader" | "mammoth";
+  warnings: string[];
+};
 
 function getConfiguredModels(): string[] {
   const configured =
@@ -293,6 +322,11 @@ function createEmptyParse(provider: string | null, warning: string): ParsedCandi
     parseStatus: "failed",
     parseProvider: provider,
     warnings: [warning],
+    extractionMethod: null,
+    extractionFallbackUsed: false,
+    extractionFailureClass: null,
+    sourceTextLength: null,
+    sourceTextTruncated: false,
   };
 }
 
@@ -321,6 +355,22 @@ function normalizeString(value: unknown): string | null {
   return trimmed;
 }
 
+function clampString(value: string | null, maxLength: number): string | null {
+  if (!value) return null;
+  return value.length > maxLength ? value.slice(0, maxLength).trim() : value;
+}
+
+function clampStringList(values: string[], maxItems: number, maxLength: number): string[] {
+  return dedupeList(values.map((value) => clampString(value, maxLength)).filter((value): value is string => Boolean(value))).slice(0, maxItems);
+}
+
+function normalizeEmail(value: unknown): string | null {
+  const normalized = normalizeString(value);
+  if (!normalized) return null;
+  const match = normalized.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match ? match[0].toLowerCase() : null;
+}
+
 function normalizePhone(value: unknown): string | null {
   const normalized = normalizeString(value);
   if (!normalized) return null;
@@ -332,17 +382,25 @@ function normalizePhone(value: unknown): string | null {
 
 function normalizeStringList(value: unknown): string[] {
   if (Array.isArray(value)) {
-    return value
+    return clampStringList(
+      value
       .map((item) => normalizeString(item))
-      .filter((item): item is string => Boolean(item));
+      .filter((item): item is string => Boolean(item)),
+      100,
+      500,
+    );
   }
 
   const asString = normalizeString(value);
   if (!asString) return [];
-  return asString
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
+  return clampStringList(
+    asString
+      .split(/,|\n|•|·|\|/)
+      .map((item) => item.trim())
+      .filter(Boolean),
+    100,
+    500,
+  );
 }
 
 function normalizeExperience(value: unknown): ParsedExperienceItem[] {
@@ -350,16 +408,16 @@ function normalizeExperience(value: unknown): ParsedExperienceItem[] {
   return value.map((item) => {
     const record = typeof item === "object" && item ? (item as Record<string, unknown>) : {};
     return {
-      company: normalizeString(record.company),
-      title: normalizeString(record.title),
-      startDate: normalizeString(record.startDate),
-      endDate: normalizeString(record.endDate),
-      highlights: normalizeStringList(record.highlights),
-      scope: normalizeString(record.scope),
-      techStack: normalizeStringList(record.techStack),
-      impactHighlights: normalizeStringList(record.impactHighlights),
+      company: clampString(normalizeString(record.company), 200),
+      title: clampString(normalizeString(record.title), 200),
+      startDate: clampString(normalizeString(record.startDate), 50),
+      endDate: clampString(normalizeString(record.endDate), 50),
+      highlights: clampStringList(normalizeStringList(record.highlights), 20, 500),
+      scope: clampString(normalizeString(record.scope), 1000),
+      techStack: clampStringList(normalizeStringList(record.techStack), 20, 200),
+      impactHighlights: clampStringList(normalizeStringList(record.impactHighlights), 20, 500),
       current: typeof record.current === "boolean" ? record.current : null,
-      seniorityContribution: normalizeString(record.seniorityContribution),
+      seniorityContribution: clampString(normalizeString(record.seniorityContribution), 200),
     };
   }).filter((item) => item.company || item.title || item.startDate || item.endDate || item.highlights?.length || item.scope || item.techStack?.length || item.impactHighlights?.length);
 }
@@ -369,11 +427,11 @@ function normalizeEducation(value: unknown): ParsedEducationItem[] {
   return value.map((item) => {
     const record = typeof item === "object" && item ? (item as Record<string, unknown>) : {};
     return {
-      institution: normalizeString(record.institution),
-      degree: normalizeString(record.degree),
-      fieldOfStudy: normalizeString(record.fieldOfStudy),
-      startDate: normalizeString(record.startDate),
-      endDate: normalizeString(record.endDate),
+      institution: clampString(normalizeString(record.institution), 300),
+      degree: clampString(normalizeString(record.degree), 300),
+      fieldOfStudy: clampString(normalizeString(record.fieldOfStudy), 300),
+      startDate: clampString(normalizeString(record.startDate), 50),
+      endDate: clampString(normalizeString(record.endDate), 50),
       confidence: toNumber(record.confidence),
     };
   }).filter((item) => item.institution || item.degree || item.fieldOfStudy || item.startDate || item.endDate || item.confidence != null);
@@ -385,10 +443,10 @@ function normalizeLanguageItems(value: unknown): ParsedLanguageItem[] {
     .map((item) => {
       const record = typeof item === "object" && item ? (item as Record<string, unknown>) : {};
       return {
-        name: normalizeString(record.name),
-        level: normalizeString(record.level),
+        name: clampString(normalizeString(record.name), 100),
+        level: clampString(normalizeString(record.level), 100),
         confidence: toNumber(record.confidence),
-        source: normalizeString(record.source),
+        source: clampString(normalizeString(record.source), 100),
       };
     })
     .filter((item) => item.name || item.level || item.confidence != null || item.source);
@@ -423,6 +481,131 @@ function normalizeWarnings(value: unknown): string[] {
   return value
     .map((item) => normalizeString(item))
     .filter((item): item is string => Boolean(item));
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    promise.finally(() => {
+      if (timer) clearTimeout(timer);
+    }),
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+    }),
+  ]);
+}
+
+function classifyExtractionError(error: unknown): ExtractionFailureClass {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  if (!message) return "runtime";
+  if (message.includes("timed out") || message.includes("aborted")) return "timeout";
+  if (
+    message.includes("dommatrix") ||
+    message.includes("pdfjs") ||
+    message.includes("worker") ||
+    message.includes("module") ||
+    message.includes("runtime")
+  ) {
+    return "runtime";
+  }
+  if (message.includes("no readable text") || message.includes("contains no readable text") || message.includes("converted into text")) {
+    return "empty_text";
+  }
+  if (message.includes("payload exceeds") || message.includes("too large")) return "oversized";
+  if (message.includes("ocr")) return "ocr_required";
+  return "runtime";
+}
+
+function normalizeExtractedText(rawText: string): string {
+  return rawText
+    .replace(/\u0000/g, " ")
+    .replace(/\u00a0/g, " ")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function decodePdfReaderText(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value.replace(/%20/gi, " ");
+  }
+}
+
+function buildPrioritizedSourceText(text: string): { text: string; sourceTextLength: number; sourceTextTruncated: boolean } {
+  const normalized = normalizeExtractedText(text);
+  if (!normalized) {
+    return { text: "", sourceTextLength: 0, sourceTextTruncated: false };
+  }
+
+  if (normalized.length <= MAX_PARSE_SOURCE_TEXT_CHARS) {
+    return {
+      text: normalized,
+      sourceTextLength: normalized.length,
+      sourceTextTruncated: false,
+    };
+  }
+
+  const lines = normalized
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const picked: string[] = [];
+  const seen = new Set<string>();
+  const addLine = (line: string) => {
+    const normalizedLine = line.trim();
+    if (!normalizedLine) return;
+    const key = normalizedLine.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    picked.push(normalizedLine);
+  };
+  const addWindow = (index: number, before: number, after: number) => {
+    for (let pointer = Math.max(0, index - before); pointer <= Math.min(lines.length - 1, index + after); pointer += 1) {
+      addLine(lines[pointer]!);
+    }
+  };
+
+  lines.slice(0, 50).forEach(addLine);
+  lines.forEach((line, index) => {
+    const lowered = line.toLowerCase();
+    if (/@/.test(line) || /\+?\d[\d\s().-]{7,}\d/.test(line) || /linkedin|github|portfolio|www\./i.test(line)) {
+      addWindow(index, 0, 0);
+    }
+    if (ALL_SECTION_HEADINGS.some((heading) => lowered.includes(heading.toLowerCase()))) {
+      addWindow(index, 0, 8);
+    }
+  });
+  lines.slice(-20).forEach(addLine);
+
+  let compactText = picked.join("\n").trim();
+  if (compactText.length < Math.round(MAX_PARSE_SOURCE_TEXT_CHARS * 0.55)) {
+    compactText = [...lines.slice(0, 90), ...picked]
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .filter((line, index, all) => all.findIndex((item) => item.toLowerCase() === line.toLowerCase()) === index)
+      .join("\n")
+      .trim();
+  }
+
+  return {
+    text: compactText.slice(0, MAX_PARSE_SOURCE_TEXT_CHARS).trim(),
+    sourceTextLength: normalized.length,
+    sourceTextTruncated: true,
+  };
+}
+
+function createExtractionDebug(partial?: Partial<ExtractionDebug>): ExtractionDebug {
+  return {
+    extractionMethod: partial?.extractionMethod ?? null,
+    extractionFallbackUsed: partial?.extractionFallbackUsed ?? false,
+    extractionFailureClass: partial?.extractionFailureClass ?? null,
+    sourceTextLength: partial?.sourceTextLength ?? null,
+    sourceTextTruncated: partial?.sourceTextTruncated ?? false,
+  };
 }
 
 function deriveStatus(candidate: ParsedCandidate): ParsedCandidate["parseStatus"] {
@@ -985,6 +1168,42 @@ function getDocumentLines(text: string): string[] {
     .filter(Boolean);
 }
 
+function buildPrioritizedResumeText(text: string, maxChars: number): { text: string; trimmed: boolean } {
+  const normalized = normalizeExtractedText(text);
+  if (normalized.length <= maxChars) {
+    return { text: normalized, trimmed: false };
+  }
+
+  const lines = getDocumentLines(normalized);
+  const topLines = lines.slice(0, 12);
+  const experienceLines = getSectionLines(lines, SECTION_HEADINGS.experience, 18);
+  const skillsLines = getSectionLines(lines, SECTION_HEADINGS.skills, 12);
+  const summaryLines = getSectionLines(lines, SECTION_HEADINGS.summary, 8);
+  const educationLines = getSectionLines(lines, SECTION_HEADINGS.education, 8);
+  const languageLines = getSectionLines(lines, SECTION_HEADINGS.languages, 6);
+  const tailLines = lines.slice(-10);
+
+  const prioritizedLines = dedupeList([
+    ...topLines,
+    ...summaryLines,
+    ...experienceLines,
+    ...skillsLines,
+    ...educationLines,
+    ...languageLines,
+    ...tailLines,
+  ]);
+
+  const prioritized = prioritizedLines.join("\n").trim();
+  if (prioritized.length && prioritized.length <= maxChars) {
+    return { text: prioritized, trimmed: true };
+  }
+
+  return {
+    text: prioritized.slice(0, maxChars).trim() || normalized.slice(0, maxChars).trim(),
+    trimmed: true,
+  };
+}
+
 function getSectionLines(lines: string[], headings: readonly string[], maxLines = 12): string[] {
   const startIndex = lines.findIndex((line) => {
     const normalized = normalizeHeading(line);
@@ -1195,7 +1414,7 @@ function normalizeParsedCandidate(parsed: Record<string, unknown>, provider: str
   const candidate: ParsedCandidate = {
     firstName: normalizeString(parsed.firstName),
     lastName: normalizeString(parsed.lastName),
-    email: normalizeString(parsed.email),
+    email: normalizeEmail(parsed.email),
     phone: normalizePhone(parsed.phone),
     skills: normalizeString(parsed.skills) ?? (parsedSkills.length ? parsedSkills.join(", ") : null),
     expectedSalary: toNumber(parsed.expectedSalary),
@@ -1230,6 +1449,14 @@ function normalizeParsedCandidate(parsed: Record<string, unknown>, provider: str
     parseStatus: "partial",
     parseProvider: provider,
     warnings: normalizeWarnings(parsed.warnings),
+    extractionMethod: normalizeString(parsed.extractionMethod),
+    extractionFallbackUsed: typeof parsed.extractionFallbackUsed === "boolean" ? parsed.extractionFallbackUsed : false,
+    extractionFailureClass:
+      normalizeString(parsed.extractionFailureClass) && ["runtime", "timeout", "empty_text", "oversized", "ocr_required"].includes(String(parsed.extractionFailureClass))
+        ? (parsed.extractionFailureClass as ExtractionFailureClass)
+        : null,
+    sourceTextLength: toNumber(parsed.sourceTextLength),
+    sourceTextTruncated: typeof parsed.sourceTextTruncated === "boolean" ? parsed.sourceTextTruncated : false,
   };
 
   if (candidate.parseConfidence == null) {
@@ -1253,7 +1480,7 @@ function normalizeParsedCandidate(parsed: Record<string, unknown>, provider: str
   return candidate;
 }
 
-async function extractTextFromPdf(buffer: Buffer): Promise<string> {
+async function extractTextFromPdfPrimary(buffer: Buffer): Promise<string> {
   const pdfParseModule = (await import("pdf-parse")) as unknown as {
     PDFParse?: new (options: { data: Buffer }) => {
       getText: () => Promise<{ text?: string }>;
@@ -1276,13 +1503,106 @@ async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   return text;
 }
 
-async function extractTextFromDocx(buffer: Buffer): Promise<string> {
-  const result = await mammoth.extractRawText({ buffer });
-  const text = result.value.trim();
+async function extractTextFromPdfFallback(buffer: Buffer): Promise<string> {
+  const pageLines = new Map<string, Array<{ x: number; text: string }>>();
+
+  await new Promise<void>((resolve, reject) => {
+    new PdfReader().parseBuffer(buffer, (error, item) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      if (!item) {
+        resolve();
+        return;
+      }
+      if (!item.text) return;
+
+      const page = item.page || 1;
+      const roundedY = Math.round(item.y * 100) / 100;
+      const key = `${page}:${roundedY}`;
+      const existing = pageLines.get(key) ?? [];
+        existing.push({ x: item.x, text: decodePdfReaderText(item.text) });
+      pageLines.set(key, existing);
+    });
+  });
+
+  const normalized = normalizeExtractedText(
+    [...pageLines.entries()]
+      .sort((left, right) => left[0].localeCompare(right[0], undefined, { numeric: true }))
+      .map(([, items]) => items.sort((left, right) => left.x - right.x).map((item) => item.text).join(""))
+      .join("\n"),
+  );
+  if (!normalized) {
+    throw new Error("PDF contains no readable text");
+  }
+  return normalized;
+}
+
+async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; debug: ExtractionDebug }> {
+  let primaryError: unknown = null;
+
+  try {
+    const text = await withTimeout(extractTextFromPdfPrimary(buffer), PDF_EXTRACTION_TIMEOUT_MS, "Primary PDF extraction");
+    const prepared = buildPrioritizedSourceText(text);
+    return {
+      text: prepared.text,
+      debug: createExtractionDebug({
+        extractionMethod: "pdf-parse",
+        extractionFallbackUsed: false,
+        extractionFailureClass: null,
+        sourceTextLength: prepared.sourceTextLength,
+        sourceTextTruncated: prepared.sourceTextTruncated,
+      }),
+    };
+  } catch (error) {
+    primaryError = error;
+    console.warn("[CV Parse] Primary PDF extraction failed, trying fallback extractor.", error);
+  }
+
+  try {
+    const text = await withTimeout(extractTextFromPdfFallback(buffer), PDF_EXTRACTION_TIMEOUT_MS, "Fallback PDF extraction");
+    const prepared = buildPrioritizedSourceText(text);
+    return {
+      text: prepared.text,
+      debug: createExtractionDebug({
+        extractionMethod: "pdfreader",
+        extractionFallbackUsed: true,
+        extractionFailureClass: classifyExtractionError(primaryError),
+        sourceTextLength: prepared.sourceTextLength,
+        sourceTextTruncated: prepared.sourceTextTruncated,
+      }),
+    };
+  } catch (fallbackError) {
+    const primaryMessage = primaryError instanceof Error ? primaryError.message : String(primaryError || "");
+    const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+    const combinedError = new Error(
+      [primaryMessage && `primary=${primaryMessage}`, fallbackMessage && `fallback=${fallbackMessage}`]
+        .filter(Boolean)
+        .join(" | ") || "PDF extraction failed",
+    );
+    (combinedError as Error & { failureClass?: ExtractionFailureClass }).failureClass = classifyExtractionError(fallbackError || primaryError);
+    throw combinedError;
+  }
+}
+
+async function extractTextFromDocx(buffer: Buffer): Promise<{ text: string; debug: ExtractionDebug }> {
+  const result = await withTimeout(mammoth.extractRawText({ buffer }), DOCX_EXTRACTION_TIMEOUT_MS, "DOCX extraction");
+  const text = normalizeExtractedText(result.value);
   if (!text) {
     throw new Error("DOCX contains no readable text");
   }
-  return text;
+  const prepared = buildPrioritizedSourceText(text);
+  return {
+    text: prepared.text,
+    debug: createExtractionDebug({
+      extractionMethod: "mammoth",
+      extractionFallbackUsed: false,
+      extractionFailureClass: null,
+      sourceTextLength: prepared.sourceTextLength,
+      sourceTextTruncated: prepared.sourceTextTruncated,
+    }),
+  };
 }
 
 async function readBinaryBody(req: Request, maxBytes: number): Promise<Buffer> {
@@ -1314,26 +1634,31 @@ async function parseWithOpenAiText(cvText: string): Promise<ParsedCandidate> {
 
   const { client, models, provider } = config;
   const systemPrompt = buildUniversalPrompt();
+  const preparedText = buildPrioritizedSourceText(cvText).text;
   let lastError: Error | null = null;
 
   for (const model of models) {
     try {
-      const completion = await client.chat.completions.create({
-        model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: [
-              "Normalize the following resume text into the requested JSON.",
-              "",
-              cvText.slice(0, 22000),
-            ].join("\n"),
-          },
-        ],
-        temperature: 0.1,
-        response_format: { type: "json_object" },
-      });
+      const completion = await withTimeout(
+        client.chat.completions.create({
+          model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            {
+              role: "user",
+              content: [
+                "Normalize the following resume text into the requested JSON.",
+                "",
+                preparedText.slice(0, MODEL_INPUT_CHAR_LIMIT),
+              ].join("\n"),
+            },
+          ],
+          temperature: 0.1,
+          response_format: { type: "json_object" },
+        }),
+        MODEL_TIMEOUT_MS,
+        `Parse model ${provider}:${model}`,
+      );
 
       const raw = completion.choices[0]?.message?.content ?? "{}";
       return normalizeParsedCandidate(extractJsonObject(raw), provider);
@@ -1370,26 +1695,30 @@ async function parseWithGeminiDocument(params: {
     .filter(Boolean)
     .join("\n");
 
-  const result = await model.generateContent({
-    contents: [
-      {
-        role: "user",
-        parts: [
-          { text: prompt },
-          {
-            inlineData: {
-              mimeType: params.mimeType,
-              data: params.buffer.toString("base64"),
+  const result = await withTimeout(
+    model.generateContent({
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType: params.mimeType,
+                data: params.buffer.toString("base64"),
+              },
             },
-          },
-        ],
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.1,
+        responseMimeType: "application/json",
       },
-    ],
-    generationConfig: {
-      temperature: 0.1,
-      responseMimeType: "application/json",
-    },
-  } as any);
+    } as any),
+    DIRECT_DOCUMENT_TIMEOUT_MS,
+    `Gemini document parse ${gemini.model}`,
+  );
 
   const raw = result.response.text();
   return normalizeParsedCandidate(extractJsonObject(raw), `gemini:${gemini.model}`);
@@ -1402,27 +1731,41 @@ async function parseWithGeminiText(cvText: string): Promise<ParsedCandidate> {
   }
 
   const model = gemini.genAI.getGenerativeModel({ model: gemini.model });
-  const result = await model.generateContent({
-    contents: [
-      {
-        role: "user",
-        parts: [
-          {
-            text: [buildUniversalPrompt(), "", cvText.slice(0, 24000)].join("\n"),
-          },
-        ],
+  const preparedText = buildPrioritizedSourceText(cvText).text;
+  const result = await withTimeout(
+    model.generateContent({
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: [buildUniversalPrompt(), "", preparedText.slice(0, MODEL_INPUT_CHAR_LIMIT)].join("\n"),
+            },
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.1,
+        responseMimeType: "application/json",
       },
-    ],
-    generationConfig: {
-      temperature: 0.1,
-      responseMimeType: "application/json",
-    },
-  } as any);
+    } as any),
+    MODEL_TIMEOUT_MS,
+    `Gemini text parse ${gemini.model}`,
+  );
 
   return normalizeParsedCandidate(extractJsonObject(result.response.text()), `gemini:${gemini.model}`);
 }
 
 function buildEnrichmentPrompt(candidate: ParsedCandidate, sourceText?: string) {
+  const preparedSource = sourceText ? buildPrioritizedSourceText(sourceText).text.slice(0, ENRICHMENT_SOURCE_CHAR_LIMIT) : null;
+  const candidateForEnrichment = {
+    ...candidate,
+    extractionMethod: undefined,
+    extractionFallbackUsed: undefined,
+    extractionFailureClass: undefined,
+    sourceTextLength: undefined,
+    sourceTextTruncated: undefined,
+  };
   return [
     "You are enriching a structured candidate profile for a recruiter-facing briefing.",
     "Use only the evidence in the structured JSON and optional resume text. Never invent employers, dates, projects, skills, or education.",
@@ -1441,9 +1784,9 @@ function buildEnrichmentPrompt(candidate: ParsedCandidate, sourceText?: string) 
     "Required JSON keys: summary, executiveHeadline, professionalSnapshot, domainFocus, senioritySignal, candidateStrengths, candidateRisks, notableAchievements, inferredWorkModel, locationFlexibility, salarySignal, languageItems, fieldConfidence, evidence, parsedExperience, parsedEducation, standardizedProfile.",
     "",
     "Structured candidate JSON:",
-    JSON.stringify(candidate),
-    sourceText
-      ? ["", "Resume text excerpt:", sourceText.slice(0, 14000)].join("\n")
+    JSON.stringify(candidateForEnrichment),
+    preparedSource
+      ? ["", "Resume text excerpt:", preparedSource].join("\n")
       : "",
   ]
     .filter(Boolean)
@@ -1460,15 +1803,19 @@ async function enrichWithOpenAi(candidate: ParsedCandidate, sourceText?: string)
 
   for (const model of models) {
     try {
-      const completion = await client.chat.completions.create({
-        model,
-        messages: [
-          { role: "system", content: "You enrich parsed candidate profiles into recruiter-safe JSON." },
-          { role: "user", content: prompt },
-        ],
-        temperature: 0.1,
-        response_format: { type: "json_object" },
-      });
+      const completion = await withTimeout(
+        client.chat.completions.create({
+          model,
+          messages: [
+            { role: "system", content: "You enrich parsed candidate profiles into recruiter-safe JSON." },
+            { role: "user", content: prompt },
+          ],
+          temperature: 0.1,
+          response_format: { type: "json_object" },
+        }),
+        ENRICHMENT_TIMEOUT_MS,
+        `Enrichment model ${provider}:${model}`,
+      );
 
       const raw = completion.choices[0]?.message?.content ?? "{}";
       return normalizeParsedCandidate(extractJsonObject(raw), `${provider}:${model}:enrichment`);
@@ -1494,18 +1841,22 @@ async function enrichWithGemini(candidate: ParsedCandidate, sourceText?: string)
 
   try {
     const model = gemini.genAI.getGenerativeModel({ model: gemini.model });
-    const result = await model.generateContent({
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: buildEnrichmentPrompt(candidate, sourceText) }],
+    const result = await withTimeout(
+      model.generateContent({
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: buildEnrichmentPrompt(candidate, sourceText) }],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType: "application/json",
         },
-      ],
-      generationConfig: {
-        temperature: 0.1,
-        responseMimeType: "application/json",
-      },
-    } as any);
+      } as any),
+      ENRICHMENT_TIMEOUT_MS,
+      `Gemini enrichment ${gemini.model}`,
+    );
 
     return normalizeParsedCandidate(extractJsonObject(result.response.text()), `gemini:${gemini.model}:enrichment`);
   } catch (error) {
@@ -1521,10 +1872,24 @@ async function enrichCandidate(candidate: ParsedCandidate, sourceText?: string):
   return buildDeterministicEnrichment(mergeParsedCandidates(enriched, deterministic));
 }
 
-async function finalizeResponse(candidate: ParsedCandidate, extraWarnings: string[] = [], sourceText?: string): Promise<ParsedCandidate> {
+async function finalizeResponse(
+  candidate: ParsedCandidate,
+  extraWarnings: string[] = [],
+  sourceText?: string,
+  extractionDebug: ExtractionDebug = createExtractionDebug(),
+): Promise<ParsedCandidate> {
   const mergedWarnings = [...candidate.warnings, ...extraWarnings].filter(Boolean);
+  let enriched = buildDeterministicEnrichment(candidate);
+
+  try {
+    enriched = await withTimeout(enrichCandidate(candidate, sourceText), ENRICHMENT_TIMEOUT_MS, "Candidate enrichment");
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.warn("[CV Parse] Enrichment timed out, returning deterministic briefing.", errorMessage);
+    mergedWarnings.push("AI enrichment timed out, so a deterministic recruiter brief was used.");
+  }
+
   const dedupedWarnings = Array.from(new Set(mergedWarnings));
-  const enriched = await enrichCandidate(candidate, sourceText);
   const normalized = {
     ...enriched,
     summary: normalizeString(enriched.summary) ?? buildProfessionalSummary(enriched),
@@ -1532,6 +1897,11 @@ async function finalizeResponse(candidate: ParsedCandidate, extraWarnings: strin
     professionalSnapshot: normalizeString(enriched.professionalSnapshot) ?? buildProfessionalSnapshot(enriched),
     warnings: dedupedWarnings,
     standardizedProfile: buildStandardizedProfile(enriched),
+    extractionMethod: extractionDebug.extractionMethod,
+    extractionFallbackUsed: extractionDebug.extractionFallbackUsed,
+    extractionFailureClass: extractionDebug.extractionFailureClass,
+    sourceTextLength: extractionDebug.sourceTextLength,
+    sourceTextTruncated: extractionDebug.sourceTextTruncated,
   };
   normalized.parseStatus = deriveStatus(normalized);
   normalized.parseReviewRequired =
@@ -1541,10 +1911,60 @@ async function finalizeResponse(candidate: ParsedCandidate, extraWarnings: strin
 
   const validated = CvParseResponseSchema.safeParse(normalized);
   if (!validated.success) {
+    console.warn("[CV Parse] Normalized response validation issues.", validated.error.flatten());
     throw new Error("Normalized CV parse response failed validation");
   }
 
   return validated.data as ParsedCandidate;
+}
+
+async function safeFinalizeResponse(
+  candidate: ParsedCandidate,
+  extraWarnings: string[] = [],
+  sourceText?: string,
+  extractionDebug: ExtractionDebug = createExtractionDebug(),
+): Promise<ParsedCandidate> {
+  try {
+    return await finalizeResponse(candidate, extraWarnings, sourceText, extractionDebug);
+  } catch (error) {
+    console.error("[CV Parse] Final response normalization failed, returning deterministic fallback.", error);
+    const fallbackWarnings = Array.from(
+      new Set([
+        ...candidate.warnings,
+        ...extraWarnings,
+        "Partial structured output was returned because final normalization hit a server-side issue.",
+      ].filter(Boolean)),
+    );
+    const deterministic = buildDeterministicEnrichment(candidate);
+    const normalized = {
+      ...deterministic,
+      summary: normalizeString(deterministic.summary) ?? buildProfessionalSummary(deterministic),
+      executiveHeadline: normalizeString(deterministic.executiveHeadline) ?? buildExecutiveHeadline(deterministic),
+      professionalSnapshot: normalizeString(deterministic.professionalSnapshot) ?? buildProfessionalSnapshot(deterministic),
+      warnings: fallbackWarnings,
+      standardizedProfile: buildStandardizedProfile(deterministic),
+      extractionMethod: extractionDebug.extractionMethod,
+      extractionFallbackUsed: extractionDebug.extractionFallbackUsed,
+      extractionFailureClass: extractionDebug.extractionFailureClass,
+      sourceTextLength: extractionDebug.sourceTextLength,
+      sourceTextTruncated: extractionDebug.sourceTextTruncated,
+      parseReviewRequired: true,
+    };
+    normalized.parseStatus = deriveStatus(normalized);
+    const validated = CvParseResponseSchema.safeParse(normalized);
+    if (validated.success) {
+      return validated.data as ParsedCandidate;
+    }
+
+    const empty = createEmptyParse(candidate.parseProvider, "CV parsing returned a partial result that still needs manual review.");
+    empty.warnings = fallbackWarnings;
+    empty.extractionMethod = extractionDebug.extractionMethod;
+    empty.extractionFallbackUsed = extractionDebug.extractionFallbackUsed;
+    empty.extractionFailureClass = extractionDebug.extractionFailureClass;
+    empty.sourceTextLength = extractionDebug.sourceTextLength;
+    empty.sourceTextTruncated = extractionDebug.sourceTextTruncated;
+    return empty;
+  }
 }
 
 router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: Response) => {
@@ -1561,28 +1981,48 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
         return;
       }
 
-      const heuristicCandidate = extractHeuristicCandidate(bodyValidation.data.cvText);
+      const preparedSource = buildPrioritizedSourceText(bodyValidation.data.cvText);
+      const heuristicCandidate = extractHeuristicCandidate(preparedSource.text);
+      const extractionDebug = createExtractionDebug({
+        extractionMethod: "json-text",
+        extractionFallbackUsed: false,
+        extractionFailureClass: null,
+        sourceTextLength: preparedSource.sourceTextLength,
+        sourceTextTruncated: preparedSource.sourceTextTruncated,
+      });
+      const inputWarnings = preparedSource.sourceTextTruncated
+        ? ["Large resume text was trimmed to keep parsing responsive."]
+        : [];
       try {
         if (!directGeminiAvailable) throw new Error("Gemini is not configured.");
-        const parsed = await finalizeResponse(
-          mergeParsedCandidates(await parseWithGeminiText(bodyValidation.data.cvText), heuristicCandidate),
-          [],
-          bodyValidation.data.cvText,
+        const parsed = await safeFinalizeResponse(
+          mergeParsedCandidates(await parseWithGeminiText(preparedSource.text), heuristicCandidate),
+          inputWarnings,
+          preparedSource.text,
+          extractionDebug,
         );
         res.json(parsed);
       } catch (geminiError) {
         console.warn("[CV Parse] Gemini text path failed, using fallback text provider.", geminiError);
         if (textProviderAvailable) {
           res.json(
-            await finalizeResponse(
-              mergeParsedCandidates(await parseWithOpenAiText(bodyValidation.data.cvText), heuristicCandidate),
-              ["A fallback text parser was used for this resume."],
-              bodyValidation.data.cvText,
+            await safeFinalizeResponse(
+              mergeParsedCandidates(await parseWithOpenAiText(preparedSource.text), heuristicCandidate),
+              [...inputWarnings, "A fallback text parser was used for this resume."],
+              preparedSource.text,
+              extractionDebug,
             ),
           );
           return;
         }
-        res.json(await finalizeResponse(heuristicCandidate, ["Resume text heuristics were used because AI parsing is unavailable."], bodyValidation.data.cvText));
+        res.json(
+          await safeFinalizeResponse(
+            heuristicCandidate,
+            [...inputWarnings, "Resume text heuristics were used because AI parsing is unavailable."],
+            preparedSource.text,
+            extractionDebug,
+          ),
+        );
       }
       return;
     }
@@ -1616,6 +2056,8 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
     }
 
     const warnings: string[] = [];
+    let extractionDebug = createExtractionDebug();
+    let directDocumentReadFailed = false;
 
     if (kind === "pdf" || kind === "image") {
       try {
@@ -1625,41 +2067,61 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
           mimeType: req.headers["content-type"] || (kind === "pdf" ? "application/pdf" : "image/jpeg"),
           fileName,
         });
-        res.json(await finalizeResponse(parsed));
+        res.json(await safeFinalizeResponse(parsed));
         return;
       } catch (geminiError) {
         console.warn("[CV Parse] Gemini document path failed.", geminiError);
-        warnings.push("The server could not read this resume directly.");
+        directDocumentReadFailed = true;
       }
     }
 
     let extractedText = "";
     try {
       if (kind === "pdf") {
-        extractedText = await extractTextFromPdf(buffer);
+        const pdfExtraction = await extractTextFromPdf(buffer);
+        extractedText = pdfExtraction.text;
+        extractionDebug = pdfExtraction.debug;
       } else if (kind === "docx") {
-        extractedText = await extractTextFromDocx(buffer);
+        const docxExtraction = await extractTextFromDocx(buffer);
+        extractedText = docxExtraction.text;
+        extractionDebug = docxExtraction.debug;
       }
     } catch (extractError) {
       const message = extractError instanceof Error ? extractError.message : "Unknown extraction error";
-      warnings.push(message);
+      extractionDebug = createExtractionDebug({
+        extractionFailureClass:
+          (extractError as Error & { failureClass?: ExtractionFailureClass })?.failureClass ?? classifyExtractionError(extractError),
+      });
+      console.warn("[CV Parse] Text extraction failed.", message);
+    }
+
+    if (extractionDebug.extractionFallbackUsed) {
+      warnings.push("A resilient document extraction fallback was used for this resume.");
+    }
+    if (extractionDebug.sourceTextTruncated) {
+      warnings.push("Large resume text was trimmed to keep parsing responsive.");
     }
 
     if (!extractedText && kind === "image") {
       res.json(
-        await finalizeResponse(
+        await safeFinalizeResponse(
           createEmptyParse("image-fallback", "This image CV needs Gemini OCR or manual review."),
           warnings,
+          undefined,
+          extractionDebug,
         ),
       );
       return;
     }
 
     if (!extractedText) {
+      const failureWarnings = directDocumentReadFailed ? ["The server could not read this resume directly."] : [];
       res.json(
-        await finalizeResponse(
+        await safeFinalizeResponse(
           createEmptyParse(null, "The document could not be converted into text automatically."),
-          warnings,
+          [...warnings, ...failureWarnings],
+          undefined,
+          extractionDebug,
         ),
       );
       return;
@@ -1670,7 +2132,7 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
     try {
       if (!directGeminiAvailable) throw new Error("Gemini is not configured.");
       const parsed = await parseWithGeminiText(extractedText);
-      res.json(await finalizeResponse(mergeParsedCandidates(parsed, heuristicCandidate), warnings, extractedText));
+      res.json(await safeFinalizeResponse(mergeParsedCandidates(parsed, heuristicCandidate), warnings, extractedText, extractionDebug));
       return;
     } catch (geminiTextError) {
       console.warn("[CV Parse] Gemini text fallback failed.", geminiTextError);
@@ -1679,11 +2141,18 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
 
     if (textProviderAvailable) {
       const fallback = await parseWithOpenAiText(extractedText);
-      res.json(await finalizeResponse(mergeParsedCandidates(fallback, heuristicCandidate), warnings, extractedText));
+      res.json(await safeFinalizeResponse(mergeParsedCandidates(fallback, heuristicCandidate), warnings, extractedText, extractionDebug));
       return;
     }
 
-    res.json(await finalizeResponse(heuristicCandidate, [...warnings, "Resume text heuristics were used because no AI provider is configured."], extractedText));
+    res.json(
+      await safeFinalizeResponse(
+        heuristicCandidate,
+        [...warnings, "Resume text heuristics were used because no AI provider is configured."],
+        extractedText,
+        extractionDebug,
+      ),
+    );
   } catch (err) {
     console.error("CV parse error:", err);
     Errors.internal(res, "CV parsing failed");

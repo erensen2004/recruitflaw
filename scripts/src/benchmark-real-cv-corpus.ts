@@ -84,6 +84,11 @@ type ParseResponse = {
   parseStatus?: string | null;
   parseProvider?: string | null;
   warnings?: string[] | null;
+  extractionMethod?: string | null;
+  extractionFallbackUsed?: boolean | null;
+  extractionFailureClass?: "runtime" | "timeout" | "empty_text" | "oversized" | "ocr_required" | null;
+  sourceTextLength?: number | null;
+  sourceTextTruncated?: boolean | null;
 };
 
 type MetricKey =
@@ -131,6 +136,13 @@ type FileBenchmarkResult = {
   weakZones: string[];
   hallucinationRisk: "low" | "medium" | "high";
   structuredThinFlags: string[];
+  extractionDebug: {
+    method: string | null;
+    fallbackUsed: boolean;
+    failureClass: ParseResponse["extractionFailureClass"];
+    sourceTextLength: number | null;
+    sourceTextTruncated: boolean;
+  };
   output: Pick<
     ParseResponse,
     | "firstName"
@@ -165,6 +177,7 @@ type AggregateReport = {
   };
   recurringWeakZones: Array<{ zone: string; count: number }>;
   recurringStructuredThinFlags: Array<{ flag: string; count: number }>;
+  recurringExtractionFailures: Array<{ failureClass: string; count: number }>;
   recurringWarnings: Array<{ warning: string; count: number }>;
   formatBreakdown: Array<{
     format: string;
@@ -190,7 +203,7 @@ const DEFAULT_VENDOR_PASSWORD = process.env.SMOKE_VENDOR_PASSWORD || "vendor123"
 const DEFAULT_CORPUS_PATH = path.resolve(WORKSPACE_ROOT, ".local/recruitflow-real-cv-corpus.json");
 const REPORTS_DIR = path.resolve(WORKSPACE_ROOT, ".local/benchmark-reports");
 const REQUEST_TIMEOUT_MS = 90_000;
-const TEXT_FALLBACK_CHAR_LIMIT = 32_000;
+const TEXT_FALLBACK_CHAR_LIMIT = 40_000;
 const TURKISH_CITY_HINTS = [
   "istanbul",
   "ankara",
@@ -717,6 +730,8 @@ function buildStructuredThinFlags(parse: ParseResponse, metadata: FileMetadata, 
   const flags: string[] = [];
   if (metadata.extractionQuality === "thin" || metadata.extractionQuality === "failed") flags.push("text extraction is thin");
   if (metadata.ocrRisk !== "low") flags.push(`ocr risk is ${metadata.ocrRisk}`);
+  if (parse.extractionFailureClass) flags.push(`server extraction failure class: ${parse.extractionFailureClass}`);
+  if (parse.sourceTextTruncated) flags.push("server extraction truncated the source text");
   if ((parse.parsedExperience?.length ?? 0) === 0) flags.push("experience structure missing");
   if ((parse.parsedEducation?.length ?? 0) === 0) flags.push("education structure missing");
   if ((parse.languageItems?.length ?? 0) === 0 && !parse.languages) flags.push("language structure missing");
@@ -764,6 +779,17 @@ function aggregateStructuredThinFlags(files: FileBenchmarkResult[]) {
     .sort((left, right) => right.count - left.count);
 }
 
+function aggregateExtractionFailures(files: FileBenchmarkResult[]) {
+  const counts = new Map<string, number>();
+  for (const file of files) {
+    if (!file.extractionDebug.failureClass) continue;
+    counts.set(file.extractionDebug.failureClass, (counts.get(file.extractionDebug.failureClass) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([failureClass, count]) => ({ failureClass, count }))
+    .sort((left, right) => right.count - left.count);
+}
+
 function aggregateWarnings(files: FileBenchmarkResult[]) {
   const counts = new Map<string, number>();
   for (const file of files) {
@@ -799,6 +825,7 @@ function buildTuningBacklog(files: FileBenchmarkResult[]): AggregateReport["tuni
   const weakZones = aggregateWeakZones(files);
   const flags = aggregateStructuredThinFlags(files);
   const warnings = aggregateWarnings(files);
+  const extractionFailures = aggregateExtractionFailures(files);
   const backlog: AggregateReport["tuningBacklog"] = [];
 
   const hasExperienceIssue = weakZones.some((item) => item.zone === "experience");
@@ -806,8 +833,8 @@ function buildTuningBacklog(files: FileBenchmarkResult[]): AggregateReport["tuni
   const hasLanguageIssue = weakZones.some((item) => item.zone === "language");
   const hasEducationIssue = weakZones.some((item) => item.zone === "education");
   const hasExtractionIssue = flags.some((item) => item.flag.includes("text extraction") || item.flag.includes("ocr risk"));
-  const hasPdfRuntimeIssue = warnings.some((item) => item.warning.includes("DOMMatrix is not defined"));
-  const hasTimeoutIssue = warnings.some((item) => item.warning.includes("aborted due to timeout"));
+  const hasPdfRuntimeIssue = extractionFailures.some((item) => item.failureClass === "runtime");
+  const hasTimeoutIssue = extractionFailures.some((item) => item.failureClass === "timeout");
 
   if (hasPdfRuntimeIssue) {
     backlog.push({
@@ -885,17 +912,18 @@ function buildLiquidVerdict(files: FileBenchmarkResult[]) {
     files.reduce((sum, file) => sum + file.totalScore, 0) / Math.max(files.length, 1);
   const highRiskCount = files.filter((file) => file.hallucinationRisk === "high").length;
   const needsReviewCount = files.filter((file) => file.classification !== "good").length;
-  const extractionFailures = files.filter(
-    (file) =>
-      file.warnings.some((warning) => warning.includes("DOMMatrix is not defined")) ||
-      file.warnings.some((warning) => warning.includes("aborted due to timeout")),
-  ).length;
+  const blockingExtractionFailures = files.filter((file) => {
+    const failureClass = file.extractionDebug.failureClass;
+    if (failureClass !== "runtime" && failureClass !== "timeout" && failureClass !== "empty_text") return false;
+    if (!file.extractionDebug.method) return true;
+    return file.totalScore < 50;
+  }).length;
 
-  if (extractionFailures >= 3) {
+  if (blockingExtractionFailures >= 3) {
     return {
       decision: "Current scores are dominated by extraction/runtime failures, so Liquid cannot be judged fairly yet.",
       reasons: [
-        `${extractionFailures}/${files.length} files failed before a fair model-quality comparison because the extraction/runtime path broke or timed out.`,
+        `${blockingExtractionFailures}/${files.length} files were still materially blocked by extraction/runtime issues before a fair model-quality comparison.`,
         `Average benchmark score landed at ${formatScore(Math.round(averageScore), 100)}, but this is artificially suppressed by upstream pipeline failures.`,
         "The next correct move is fixing PDF/runtime and large-document fallback behavior, then rerunning the same corpus.",
       ],
@@ -926,11 +954,12 @@ function buildLiquidVerdict(files: FileBenchmarkResult[]) {
 function renderMarkdown(report: AggregateReport) {
   const topWeakZones = report.recurringWeakZones.slice(0, 5);
   const topFlags = report.recurringStructuredThinFlags.slice(0, 5);
+  const topExtractionFailures = report.recurringExtractionFailures.slice(0, 5);
   const topWarnings = report.recurringWarnings.slice(0, 5);
   const rows = report.files
     .map((file) => {
       const weakZones = file.weakZones.length ? file.weakZones.join(", ") : "none";
-      return `| ${file.metadata.fileName} | ${file.metadata.format} | ${file.metadata.extractionQuality} | ${file.metadata.languageProfile} | ${formatScore(file.totalScore, file.totalMax)} | ${file.classification} | ${file.hallucinationRisk} | ${weakZones} |`;
+      return `| ${file.metadata.fileName} | ${file.metadata.format} | ${file.metadata.extractionQuality} | ${file.extractionDebug.method ?? "n/a"} | ${file.metadata.languageProfile} | ${formatScore(file.totalScore, file.totalMax)} | ${file.classification} | ${file.hallucinationRisk} | ${weakZones} |`;
     })
     .join("\n");
 
@@ -958,8 +987,8 @@ function renderMarkdown(report: AggregateReport) {
     ...report.liquidVerdict.reasons.map((reason) => `- ${reason}`),
     "",
     "## CV Scores",
-    "| File | Format | Extraction | Language | Score | Classification | Hallucination risk | Weak zones |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| File | Format | Extraction | Server extractor | Language | Score | Classification | Hallucination risk | Weak zones |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     rows,
     "",
     "## Recurring Weak Zones",
@@ -967,6 +996,9 @@ function renderMarkdown(report: AggregateReport) {
     "",
     "## Recurring Structured-Thin Flags",
     ...(topFlags.length ? topFlags.map((item) => `- ${item.flag}: ${item.count}`) : ["- none"]),
+    "",
+    "## Recurring Extraction Failures",
+    ...(topExtractionFailures.length ? topExtractionFailures.map((item) => `- ${item.failureClass}: ${item.count}`) : ["- none"]),
     "",
     "## Recurring Warnings",
     ...(topWarnings.length ? topWarnings.map((item) => `- ${item.warning}: ${item.count}`) : ["- none"]),
@@ -1041,6 +1073,13 @@ async function benchmarkOne(baseUrl: string, token: string, file: CorpusFileConf
       weakZones: Object.keys(emptyMetrics) as MetricKey[],
       hallucinationRisk: "high",
       structuredThinFlags: buildStructuredThinFlags({}, metadata, emptyMetrics),
+      extractionDebug: {
+        method: null,
+        fallbackUsed: false,
+        failureClass: null,
+        sourceTextLength: null,
+        sourceTextTruncated: false,
+      },
       output: {
         firstName: null,
         lastName: null,
@@ -1086,6 +1125,13 @@ async function benchmarkOne(baseUrl: string, token: string, file: CorpusFileConf
     weakZones,
     hallucinationRisk,
     structuredThinFlags,
+    extractionDebug: {
+      method: parsed.extractionMethod ?? null,
+      fallbackUsed: Boolean(parsed.extractionFallbackUsed),
+      failureClass: parsed.extractionFailureClass ?? null,
+      sourceTextLength: parsed.sourceTextLength ?? null,
+      sourceTextTruncated: Boolean(parsed.sourceTextTruncated),
+    },
     output: {
       firstName: parsed.firstName ?? null,
       lastName: parsed.lastName ?? null,
@@ -1150,6 +1196,7 @@ async function main() {
     },
     recurringWeakZones: aggregateWeakZones(results),
     recurringStructuredThinFlags: aggregateStructuredThinFlags(results),
+    recurringExtractionFailures: aggregateExtractionFailures(results),
     recurringWarnings: aggregateWarnings(results),
     formatBreakdown: buildFormatBreakdown(results),
     liquidVerdict: buildLiquidVerdict(results),

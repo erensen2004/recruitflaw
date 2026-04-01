@@ -279,11 +279,11 @@ export const CreateTimesheetSchema = z.object({
 // ─── CV Parse ────────────────────────────────────────────────────────────────
 
 export const CvParseTextSchema = z.object({
-  cvText: z.string().min(1).max(20000),
+  cvText: z.string().min(1).max(24000),
 });
 
 export const CvParseBodySchema = z.object({
-  cvText: z.string().min(1).max(20000),
+  cvText: z.string().min(1).max(40000),
 });
 
 export const CvParseResponseSchema = z.object({
@@ -321,6 +321,11 @@ export const CvParseResponseSchema = z.object({
   parseStatus: z.enum(["not_started", "processing", "parsed", "partial", "failed"]).nullable().optional(),
   parseProvider: z.string().nullable().optional(),
   warnings: z.array(z.string()).nullable().optional(),
+  extractionMethod: z.string().nullable().optional(),
+  extractionFallbackUsed: z.boolean().optional(),
+  extractionFailureClass: z.enum(["runtime", "timeout", "empty_text", "oversized", "ocr_required"]).nullable().optional(),
+  sourceTextLength: z.number().int().nonnegative().nullable().optional(),
+  sourceTextTruncated: z.boolean().optional(),
 });
 
 // ─── Storage ─────────────────────────────────────────────────────────────────

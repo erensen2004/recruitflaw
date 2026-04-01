@@ -9,9 +9,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@google-cloud/storage": "^7.19.0",
     "@google/generative-ai": "^0.24.1",
     "@vercel/blob": "^2.3.1",
-    "@google-cloud/storage": "^7.19.0",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "bcryptjs": "^3.0.3",
@@ -24,6 +24,7 @@
     "mammoth": "^1.10.0",
     "openai": "^6.27.0",
     "pdf-parse": "^2.4.5",
+    "pdfreader": "^3.0.8",
     "zod": "catalog:"
   },
   "devDependencies": {
