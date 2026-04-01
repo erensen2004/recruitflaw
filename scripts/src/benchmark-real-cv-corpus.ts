@@ -1156,7 +1156,12 @@ async function benchmarkOne(baseUrl: string, token: string, file: CorpusFileConf
 
 async function main() {
   const { corpusPath, config } = await loadCorpus();
-  const baseUrl = (config.baseUrl || process.env.RECRUITFLOW_CV_PARSE_BASE_URL || process.env.PUBLIC_APP_URL || DEFAULT_BASE_URL).replace(/\/$/, "");
+  const baseUrl = (
+    process.env.RECRUITFLOW_CV_PARSE_BASE_URL ||
+    config.baseUrl ||
+    process.env.PUBLIC_APP_URL ||
+    DEFAULT_BASE_URL
+  ).replace(/\/$/, "");
   const vendorEmail = config.vendorAuth?.email || DEFAULT_VENDOR_EMAIL;
   const vendorPassword =
     config.vendorAuth?.password ||

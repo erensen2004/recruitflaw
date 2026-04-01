@@ -29,6 +29,22 @@ Recommended:
 - `MAX_UPLOAD_BYTES=4000000`
 - `MAX_CV_PARSE_PDF_BYTES=4000000`
 
+For Google OCR + Vertex Gemini in production, also set:
+
+- `GOOGLE_VISION_API_KEY`
+- `GOOGLE_GENAI_USE_VERTEXAI=true`
+- `VERTEX_AI_PROJECT`
+- `VERTEX_AI_LOCATION=global`
+- `VERTEX_GEMINI_MODEL=gemini-2.5-flash-lite`
+- `GOOGLE_SERVICE_ACCOUNT_JSON` or `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64`
+- `CV_VERTEX_ENRICHMENT_INCLUDE_SOURCE_TEXT=false`
+
+Notes:
+
+- `GOOGLE_VISION_API_KEY` powers OCR fallback and can be added independently of Vertex.
+- Vertex on Vercel cannot use your local `gcloud` login; it needs a service account secret or a future workload identity setup.
+- `gemini-2.5-flash-lite` is the recommended first production model for recruiter-brief enrichment because it is cheaper and less timeout-prone than `gemini-2.5-flash` for this payload shape.
+
 ## Vercel Setup
 
 1. Create a new Vercel project from the repository root.

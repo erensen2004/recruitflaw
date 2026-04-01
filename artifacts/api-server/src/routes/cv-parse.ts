@@ -4,6 +4,13 @@ import mammoth from "mammoth";
 import { PdfReader } from "pdfreader";
 import { createWorker } from "tesseract.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleAuth } from "google-auth-library";
+import {
+  createCanvas as createNodeCanvas,
+  DOMMatrix as NodeDOMMatrix,
+  ImageData as NodeImageData,
+  Path2D as NodePath2D,
+} from "@napi-rs/canvas";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole } from "../lib/authz.js";
 import { CvParseBodySchema, CvParseResponseSchema } from "../lib/schemas.js";
@@ -28,6 +35,17 @@ const OCR_LANGUAGES = (process.env.CV_OCR_LANGUAGES || "eng,tur")
   .split(",")
   .map((item) => item.trim())
   .filter(Boolean);
+const GOOGLE_VISION_API_KEY =
+  process.env.GOOGLE_VISION_API_KEY || process.env.GOOGLE_CLOUD_VISION_API_KEY || null;
+const GOOGLE_VISION_API_URL = "https://vision.googleapis.com/v1/images:annotate";
+const DEFAULT_VERTEX_LOCATION = process.env.VERTEX_AI_LOCATION || process.env.GOOGLE_CLOUD_LOCATION || "global";
+const DEFAULT_VERTEX_MODEL =
+  process.env.VERTEX_GEMINI_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
+const GOOGLE_SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || null;
+const GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 || null;
+const VERTEX_INCLUDE_SOURCE_TEXT =
+  process.env.CV_VERTEX_ENRICHMENT_INCLUDE_SOURCE_TEXT === "1" ||
+  process.env.CV_VERTEX_ENRICHMENT_INCLUDE_SOURCE_TEXT === "true";
 
 const DEFAULT_OPENROUTER_MODELS = [
   "liquid/lfm-2.5-1.2b-instruct:free",
@@ -167,40 +185,9 @@ async function ensurePdfRuntimePolyfills() {
     return;
   }
 
-  try {
-    const canvasModule = await import("@napi-rs/canvas");
-    runtimeGlobal.DOMMatrix ??= canvasModule.DOMMatrix;
-    runtimeGlobal.ImageData ??= canvasModule.ImageData;
-    runtimeGlobal.Path2D ??= canvasModule.Path2D;
-  } catch (error) {
-    console.warn("[CV Parse] Canvas polyfills are unavailable in this runtime.", error);
-    runtimeGlobal.DOMMatrix ??= class DOMMatrixStub {
-      a = 1;
-      b = 0;
-      c = 0;
-      d = 1;
-      e = 0;
-      f = 0;
-      multiplySelf() { return this; }
-      preMultiplySelf() { return this; }
-      translateSelf() { return this; }
-      scaleSelf() { return this; }
-      rotateSelf() { return this; }
-      inverse() { return this; }
-      transformPoint(point: unknown) { return point; }
-    };
-    runtimeGlobal.ImageData ??= class ImageDataStub {
-      data: Uint8ClampedArray;
-      width: number;
-      height: number;
-      constructor(data = new Uint8ClampedArray(), width = 0, height = 0) {
-        this.data = data;
-        this.width = width;
-        this.height = height;
-      }
-    };
-    runtimeGlobal.Path2D ??= class Path2DStub {};
-  }
+  runtimeGlobal.DOMMatrix ??= NodeDOMMatrix;
+  runtimeGlobal.ImageData ??= NodeImageData;
+  runtimeGlobal.Path2D ??= NodePath2D;
 }
 
 async function loadPdfParse() {
@@ -295,18 +282,180 @@ function getAiClientConfig():
   return null;
 }
 
-function getGeminiClient():
+type GeminiClient =
   | {
+      kind: "apiKey";
       genAI: GoogleGenerativeAI;
       model: string;
     }
-  | null {
+  | {
+      kind: "vertex";
+      auth: GoogleAuth;
+      model: string;
+      projectId: string | null;
+      location: string;
+    };
+
+type GoogleServiceAccountCredentials = {
+  client_email?: string;
+  private_key?: string;
+  project_id?: string;
+};
+
+function parseGoogleServiceAccountCredentials(): GoogleServiceAccountCredentials | null {
+  const raw = GOOGLE_SERVICE_ACCOUNT_JSON_BASE64
+    ? Buffer.from(GOOGLE_SERVICE_ACCOUNT_JSON_BASE64, "base64").toString("utf8")
+    : GOOGLE_SERVICE_ACCOUNT_JSON;
+
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as GoogleServiceAccountCredentials;
+    if (!parsed.client_email || !parsed.private_key) {
+      throw new Error("Missing client_email or private_key");
+    }
+    return {
+      ...parsed,
+      private_key: parsed.private_key.replace(/\\n/g, "\n"),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Google service account credentials could not be parsed: ${message}`);
+  }
+}
+
+function getGeminiClient(): GeminiClient | null {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  if (!apiKey) return null;
+  if (apiKey) {
+    return {
+      kind: "apiKey",
+      genAI: new GoogleGenerativeAI(apiKey),
+      model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+    };
+  }
+
+  const useVertex =
+    process.env.GOOGLE_GENAI_USE_VERTEXAI === "1" ||
+    process.env.GOOGLE_GENAI_USE_VERTEXAI === "true" ||
+    process.env.GOOGLE_GENAI_USE_VERTEX === "1" ||
+    process.env.GOOGLE_GENAI_USE_VERTEX === "true" ||
+    process.env.VERTEX_AI_USE_ADC === "1" ||
+    process.env.VERTEX_AI_USE_ADC === "true" ||
+    Boolean(process.env.VERTEX_AI_PROJECT) ||
+    Boolean(process.env.GOOGLE_CLOUD_PROJECT) ||
+    Boolean(process.env.GCLOUD_PROJECT) ||
+    Boolean(process.env.GOOGLE_PROJECT_ID);
+
+  if (!useVertex) return null;
+
+  const credentials = parseGoogleServiceAccountCredentials();
+
   return {
-    genAI: new GoogleGenerativeAI(apiKey),
-    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+    kind: "vertex",
+    auth: new GoogleAuth({
+      credentials: credentials || undefined,
+      projectId:
+        process.env.VERTEX_AI_PROJECT ||
+        process.env.GOOGLE_CLOUD_PROJECT ||
+        process.env.GCLOUD_PROJECT ||
+        process.env.GOOGLE_PROJECT_ID ||
+        credentials?.project_id ||
+        undefined,
+      scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+    }),
+    model: DEFAULT_VERTEX_MODEL,
+    projectId:
+      process.env.VERTEX_AI_PROJECT ||
+      process.env.GOOGLE_CLOUD_PROJECT ||
+      process.env.GCLOUD_PROJECT ||
+      process.env.GOOGLE_PROJECT_ID ||
+      credentials?.project_id ||
+      null,
+    location: DEFAULT_VERTEX_LOCATION,
   };
+}
+
+function isGeminiDirectParseEnabled(): boolean {
+  return !(
+    process.env.CV_DISABLE_DIRECT_GEMINI_PARSE === "1" ||
+    process.env.CV_DISABLE_DIRECT_GEMINI_PARSE === "true"
+  );
+}
+
+async function getVertexAccessToken(auth: GoogleAuth): Promise<string> {
+  const client = await auth.getClient();
+  const result = await client.getAccessToken();
+  const token = typeof result === "string" ? result : result?.token;
+  if (!token) {
+    throw new Error("Vertex AI access token could not be resolved from Application Default Credentials.");
+  }
+  return token;
+}
+
+async function resolveVertexProjectId(client: Extract<GeminiClient, { kind: "vertex" }>): Promise<string> {
+  if (client.projectId) return client.projectId;
+  const projectId = await client.auth.getProjectId();
+  if (!projectId) {
+    throw new Error("Vertex AI project could not be resolved. Set VERTEX_AI_PROJECT or configure ADC project.");
+  }
+  return projectId;
+}
+
+function extractGeminiResponseText(payload: any): string {
+  const parts = payload?.candidates?.[0]?.content?.parts;
+  if (Array.isArray(parts)) {
+    const text = parts
+      .map((part) => (typeof part?.text === "string" ? part.text : ""))
+      .join("")
+      .trim();
+    if (text) return text;
+  }
+
+  const inlineText = payload?.text;
+  if (typeof inlineText === "string" && inlineText.trim()) {
+    return inlineText.trim();
+  }
+
+  throw new Error("Gemini returned no readable text content.");
+}
+
+async function generateGeminiContent(
+  gemini: GeminiClient,
+  params: {
+    contents: Array<Record<string, unknown>>;
+    generationConfig?: Record<string, unknown>;
+  },
+): Promise<string> {
+  if (gemini.kind === "apiKey") {
+    const model = gemini.genAI.getGenerativeModel({ model: gemini.model });
+    const result = await model.generateContent({
+      contents: params.contents as any,
+      generationConfig: params.generationConfig as any,
+    } as any);
+    return result.response.text();
+  }
+
+  const projectId = await resolveVertexProjectId(gemini);
+  const accessToken = await getVertexAccessToken(gemini.auth);
+  const modelPath = `projects/${projectId}/locations/${gemini.location}/publishers/google/models/${gemini.model}`;
+  const response = await fetch(`https://aiplatform.googleapis.com/v1/${modelPath}:generateContent`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      contents: params.contents,
+      generationConfig: params.generationConfig,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Vertex AI request failed (${response.status}): ${body.slice(0, 400)}`);
+  }
+
+  return extractGeminiResponseText(await response.json());
 }
 
 function decodeHeaderFileName(rawHeader: string | string[] | undefined): string | null {
@@ -520,7 +669,7 @@ function normalizeEducation(value: unknown): ParsedEducationItem[] {
       fieldOfStudy: clampString(normalizeString(record.fieldOfStudy), 300),
       startDate: clampString(normalizeString(record.startDate), 50),
       endDate: clampString(normalizeString(record.endDate), 50),
-      confidence: toNumber(record.confidence),
+      confidence: normalizeConfidencePercent(record.confidence),
     };
   }).filter((item) => item.institution || item.degree || item.fieldOfStudy || item.startDate || item.endDate || item.confidence != null);
 }
@@ -533,7 +682,7 @@ function normalizeLanguageItems(value: unknown): ParsedLanguageItem[] {
       return {
         name: clampString(normalizeString(record.name), 100),
         level: clampString(normalizeString(record.level), 100),
-        confidence: toNumber(record.confidence),
+        confidence: normalizeConfidencePercent(record.confidence),
         source: clampString(normalizeString(record.source), 100),
       };
     })
@@ -544,12 +693,12 @@ function normalizeFieldConfidence(value: unknown): ParsedFieldConfidence | null 
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
   const normalized: ParsedFieldConfidence = {
-    contact: toNumber(record.contact),
-    experience: toNumber(record.experience),
-    education: toNumber(record.education),
-    languages: toNumber(record.languages),
-    compensation: toNumber(record.compensation),
-    summary: toNumber(record.summary),
+    contact: normalizeConfidencePercent(record.contact),
+    experience: normalizeConfidencePercent(record.experience),
+    education: normalizeConfidencePercent(record.education),
+    languages: normalizeConfidencePercent(record.languages),
+    compensation: normalizeConfidencePercent(record.compensation),
+    summary: normalizeConfidencePercent(record.summary),
   };
 
   return Object.values(normalized).some((item) => item != null) ? normalized : null;
@@ -562,6 +711,12 @@ function toNumber(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function normalizeConfidencePercent(value: unknown): number | null {
+  const parsed = toNumber(value);
+  if (parsed == null) return null;
+  return Math.max(0, Math.min(100, Math.round(parsed)));
 }
 
 function normalizeWarnings(value: unknown): string[] {
@@ -1813,7 +1968,104 @@ async function extractTextFromPdfPrimary(buffer: Buffer): Promise<string> {
   return text;
 }
 
+async function recognizeWithGoogleVision(image: Buffer): Promise<string> {
+  if (!GOOGLE_VISION_API_KEY) {
+    throw new Error("Google Vision OCR is not configured.");
+  }
+
+  const response = await fetch(`${GOOGLE_VISION_API_URL}?key=${encodeURIComponent(GOOGLE_VISION_API_KEY)}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      requests: [
+        {
+          image: { content: image.toString("base64") },
+          features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
+          imageContext: { languageHints: OCR_LANGUAGES },
+        },
+      ],
+    }),
+  });
+
+  const payload = (await response.json().catch(() => null)) as
+    | {
+        error?: { message?: string };
+        responses?: Array<{
+          fullTextAnnotation?: { text?: string };
+          textAnnotations?: Array<{ description?: string }>;
+        }>;
+      }
+    | null;
+
+  if (!response.ok || payload?.error?.message) {
+    throw new Error(payload?.error?.message || `Google Vision OCR request failed with ${response.status}`);
+  }
+
+  const text =
+    payload?.responses?.[0]?.fullTextAnnotation?.text ??
+    payload?.responses?.[0]?.textAnnotations?.[0]?.description ??
+    "";
+  const normalized = normalizeExtractedText(text);
+  if (!normalized) {
+    throw new Error("Google Vision OCR returned no readable text");
+  }
+  return normalized;
+}
+
+async function renderPdfPagesForOcr(buffer: Buffer): Promise<Buffer[]> {
+  await ensurePdfRuntimePolyfills();
+  const pdfjs = await loadPdfJs();
+  const document = await pdfjs.getDocument({
+    data: new Uint8Array(buffer),
+    useSystemFonts: true,
+    isEvalSupported: false,
+  }).promise;
+
+  const images: Buffer[] = [];
+  const pages = Math.min(document.numPages, OCR_PAGE_LIMIT);
+
+  for (let index = 1; index <= pages; index += 1) {
+    const page = await document.getPage(index);
+    const viewport = page.getViewport({ scale: Math.max(2, OCR_RENDER_SCALE * 2) });
+    const canvas = createNodeCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Canvas context is unavailable for PDF OCR rendering");
+    }
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: context as any, viewport, canvas: canvas as any }).promise;
+    const png = canvas.toBuffer("image/png");
+    if (png?.length) {
+      images.push(Buffer.from(png));
+    }
+  }
+
+  if (!images.length) {
+    throw new Error("PDF OCR rendering produced no page images");
+  }
+
+  return images;
+}
+
 async function recognizeImagesWithOcr(images: Buffer[]): Promise<string> {
+  if (GOOGLE_VISION_API_KEY) {
+    try {
+      const chunks: string[] = [];
+      for (const image of images.slice(0, OCR_PAGE_LIMIT)) {
+        const text = await withTimeout(recognizeWithGoogleVision(image), OCR_TIMEOUT_MS, "Google Vision OCR");
+        if (text) chunks.push(text);
+      }
+      const combined = normalizeExtractedText(chunks.join("\n\n"));
+      if (combined) return combined;
+      throw new Error("Google Vision OCR returned empty text");
+    } catch (error) {
+      console.warn("[CV Parse] Google Vision OCR failed, falling back to Tesseract.", error);
+    }
+  }
+
   const worker = await createWorker(OCR_LANGUAGES.join("+"));
   try {
     const chunks: string[] = [];
@@ -1829,6 +2081,17 @@ async function recognizeImagesWithOcr(images: Buffer[]): Promise<string> {
 }
 
 async function extractTextFromPdfOcr(buffer: Buffer): Promise<string> {
+  try {
+    const images = await renderPdfPagesForOcr(buffer);
+    const text = await recognizeImagesWithOcr(images);
+    if (!text) {
+      throw new Error("PDF OCR fallback found no readable text");
+    }
+    return text;
+  } catch (renderError) {
+    console.warn("[CV Parse] PDF canvas OCR rendering failed, trying screenshot fallback.", renderError);
+  }
+
   const PDFParse = await loadPdfParse();
   const parser = new PDFParse({ data: buffer });
   try {
@@ -2077,7 +2340,6 @@ async function parseWithGeminiDocument(params: {
     throw new Error("Gemini is not configured.");
   }
 
-  const model = gemini.genAI.getGenerativeModel({ model: gemini.model });
   const prompt = [
     buildUniversalPrompt(),
     "",
@@ -2087,8 +2349,8 @@ async function parseWithGeminiDocument(params: {
     .filter(Boolean)
     .join("\n");
 
-  const result = await withTimeout(
-    model.generateContent({
+  const raw = await withTimeout(
+    generateGeminiContent(gemini, {
       contents: [
         {
           role: "user",
@@ -2107,13 +2369,12 @@ async function parseWithGeminiDocument(params: {
         temperature: 0.1,
         responseMimeType: "application/json",
       },
-    } as any),
+    }),
     DIRECT_DOCUMENT_TIMEOUT_MS,
-    `Gemini document parse ${gemini.model}`,
+    `${gemini.kind === "vertex" ? "Vertex AI" : "Gemini"} document parse ${gemini.model}`,
   );
 
-  const raw = result.response.text();
-  return normalizeParsedCandidate(extractJsonObject(raw), `gemini:${gemini.model}`);
+  return normalizeParsedCandidate(extractJsonObject(raw), `${gemini.kind}:${gemini.model}`);
 }
 
 async function parseWithGeminiText(cvText: string): Promise<ParsedCandidate> {
@@ -2122,10 +2383,9 @@ async function parseWithGeminiText(cvText: string): Promise<ParsedCandidate> {
     throw new Error("Gemini is not configured.");
   }
 
-  const model = gemini.genAI.getGenerativeModel({ model: gemini.model });
   const preparedText = buildPrioritizedSourceText(cvText).text;
-  const result = await withTimeout(
-    model.generateContent({
+  const raw = await withTimeout(
+    generateGeminiContent(gemini, {
       contents: [
         {
           role: "user",
@@ -2140,16 +2400,23 @@ async function parseWithGeminiText(cvText: string): Promise<ParsedCandidate> {
         temperature: 0.1,
         responseMimeType: "application/json",
       },
-    } as any),
+    }),
     MODEL_TIMEOUT_MS,
-    `Gemini text parse ${gemini.model}`,
+    `${gemini.kind === "vertex" ? "Vertex AI" : "Gemini"} text parse ${gemini.model}`,
   );
 
-  return normalizeParsedCandidate(extractJsonObject(result.response.text()), `gemini:${gemini.model}`);
+  return normalizeParsedCandidate(extractJsonObject(raw), `${gemini.kind}:${gemini.model}`);
 }
 
-function buildEnrichmentPrompt(candidate: ParsedCandidate, sourceText?: string) {
-  const preparedSource = sourceText ? buildPrioritizedSourceText(sourceText).text.slice(0, ENRICHMENT_SOURCE_CHAR_LIMIT) : null;
+function buildEnrichmentPrompt(
+  candidate: ParsedCandidate,
+  sourceText?: string,
+  options?: { includeSourceText?: boolean; sourceCharLimit?: number },
+) {
+  const includeSourceText = options?.includeSourceText ?? true;
+  const sourceCharLimit = options?.sourceCharLimit ?? ENRICHMENT_SOURCE_CHAR_LIMIT;
+  const preparedSource =
+    includeSourceText && sourceText ? buildPrioritizedSourceText(sourceText).text.slice(0, sourceCharLimit) : null;
   const candidateForEnrichment = {
     ...candidate,
     extractionMethod: undefined,
@@ -2193,7 +2460,7 @@ async function enrichWithOpenAi(candidate: ParsedCandidate, sourceText?: string)
 
   const { client, models, provider } = config;
   const activeModels = getActiveProviderModels(models);
-  const prompt = buildEnrichmentPrompt(candidate, sourceText);
+  const prompt = buildEnrichmentPrompt(candidate, sourceText, { includeSourceText: true });
   let lastError: Error | null = null;
 
   for (const model of activeModels) {
@@ -2235,25 +2502,28 @@ async function enrichWithGemini(candidate: ParsedCandidate, sourceText?: string)
   if (!gemini) return null;
 
   try {
-    const model = gemini.genAI.getGenerativeModel({ model: gemini.model });
-    const result = await withTimeout(
-      model.generateContent({
+    const prompt = buildEnrichmentPrompt(candidate, sourceText, {
+      includeSourceText: gemini.kind === "vertex" ? VERTEX_INCLUDE_SOURCE_TEXT : true,
+      sourceCharLimit: gemini.kind === "vertex" ? Math.min(ENRICHMENT_SOURCE_CHAR_LIMIT, 5000) : ENRICHMENT_SOURCE_CHAR_LIMIT,
+    });
+    const raw = await withTimeout(
+      generateGeminiContent(gemini, {
         contents: [
           {
             role: "user",
-            parts: [{ text: buildEnrichmentPrompt(candidate, sourceText) }],
+            parts: [{ text: prompt }],
           },
         ],
         generationConfig: {
           temperature: 0.1,
           responseMimeType: "application/json",
         },
-      } as any),
+      }),
       ENRICHMENT_TIMEOUT_MS,
-      `Gemini enrichment ${gemini.model}`,
+      `${gemini.kind === "vertex" ? "Vertex AI" : "Gemini"} enrichment ${gemini.model}`,
     );
 
-    return normalizeParsedCandidate(extractJsonObject(result.response.text()), `gemini:${gemini.model}:enrichment`);
+    return normalizeParsedCandidate(extractJsonObject(raw), `${gemini.kind}:${gemini.model}:enrichment`);
   } catch (error) {
     console.warn("[CV Enrich] Gemini enrichment failed.", error);
     return null;
@@ -2285,7 +2555,7 @@ async function finalizeResponse(
   }
 
   const dedupedWarnings = Array.from(new Set(mergedWarnings));
-  const normalized = {
+  const normalizedRecord = {
     ...enriched,
     summary: normalizeString(enriched.summary) ?? buildProfessionalSummary(enriched),
     executiveHeadline: normalizeString(enriched.executiveHeadline) ?? buildExecutiveHeadline(enriched),
@@ -2298,6 +2568,7 @@ async function finalizeResponse(
     sourceTextLength: extractionDebug.sourceTextLength,
     sourceTextTruncated: extractionDebug.sourceTextTruncated,
   };
+  const normalized = normalizeParsedCandidate(normalizedRecord, enriched.parseProvider ?? candidate.parseProvider ?? null);
   normalized.parseStatus = deriveStatus(normalized);
   normalized.parseReviewRequired =
     normalized.parseReviewRequired ||
@@ -2372,7 +2643,7 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
   try {
     const fileName = decodeHeaderFileName(req.headers["x-file-name"]);
     const kind = detectDocumentKind(req.headers["content-type"], fileName);
-    const directGeminiAvailable = Boolean(getGeminiClient());
+    const directGeminiAvailable = Boolean(getGeminiClient()) && isGeminiDirectParseEnabled();
     const textProviderAvailable = Boolean(getAiClientConfig());
 
     if (kind === "json") {
