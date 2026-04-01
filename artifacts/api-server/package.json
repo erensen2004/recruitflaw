@@ -25,7 +25,9 @@
     "mammoth": "^1.10.0",
     "openai": "^6.27.0",
     "pdf-parse": "^2.4.5",
+    "pdfjs-dist": "^5.5.207",
     "pdfreader": "^3.0.8",
+    "tesseract.js": "^7.0.0",
     "zod": "catalog:"
   },
   "devDependencies": {

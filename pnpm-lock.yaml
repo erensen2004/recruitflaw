@@ -216,9 +216,15 @@ importers:
       pdf-parse:
         specifier: ^2.4.5
         version: 2.4.5
+      pdfjs-dist:
+        specifier: ^5.5.207
+        version: 5.5.207
       pdfreader:
         specifier: ^3.0.8
         version: 3.0.8
+      tesseract.js:
+        specifier: ^7.0.0
+        version: 7.0.0
       zod:
         specifier: 'catalog:'
         version: 3.25.76

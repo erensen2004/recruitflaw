@@ -176,7 +176,7 @@ export function getCandidateReadinessSnapshot(input: CandidateIntelligenceInput)
     !languageReady ? "Language coverage still unclear" : null,
     !experienceReady ? "Experience timeline is thin" : null,
     !educationReady ? "Education details are thin" : null,
-    input.parseReviewRequired ? "Admin normalization required" : null,
+    input.parseReviewRequired ? "Some profile details still need confirmation" : null,
     confidence > 0 && confidence < 70 ? "Parse confidence is below the preferred review threshold" : null,
     ...(input.candidateRisks ?? []),
   ].filter((item): item is string => Boolean(item));
@@ -293,9 +293,9 @@ export function getCandidateDecisionGuidance(input: CandidateIntelligenceInput) 
 
   if (input.parseReviewRequired || confidence < 70 || !snapshot.experienceReady) {
     return {
-      label: "Normalize before approval",
+      label: "Sharpen profile before approval",
       tone: "amber" as const,
-      body: "The profile has enough signal to continue, but the admin team should clean up structured experience, language, and normalization details first.",
+      body: "The profile has enough signal to continue, but experience structure and a few profile fields should be cleaned up before wider review.",
     };
   }
 
@@ -308,9 +308,9 @@ export function getCandidateDecisionGuidance(input: CandidateIntelligenceInput) 
   }
 
   return {
-    label: "Good profile, quick admin pass recommended",
+    label: "Strong profile with a few open details",
     tone: "blue" as const,
-    body: "The record looks solid overall. A short admin pass will make the handoff cleaner and more persuasive.",
+    body: "The record looks solid overall and only needs a short polish pass to make the brief more persuasive.",
   };
 }
 
@@ -334,36 +334,38 @@ export function getCandidateExecutiveBrief(input: CandidateIntelligenceInput): C
 
   const strengths = [
     ...(input.candidateStrengths ?? []),
-    input.currentTitle ? `Current title: ${input.currentTitle}` : null,
-    input.yearsExperience != null ? `Experience: ${input.yearsExperience} years` : null,
-    input.location ? `Location: ${input.location}` : null,
-    input.parsedSkills?.length ? `Skills: ${input.parsedSkills.slice(0, 4).join(", ")}` : null,
-    snapshot.compensationReady ? `Compensation: ${snapshot.salaryLabel}` : null,
-    englishLevel ? `English: ${englishLevel}` : null,
-    input.parsedExperience?.length ? "Structured experience captured" : null,
-    input.parsedEducation?.length ? "Education captured" : null,
+    input.currentTitle ? `${input.currentTitle} profile` : null,
+    input.yearsExperience != null ? `${input.yearsExperience} years of relevant experience` : null,
+    input.location ? `Based in ${input.location}` : null,
+    input.parsedSkills?.length ? `Strongest stack signals: ${input.parsedSkills.slice(0, 4).join(", ")}` : null,
+    snapshot.compensationReady ? snapshot.salaryLabel : null,
+    englishLevel ? `English level ${englishLevel}` : null,
+    input.parsedExperience?.length ? "Experience timeline is captured" : null,
+    input.parsedEducation?.length ? "Education history is captured" : null,
   ].filter((item): item is string => Boolean(item));
 
   const riskFlags = [
     ...(input.candidateRisks ?? []),
     !input.phone ? "Missing phone number" : null,
-    input.expectedSalary == null ? "Compensation not captured" : null,
-    !input.parsedExperience?.length ? "Experience structure is thin" : null,
-    !input.parsedEducation?.length ? "Education structure is thin" : null,
-    !input.parsedSkills?.length ? "Skills remain generic" : null,
-    !englishLevel ? "English level not captured" : null,
-    input.parseReviewRequired ? "Admin normalization required" : null,
-    confidence > 0 && confidence < 70 ? `Parse confidence ${confidence}% is below the preferred review threshold` : null,
+    input.expectedSalary == null ? "Compensation details are not available in the source CV" : null,
+    !input.parsedExperience?.length ? "Experience history needs a cleaner structure" : null,
+    !input.parsedEducation?.length ? "Education details remain limited" : null,
+    !input.parsedSkills?.length ? "Technical skills are still broad rather than specific" : null,
+    !englishLevel ? "English level is not explicitly confirmed" : null,
+    input.parseReviewRequired ? "A short profile cleanup pass is still recommended" : null,
+    confidence > 0 && confidence < 70 ? `Profile confidence is currently ${confidence}%` : null,
   ].filter((item): item is string => Boolean(item));
 
   const normalizationNotes = [
     input.phone ? null : "Confirm a phone number before client outreach.",
-    input.expectedSalary == null ? "Capture compensation expectations before publishing." : null,
-    input.professionalSnapshot || input.summary || input.standardizedProfile ? null : "Write a recruiter-ready summary before the handoff.",
-    input.parsedExperience?.length ? null : "Normalize the experience timeline so the brief reads cleanly.",
-    input.parsedEducation?.length ? null : "Normalize education details if they are available in the source CV.",
-    englishLevel ? null : "Record language proficiency before the final client review.",
-    input.parseReviewRequired ? "Admin review is still recommended before publish." : null,
+    input.expectedSalary == null ? "Confirm compensation expectations if they matter for this role." : null,
+    input.professionalSnapshot || input.summary || input.standardizedProfile
+      ? null
+      : "Add a stronger recruiter-ready summary before sharing the profile widely.",
+    input.parsedExperience?.length ? null : "Tighten the experience timeline so the brief reads more clearly.",
+    input.parsedEducation?.length ? null : "Add clearer education details if they are available in the source CV.",
+    englishLevel ? null : "Confirm language proficiency before a final stakeholder review.",
+    input.parseReviewRequired ? "A quick internal review will make the brief cleaner." : null,
   ].filter((item): item is string => Boolean(item));
 
   const roleKeywords = normalizeKeywordSet(input.roleTitle);
@@ -372,13 +374,13 @@ export function getCandidateExecutiveBrief(input: CandidateIntelligenceInput): C
   const overlap = [...roleKeywords].filter((keyword) => titleKeywords.has(keyword) || skillKeywords.has(keyword));
   const overlapSummary = firstMeaningful([
     input.professionalSnapshot,
-    overlap.length ? `Alignment around ${overlap.slice(0, 3).join(", ")}.` : null,
+    overlap.length ? `Strongest alignment appears around ${overlap.slice(0, 3).join(", ")}.` : null,
     input.currentTitle && input.roleTitle
-      ? `Current title and submitted role should be normalized together before approval.`
+      ? `${input.currentTitle} background appears relevant to the submitted ${input.roleTitle} opening.`
       : null,
-    input.currentTitle ? `Current title gives the client a quick read on the candidate profile.` : null,
-    input.parsedSkills?.length ? `Structured skills support a fast human review.` : null,
-    "The profile is clear enough for stakeholder review, but it still benefits from a short admin pass.",
+    input.currentTitle ? `${input.currentTitle} experience gives the profile a clear technical direction.` : null,
+    input.parsedSkills?.length ? `Structured skills make the profile easy to review quickly.` : null,
+    "The profile is clear enough for stakeholder review, with a few details still worth confirming.",
   ])!;
 
   let fitScore = 30;
@@ -398,10 +400,10 @@ export function getCandidateExecutiveBrief(input: CandidateIntelligenceInput): C
     fitScore >= 85 && !input.parseReviewRequired
       ? "Executive-ready profile"
       : fitScore >= 70
-        ? "Strong profile, admin pass recommended"
+        ? "Strong fit for review"
         : fitScore >= 55
-          ? "Review before publish"
-          : "Normalization required";
+          ? "Clear profile with open points"
+          : "Needs profile cleanup";
 
   return {
     fitScore,

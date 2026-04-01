@@ -115,7 +115,7 @@ async function buildStandardizedCandidatePdf(candidate: Candidate) {
 
   const reviewLine = [
     candidate.parseConfidence != null ? `Parse confidence ${candidate.parseConfidence}%` : null,
-    candidate.parseReviewRequired ? "Admin reviewed output recommended" : "Ready for client review",
+    candidate.parseReviewRequired ? "Profile has a few open details to confirm" : "Profile is ready for stakeholder review",
     candidate.expectedSalary != null ? `Expected salary ${formatTurkishLira(candidate.expectedSalary)}` : null,
   ].filter(Boolean);
   if (reviewLine.length) {
@@ -132,25 +132,31 @@ async function buildStandardizedCandidatePdf(candidate: Candidate) {
   writeBlock("Executive Headline", [
     brief.headline,
   ], { compact: true });
-  writeBlock("Professional Snapshot", [
+  writeBlock("Why This Candidate", [
     brief.professionalSnapshot,
   ]);
   writeBulletBlock("Top Strengths", brief.strengths, { compact: true });
   writeBulletBlock("Domain Focus", brief.domainFocus, { compact: true });
+  writeBlock("Experience Highlights", experienceToLines(candidate.parsedExperience).slice(0, 12));
   writeBulletBlock("Notable Achievements", brief.notableAchievements, { compact: true });
-  writeBulletBlock("Risk & Ambiguity Notes", brief.riskFlags, { compact: true });
+  writeBlock("Core Experience", experienceToLines(candidate.parsedExperience));
   writeBlock("Key Skills", [candidate.parsedSkills.length ? candidate.parsedSkills.join(", ") : candidate.tags || "Skills not available"], { compact: true });
-  writeBlock("Experience", experienceToLines(candidate.parsedExperience));
-  writeBlock("Education", educationToLines(candidate.parsedEducation));
-  writeBlock("Additional Details", [
+  writeBlock("Education & Languages", [
+    ...educationToLines(candidate.parsedEducation),
     candidate.languages ? `Languages: ${candidate.languages}` : "",
     englishLevel ? `English level: ${englishLevel}` : "",
-    brief.workModel ? `Work model: ${brief.workModel}` : "",
+  ]);
+  writeBlock("Candidate Snapshot", [
     brief.locationFlexibility ? `Location: ${brief.locationFlexibility}` : "",
+    brief.workModel ? `Work model: ${brief.workModel}` : "",
     brief.salarySignal ? brief.salarySignal : "",
     candidate.yearsExperience != null ? `Years of experience: ${candidate.yearsExperience}` : "",
+  ]);
+  writeBulletBlock("Open Points", brief.riskFlags, { compact: true });
+  writeBlock("Internal Notes", [
+    candidate.languages ? `Languages: ${candidate.languages}` : "",
     candidate.expectedSalary != null ? `Expected salary: ${formatTurkishLira(candidate.expectedSalary)}` : "",
-    brief.adminReady ? "Admin-ready: yes" : "Admin-ready: needs review",
+    brief.adminReady ? "Internal readiness: strong" : "Internal readiness: follow-up recommended",
   ]);
 
   if (candidate.fieldConfidence) {

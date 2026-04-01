@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import OpenAI from "openai";
 import mammoth from "mammoth";
 import { PdfReader } from "pdfreader";
+import { createWorker } from "tesseract.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole } from "../lib/authz.js";
@@ -13,11 +14,20 @@ const MAX_VERCEL_FILE_BYTES = Number(process.env.MAX_CV_PARSE_BYTES || "4000000"
 const MODEL_INPUT_CHAR_LIMIT = Number(process.env.MAX_CV_MODEL_INPUT_CHARS || "22000");
 const ENRICHMENT_SOURCE_CHAR_LIMIT = Number(process.env.MAX_CV_ENRICHMENT_CHARS || "14000");
 const DIRECT_DOCUMENT_TIMEOUT_MS = Number(process.env.CV_DIRECT_DOCUMENT_TIMEOUT_MS || "18000");
-const MODEL_TIMEOUT_MS = Number(process.env.CV_MODEL_TIMEOUT_MS || "30000");
-const ENRICHMENT_TIMEOUT_MS = Number(process.env.CV_ENRICHMENT_TIMEOUT_MS || "18000");
+const MODEL_TIMEOUT_MS = Number(process.env.CV_MODEL_TIMEOUT_MS || "12000");
+const ENRICHMENT_TIMEOUT_MS = Number(process.env.CV_ENRICHMENT_TIMEOUT_MS || "9000");
 const MAX_PARSE_SOURCE_TEXT_CHARS = Number(process.env.MAX_CV_PARSE_SOURCE_TEXT_CHARS || "24000");
 const DOCX_EXTRACTION_TIMEOUT_MS = Number(process.env.CV_DOCX_EXTRACTION_TIMEOUT_MS || "12000");
 const PDF_EXTRACTION_TIMEOUT_MS = Number(process.env.CV_PDF_EXTRACTION_TIMEOUT_MS || "12000");
+const OCR_TIMEOUT_MS = Number(process.env.CV_OCR_TIMEOUT_MS || "15000");
+const OCR_PAGE_LIMIT = Number(process.env.CV_OCR_PAGE_LIMIT || "1");
+const OCR_MIN_TEXT_CHARS = Number(process.env.CV_OCR_MIN_TEXT_CHARS || "80");
+const OCR_RENDER_SCALE = Number(process.env.CV_OCR_RENDER_SCALE || "1.5");
+const MAX_PROVIDER_MODEL_ATTEMPTS = Number(process.env.CV_MAX_PROVIDER_MODEL_ATTEMPTS || "2");
+const OCR_LANGUAGES = (process.env.CV_OCR_LANGUAGES || "eng,tur")
+  .split(",")
+  .map((item) => item.trim())
+  .filter(Boolean);
 
 const DEFAULT_OPENROUTER_MODELS = [
   "liquid/lfm-2.5-1.2b-instruct:free",
@@ -142,9 +152,79 @@ type ParsedCandidate = {
 type DocumentKind = "pdf" | "docx" | "image" | "text" | "json" | "unsupported";
 type TextExtractionResult = {
   text: string;
-  method: "pdf-parse" | "pdfreader" | "mammoth";
+  method: "pdf-parse" | "pdfreader" | "mammoth" | "ocr";
   warnings: string[];
 };
+
+async function ensurePdfRuntimePolyfills() {
+  const runtimeGlobal = globalThis as typeof globalThis & {
+    DOMMatrix?: unknown;
+    ImageData?: unknown;
+    Path2D?: unknown;
+  };
+
+  if (runtimeGlobal.DOMMatrix && runtimeGlobal.ImageData && runtimeGlobal.Path2D) {
+    return;
+  }
+
+  try {
+    const canvasModule = await import("@napi-rs/canvas");
+    runtimeGlobal.DOMMatrix ??= canvasModule.DOMMatrix;
+    runtimeGlobal.ImageData ??= canvasModule.ImageData;
+    runtimeGlobal.Path2D ??= canvasModule.Path2D;
+  } catch (error) {
+    console.warn("[CV Parse] Canvas polyfills are unavailable in this runtime.", error);
+    runtimeGlobal.DOMMatrix ??= class DOMMatrixStub {
+      a = 1;
+      b = 0;
+      c = 0;
+      d = 1;
+      e = 0;
+      f = 0;
+      multiplySelf() { return this; }
+      preMultiplySelf() { return this; }
+      translateSelf() { return this; }
+      scaleSelf() { return this; }
+      rotateSelf() { return this; }
+      inverse() { return this; }
+      transformPoint(point: unknown) { return point; }
+    };
+    runtimeGlobal.ImageData ??= class ImageDataStub {
+      data: Uint8ClampedArray;
+      width: number;
+      height: number;
+      constructor(data = new Uint8ClampedArray(), width = 0, height = 0) {
+        this.data = data;
+        this.width = width;
+        this.height = height;
+      }
+    };
+    runtimeGlobal.Path2D ??= class Path2DStub {};
+  }
+}
+
+async function loadPdfParse() {
+  await ensurePdfRuntimePolyfills();
+  const module = await import("pdf-parse");
+  if (typeof module.PDFParse !== "function") {
+    throw new Error("pdf-parse PDFParse export is not available");
+  }
+  return module.PDFParse;
+}
+
+async function loadPdfJs() {
+  return import("pdfjs-dist/legacy/build/pdf.mjs");
+}
+
+const TITLE_HINT_REGEX =
+  /\b(engineer|developer|manager|specialist|analyst|consultant|designer|coordinator|technician|tester|qa|automation|architect|lead|head|director|intern|associate|operator|officer)\b/i;
+const COMPANY_HINT_REGEX =
+  /\b(a\.?s\.?|ltd|limited|inc|corp|company|technology|technologies|teknoloji|yazılım|yazilim|software|systems|solutions|robotics|bank|holding|university|üniversitesi|university|group)\b/i;
+const DEGREE_HINT_REGEX =
+  /\b(bachelor|master|degree|diploma|associate|lisans|yüksek lisans|önlisans|ön lisans|m.s.|b.s.|mba|phd|doctorate)\b/i;
+const INSTITUTION_HINT_REGEX = /\b(university|üniversite|faculty|fakülte|institute|school|college|academy|lise)\b/i;
+const DATE_RANGE_REGEX =
+  /(?:(?:0?[1-9]|1[0-2])\s*[./-]\s*)?(?:19|20)\d{2}\s*[-–]\s*(?:present|current|now|devam|halen|ongoing|(?:(?:0?[1-9]|1[0-2])\s*[./-]\s*)?(?:19|20)\d{2})/i;
 
 function getConfiguredModels(): string[] {
   const configured =
@@ -158,6 +238,14 @@ function getConfiguredModels(): string[] {
     .split(",")
     .map((model) => model.trim())
     .filter(Boolean);
+}
+
+function getActiveProviderModels(models: string[]): string[] {
+  return models.slice(0, Math.max(1, MAX_PROVIDER_MODEL_ATTEMPTS));
+}
+
+function isRetryableProviderError(message: string): boolean {
+  return /rate|429|timeout|connection|network|temporarily unavailable/i.test(message);
 }
 
 function getAiClientConfig():
@@ -527,6 +615,10 @@ function normalizeExtractedText(rawText: string): string {
     .trim();
 }
 
+function looksThinExtractedText(text: string): boolean {
+  return normalizeExtractedText(text).length < OCR_MIN_TEXT_CHARS;
+}
+
 function decodePdfReaderText(value: string): string {
   try {
     return decodeURIComponent(value);
@@ -606,6 +698,47 @@ function createExtractionDebug(partial?: Partial<ExtractionDebug>): ExtractionDe
     sourceTextLength: partial?.sourceTextLength ?? null,
     sourceTextTruncated: partial?.sourceTextTruncated ?? false,
   };
+}
+
+function stripListPrefix(line: string): string {
+  return line.replace(/^[•*+\-–]\s*/, "").trim();
+}
+
+function looksLikeDateRangeLine(line?: string | null): boolean {
+  if (!line) return false;
+  return DATE_RANGE_REGEX.test(line);
+}
+
+function splitDateRange(line?: string | null): { startDate: string | null; endDate: string | null } {
+  const normalized = normalizeString(line);
+  if (!normalized) return { startDate: null, endDate: null };
+  const match = normalized.match(DATE_RANGE_REGEX);
+  const target = match?.[0] ?? normalized;
+  const parts = target.split(/[-–]/).map((item) => normalizeString(item)).filter((item): item is string => Boolean(item));
+  return {
+    startDate: parts[0] ?? null,
+    endDate: parts[1] ?? null,
+  };
+}
+
+function looksLikeRoleLine(line?: string | null): boolean {
+  const normalized = normalizeString(line);
+  return Boolean(normalized && TITLE_HINT_REGEX.test(normalized) && !looksLikeDateRangeLine(normalized));
+}
+
+function looksLikeCompanyLine(line?: string | null): boolean {
+  const normalized = normalizeString(line);
+  return Boolean(normalized && !looksLikeDateRangeLine(normalized) && !/[@/]/.test(normalized) && COMPANY_HINT_REGEX.test(normalized));
+}
+
+function looksLikeEducationInstitution(line?: string | null) {
+  const normalized = normalizeString(line);
+  return Boolean(normalized && INSTITUTION_HINT_REGEX.test(normalized));
+}
+
+function looksLikeDegreeLine(line?: string | null) {
+  const normalized = normalizeString(line);
+  return Boolean(normalized && DEGREE_HINT_REGEX.test(normalized));
 }
 
 function deriveStatus(candidate: ParsedCandidate): ParsedCandidate["parseStatus"] {
@@ -708,7 +841,14 @@ function getEducationSummary(candidate: ParsedCandidate): string | null {
 }
 
 function getLanguagesSummary(candidate: ParsedCandidate): string[] {
-  return dedupeList(splitLooseList(candidate.languages)).slice(0, 3);
+  const explicitItems = candidate.languageItems
+    .map((item) => {
+      if (!item.name) return null;
+      return item.level ? `${item.name} (${item.level})` : item.name;
+    })
+    .filter((item): item is string => Boolean(item));
+
+  return dedupeList([...explicitItems, ...splitLooseList(candidate.languages)]).slice(0, 3);
 }
 
 function buildProfessionalSummary(candidate: ParsedCandidate): string | null {
@@ -720,18 +860,28 @@ function buildProfessionalSummary(candidate: ParsedCandidate): string | null {
   const languages = getLanguagesSummary(candidate);
   const highlights = getExperienceHighlights(candidate);
   const existingSummary = normalizeString(candidate.summary);
+  const experienceSignals = dedupeList(
+    candidate.parsedExperience.flatMap((item) =>
+      [item.title, item.company]
+        .map((value) => normalizeString(value))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ).slice(0, 2);
+  const decisionMeta = dedupeList([
+    location ? `Based in ${location}` : null,
+    languages.length ? `Languages include ${formatNaturalList(languages)}` : null,
+    candidate.expectedSalary != null ? inferSalarySignal(candidate) : null,
+  ].filter((value): value is string => Boolean(value)));
   const sentences: string[] = [];
 
   if (title) {
-    let intro = title;
-    if (years) {
-      intro += ` with ${years} of experience`;
-    } else if (candidate.parsedExperience.length) {
-      intro += " with relevant hands-on experience";
-    }
-    if (location) {
-      intro += ` based in ${location}`;
-    }
+    const intro = [
+      title,
+      years ? `with ${years} of experience` : null,
+      location ? `based in ${location}` : null,
+    ]
+      .filter(Boolean)
+      .join(" ");
     sentences.push(`${intro}.`);
   } else if (years && location) {
     sentences.push(`Candidate based in ${location} with ${years} of relevant experience.`);
@@ -742,33 +892,34 @@ function buildProfessionalSummary(candidate: ParsedCandidate): string | null {
   }
 
   if (skills.length) {
-    sentences.push(`Core strengths include ${formatNaturalList(skills.slice(0, 4))}.`);
+    sentences.push(`Core strengths are concentrated around ${formatNaturalList(skills.slice(0, 4))}.`);
+  } else if (experienceSignals.length) {
+    sentences.push(`Recent work includes ${formatNaturalList(experienceSignals)}.`);
   } else if (highlights.length) {
-    sentences.push(`Background includes ${formatNaturalList(highlights.slice(0, 2))}.`);
+    sentences.push(`Recent experience signals include ${formatNaturalList(highlights.slice(0, 2))}.`);
   }
 
-  if (education && languages.length) {
+  if (highlights.length) {
+    sentences.push(`Recent work highlights include ${formatNaturalList(highlights.slice(0, 2))}.`);
+  } else if (education) {
+    sentences.push(`Education background includes ${education}.`);
+  }
+
+  if (decisionMeta.length) {
+    sentences.push(`${decisionMeta.join(". ")}.`);
+  } else if (education && languages.length) {
     sentences.push(`Education includes ${education}, and languages include ${formatNaturalList(languages)}.`);
   } else if (education) {
     sentences.push(`Education includes ${education}.`);
   } else if (languages.length) {
     sentences.push(`Languages include ${formatNaturalList(languages)}.`);
-  } else if (!skills.length && candidate.parsedExperience.length) {
-    const experienceTitles = dedupeList(
-      candidate.parsedExperience.flatMap((item) =>
-        [item.title, item.company].filter((value): value is string => Boolean(value)),
-      ),
-    ).slice(0, 2);
-    if (experienceTitles.length) {
-      sentences.push(`Recent experience includes ${formatNaturalList(experienceTitles)}.`);
-    }
   }
 
   if (!sentences.length) {
     return existingSummary;
   }
 
-  return sentences.join(" ");
+  return sentences.slice(0, 4).join(" ");
 }
 
 function buildFallbackSummary(candidate: ParsedCandidate): string | null {
@@ -779,16 +930,18 @@ function extractLikelyTitle(lines: string[]): string | null {
   const titleKeywords =
     /\b(operator|engineer|developer|manager|specialist|technician|analyst|consultant|designer|coordinator|welder|machinist|accountant|assistant|tora|cnc)\b/i;
 
-  for (const line of lines.slice(0, 8)) {
+  for (const line of lines.slice(0, 12)) {
     if (!line || /@|http|linkedin|github|\d{5,}/i.test(line)) continue;
+    if (line.length > 90) continue;
     const normalized = normalizeHeading(line);
     if (ALL_SECTION_HEADINGS.includes(normalized)) continue;
-    if (titleKeywords.test(line)) {
-      return normalizeString(line);
+    const compact = normalizeString(line.split(/\s*[|•·]\s*/)[0] ?? line);
+    if (compact && compact.length <= 80 && titleKeywords.test(compact)) {
+      return compact;
     }
   }
 
-  const fallback = normalizeString(lines[1]);
+  const fallback = normalizeString((lines[1] ?? "").split(/\s*[|•·]\s*/)[0] ?? null);
   if (fallback && !/@|http|\d{5,}/.test(fallback)) {
     return fallback;
   }
@@ -876,7 +1029,7 @@ function inferSalarySignal(candidate: ParsedCandidate): string | null {
   if (candidate.expectedSalary != null) {
     return `Compensation expectation captured at ${Math.round(candidate.expectedSalary).toLocaleString("tr-TR")} TL`;
   }
-  return "Compensation expectations still need confirmation";
+  return null;
 }
 
 function normalizeFocusKeywords(value?: string | null) {
@@ -978,6 +1131,14 @@ function buildFieldConfidence(candidate: ParsedCandidate): ParsedFieldConfidence
 function enrichExperienceItems(candidate: ParsedCandidate): ParsedExperienceItem[] {
   return candidate.parsedExperience.map((item) => {
     const highlights = dedupeList(item.highlights ?? []).slice(0, 4);
+    const impactHighlights = dedupeList([
+      ...(item.impactHighlights ?? []),
+      ...highlights.filter((highlight) =>
+        /\b(improved|reduced|built|designed|delivered|implemented|tested|led|owned|automated|optimized|developed|created|launched)\b/i.test(
+          highlight,
+        ),
+      ),
+    ]).slice(0, 3);
     const techStack = dedupeList([
       ...(item.techStack ?? []),
       ...getSummarySkills(candidate).filter((skill) =>
@@ -985,16 +1146,24 @@ function enrichExperienceItems(candidate: ParsedCandidate): ParsedExperienceItem
         (item.title || "").toLowerCase().includes(skill.toLowerCase()),
       ),
     ]).slice(0, 5);
+    const scope = item.scope ?? normalizeString(
+      [
+        item.title,
+        item.company ? `at ${item.company}` : null,
+        item.startDate || item.endDate
+          ? `during ${[item.startDate, item.endDate].filter(Boolean).join(" - ")}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
 
     return {
       ...item,
       current: item.current ?? (item.endDate ? looksCurrentValue(item.endDate) : null),
-      scope:
-        item.scope ??
-        normalizeString(highlights.slice(0, 2).join(" • ")) ??
-        normalizeString([item.title, item.company].filter(Boolean).join(" @ ")),
+      scope,
       techStack: techStack.length ? techStack : null,
-      impactHighlights: (item.impactHighlights?.length ? dedupeList(item.impactHighlights) : highlights).slice(0, 3),
+      impactHighlights: impactHighlights.length ? impactHighlights : highlights.slice(0, 3),
       seniorityContribution:
         item.seniorityContribution ??
         normalizeString(
@@ -1035,7 +1204,7 @@ function buildExecutiveHeadline(candidate: ParsedCandidate): string | null {
     focus.length ? `across ${formatNaturalList(focus.slice(0, 3), "and")}` : null,
   ].filter(Boolean);
 
-  return parts.length ? `${parts.join(" ")}.`.replace(/\.\s*\.$/, ".") : null;
+  return parts.length ? parts.join(" ") : null;
 }
 
 function buildProfessionalSnapshot(candidate: ParsedCandidate): string | null {
@@ -1058,11 +1227,11 @@ function buildProfessionalSnapshot(candidate: ParsedCandidate): string | null {
   }
 
   if (focus.length) {
-    sentences.push(`Primary focus areas include ${formatNaturalList(focus.slice(0, 4))}.`);
+    sentences.push(`The profile is most credible around ${formatNaturalList(focus.slice(0, 4))}.`);
   }
 
   if (achievements.length) {
-    sentences.push(`Recent experience highlights include ${formatNaturalList(achievements.slice(0, 2))}.`);
+    sentences.push(`The strongest work signals point to ${formatNaturalList(achievements.slice(0, 2))}.`);
   }
 
   if (languages.length || candidate.expectedSalary != null) {
@@ -1075,7 +1244,7 @@ function buildProfessionalSnapshot(candidate: ParsedCandidate): string | null {
     if (meta) sentences.push(`${meta}.`);
   }
 
-  return sentences.length ? sentences.join(" ") : buildProfessionalSummary(candidate);
+  return sentences.length ? sentences.slice(0, 4).join(" ") : buildProfessionalSummary(candidate);
 }
 
 function buildDeterministicEnrichment(candidate: ParsedCandidate): ParsedCandidate {
@@ -1108,7 +1277,7 @@ function buildDeterministicEnrichment(candidate: ParsedCandidate): ParsedCandida
       !enrichedExperience.length ? "Experience structure is thin" : null,
       !enrichedEducation.length ? "Education structure is thin" : null,
       !languageItems.length ? "Language coverage is still unclear" : null,
-      candidate.parseReviewRequired ? "Admin normalization is still recommended" : null,
+      candidate.parseReviewRequired ? "Some profile details still need confirmation" : null,
       (candidate.parseConfidence ?? 0) < 70 ? `Parse confidence is ${candidate.parseConfidence ?? 0}%` : null,
     ].filter((value): value is string => Boolean(value)),
   ).slice(0, 6);
@@ -1225,6 +1394,124 @@ function getSectionLines(lines: string[], headings: readonly string[], maxLines 
   return collected;
 }
 
+function parseHeuristicExperience(lines: string[]): ParsedExperienceItem[] {
+  const cleaned = lines.map((line) => stripListPrefix(line)).filter(Boolean);
+  if (!cleaned.length) return [];
+
+  const blocks: string[][] = [];
+  let currentBlock: string[] = [];
+
+  for (const line of cleaned) {
+    const startsNewBlock =
+      currentBlock.length > 0 &&
+      (
+        (looksLikeDateRangeLine(line) && currentBlock.some((item) => looksLikeDateRangeLine(item))) ||
+        (looksLikeRoleLine(line) && currentBlock.some((item) => looksLikeDateRangeLine(item)))
+      );
+
+    if (startsNewBlock) {
+      blocks.push(currentBlock);
+      currentBlock = [line];
+      continue;
+    }
+
+    currentBlock.push(line);
+  }
+
+  if (currentBlock.length) {
+    blocks.push(currentBlock);
+  }
+
+  return blocks
+    .map((block) => {
+      const dateLine = block.find((line) => looksLikeDateRangeLine(line)) ?? null;
+      const { startDate, endDate } = splitDateRange(dateLine);
+      const title = block.find((line) => looksLikeRoleLine(line)) ?? normalizeString(block[0]);
+      const company = block.find((line) => looksLikeCompanyLine(line) && normalizeString(line) !== normalizeString(title)) ?? null;
+      const highlights = block
+        .filter((line) => line !== dateLine && line !== title && line !== company)
+        .map((line) => normalizeString(line))
+        .filter((line): line is string => typeof line === "string" && line.length > 10)
+        .slice(0, 4);
+
+      return {
+        title: normalizeString(title),
+        company: normalizeString(company),
+        startDate,
+        endDate,
+        highlights,
+        scope: normalizeString([title, company].filter(Boolean).join(" at ")),
+        techStack: null,
+        impactHighlights: highlights.filter((line) =>
+          /\b(improved|reduced|built|designed|delivered|implemented|tested|led|owned|automated|optimized|developed|created|launched)\b/i.test(
+            line,
+          ),
+        ),
+        current: endDate ? looksCurrentValue(endDate) : null,
+        seniorityContribution: null,
+      };
+    })
+    .filter((item) => item.title || item.company || item.highlights.length || item.startDate || item.endDate)
+    .slice(0, 4);
+}
+
+function parseHeuristicEducation(lines: string[]): ParsedEducationItem[] {
+  const cleaned = lines.map((line) => stripListPrefix(line)).filter(Boolean);
+  if (!cleaned.length) return [];
+
+  const blocks: string[][] = [];
+  let currentBlock: string[] = [];
+
+  for (const line of cleaned) {
+    const startsNewBlock =
+      currentBlock.length > 0 &&
+      (
+        (looksLikeEducationInstitution(line) && currentBlock.some((item) => looksLikeEducationInstitution(item))) ||
+        (looksLikeDegreeLine(line) && currentBlock.some((item) => looksLikeDegreeLine(item)))
+      );
+
+    if (startsNewBlock) {
+      blocks.push(currentBlock);
+      currentBlock = [line];
+      continue;
+    }
+
+    currentBlock.push(line);
+  }
+
+  if (currentBlock.length) {
+    blocks.push(currentBlock);
+  }
+
+  return blocks
+    .map((block) => {
+      const institution = block.find((line) => looksLikeEducationInstitution(line)) ?? null;
+      const degree = block.find((line) => looksLikeDegreeLine(line)) ?? null;
+      const dateLine = block.find((line) => looksLikeDateRangeLine(line)) ?? null;
+      const { startDate, endDate } = splitDateRange(dateLine);
+      const fieldOfStudy = block
+        .filter((line) => line !== institution && line !== degree && line !== dateLine)
+        .map((line) => normalizeString(line))
+        .find((line): line is string => Boolean(line)) ?? null;
+      const confidence =
+        (institution ? 35 : 0) +
+        (degree ? 35 : 0) +
+        (fieldOfStudy ? 15 : 0) +
+        (startDate || endDate ? 15 : 0);
+
+      return {
+        institution: normalizeString(institution),
+        degree: normalizeString(degree),
+        fieldOfStudy,
+        startDate,
+        endDate,
+        confidence: confidence || null,
+      };
+    })
+    .filter((item) => item.institution || item.degree || item.fieldOfStudy)
+    .slice(0, 3);
+}
+
 function extractName(lines: string[]): { firstName: string | null; lastName: string | null } {
   for (const line of lines.slice(0, 6)) {
     if (/@|http|\d/.test(line)) continue;
@@ -1240,25 +1527,54 @@ function extractName(lines: string[]): { firstName: string | null; lastName: str
   return { firstName: null, lastName: null };
 }
 
+function findLikelyPhone(text: string): string | null {
+  const matches = text.match(/(?:\+?\d[\d\s().-]{8,}\d)/g) ?? [];
+  for (const match of matches) {
+    const digits = match.replace(/\D/g, "");
+    if (digits.length < 10 || digits.length > 15) continue;
+    if (/^(19|20)\d{6,}$/.test(digits)) continue;
+    const normalized = normalizePhone(match.replace(/\s{2,}/g, " ").trim());
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+function collectFallbackExperienceLines(lines: string[]): string[] {
+  const sectionLines = getSectionLines(lines, SECTION_HEADINGS.experience, 24);
+  if (sectionLines.length) return sectionLines;
+
+  return lines
+    .map((line) => stripListPrefix(line))
+    .filter((line): line is string => Boolean(line))
+    .filter((line) => looksLikeDateRangeLine(line) || looksLikeRoleLine(line) || looksLikeCompanyLine(line))
+    .slice(0, 28);
+}
+
+function collectFallbackEducationLines(lines: string[]): string[] {
+  const sectionLines = getSectionLines(lines, SECTION_HEADINGS.education, 12);
+  if (sectionLines.length) return sectionLines;
+
+  return lines
+    .map((line) => stripListPrefix(line))
+    .filter((line): line is string => Boolean(line))
+    .filter((line) => looksLikeEducationInstitution(line) || looksLikeDegreeLine(line))
+    .slice(0, 12);
+}
+
 function extractHeuristicCandidate(cvText: string): ParsedCandidate {
   const lines = getDocumentLines(cvText);
   const normalizedText = cvText.replace(/\u00a0/g, " ").trim();
   const { firstName, lastName } = extractName(lines);
   const email = normalizedText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] ?? null;
-  const phone = normalizePhone(
-    normalizedText
-      .match(/(?:\+?\d[\d\s().-]{8,}\d)/)?.[0]
-      ?.replace(/\s{2,}/g, " ")
-      .trim() ?? null,
-  );
+  const phone = findLikelyPhone(normalizedText);
   const yearsExperience =
     toNumber(normalizedText.match(/(\d{1,2})\+?\s+(?:years?|yrs?)/i)?.[1] ?? null) ??
     toNumber(normalizedText.match(/experience[^.\n]{0,20}(\d{1,2})/i)?.[1] ?? null);
   const skillsLines = getSectionLines(lines, SECTION_HEADINGS.skills);
   const languagesLines = getSectionLines(lines, SECTION_HEADINGS.languages, 6);
-  const educationLines = getSectionLines(lines, SECTION_HEADINGS.education, 6);
+  const educationLines = collectFallbackEducationLines(lines);
   const summaryLines = getSectionLines(lines, SECTION_HEADINGS.summary, 5);
-  const experienceLines = getSectionLines(lines, SECTION_HEADINGS.experience, 14);
+  const experienceLines = collectFallbackExperienceLines(lines);
 
   const currentTitle = extractLikelyTitle(lines);
 
@@ -1278,42 +1594,14 @@ function extractHeuristicCandidate(cvText: string): ParsedCandidate {
     ) ?? extractLanguagesFromBody(normalizedText);
 
   const education = normalizeString(educationLines.join(" | ")) ?? extractEducationFromBody(lines);
-  const summary = normalizeString(summaryLines.join(" "));
-  const parsedExperience = experienceLines.length
-    ? [
-        {
-          title: normalizeString(experienceLines[0]) ?? currentTitle,
-          company: normalizeString(experienceLines[1]),
-          startDate: normalizeString(
-            experienceLines.join(" ").match(/\b(?:19|20)\d{2}\b(?:\s*[-–]\s*\b(?:19|20)\d{2}\b|[-–]\s*present|\s*present)?/i)?.[0] ?? null,
-          ),
-          endDate: null,
-          highlights: experienceLines.slice(2, 7).map((line) => line.replace(/^[•\-–]\s*/, "")).filter(Boolean),
-          scope: null,
-          techStack: null,
-          impactHighlights: null,
-          current: null,
-          seniorityContribution: null,
-        },
-      ]
-    : [];
-
-  const parsedEducation = educationLines.length
-    ? [
-        {
-          institution: normalizeString(educationLines[0]),
-          degree: normalizeString(educationLines[1]),
-          fieldOfStudy: normalizeString(educationLines[2]),
-          startDate: null,
-          endDate: null,
-          confidence: null,
-        },
-      ]
-    : [];
+  const summaryCandidate = normalizeString(summaryLines.join(" "));
+  const summary = summaryCandidate && summaryCandidate.length <= 420 ? summaryCandidate : null;
+  const parsedExperience = parseHeuristicExperience(experienceLines);
+  const parsedEducation = parseHeuristicEducation(educationLines);
 
   const location =
     normalizeString(
-      normalizedText.match(/\b(?:Istanbul|İstanbul|Ankara|Izmir|İzmir|Bursa|Kocaeli|Antalya|Adana|Konya|Turkey|Türkiye|Remote)\b/i)?.[0] ??
+      normalizedText.match(/\b(?:Istanbul|İstanbul|Ankara|Izmir|İzmir|Bursa|Kocaeli|Antalya|Adana|Konya|Sancaktepe|Bağcılar|Remote)(?:,\s*(?:Turkey|Türkiye))?\b/i)?.[0] ??
         null,
     ) ??
     normalizeString(lines.find((line) => /^location[:\s-]/i.test(line))?.replace(/^location[:\s-]*/i, "") ?? null);
@@ -1331,7 +1619,24 @@ function extractHeuristicCandidate(cvText: string): ParsedCandidate {
   candidate.languages = languages;
   candidate.summary = summary;
   candidate.yearsExperience = yearsExperience;
-  candidate.parsedExperience = parsedExperience;
+  candidate.parsedExperience = parsedExperience.length
+    ? parsedExperience
+    : currentTitle
+      ? [
+          {
+            title: currentTitle,
+            company: null,
+            startDate: null,
+            endDate: null,
+            highlights: [],
+            scope: null,
+            techStack: null,
+            impactHighlights: null,
+            current: null,
+            seniorityContribution: null,
+          },
+        ]
+      : [];
   candidate.parsedEducation = parsedEducation;
   candidate.parseConfidence = Math.min(
     78,
@@ -1481,24 +1786,82 @@ function normalizeParsedCandidate(parsed: Record<string, unknown>, provider: str
 }
 
 async function extractTextFromPdfPrimary(buffer: Buffer): Promise<string> {
-  const pdfParseModule = (await import("pdf-parse")) as unknown as {
-    PDFParse?: new (options: { data: Buffer }) => {
-      getText: () => Promise<{ text?: string }>;
-      destroy?: () => Promise<void>;
-    };
-  };
-  const PDFParse = pdfParseModule.PDFParse;
+  const pdfjs = await loadPdfJs();
+  const document = await pdfjs.getDocument({
+    data: new Uint8Array(buffer),
+    useSystemFonts: true,
+    isEvalSupported: false,
+  }).promise;
+  const pages = Math.min(document.numPages, 6);
+  const chunks: string[] = [];
 
-  if (typeof PDFParse !== "function") {
-    throw new Error("pdf-parse PDFParse export is not available");
+  for (let index = 1; index <= pages; index += 1) {
+    const page = await document.getPage(index);
+    const content = await page.getTextContent();
+    const pageText = content.items
+      .map((item) => ("str" in item ? item.str : ""))
+      .join(" ");
+    if (pageText.trim()) {
+      chunks.push(pageText);
+    }
   }
 
-  const parser = new PDFParse({ data: buffer });
-  const data = await parser.getText();
-  await parser.destroy?.();
-  const text = (data?.text || "").trim();
+  const text = normalizeExtractedText(chunks.join("\n"));
   if (!text) {
     throw new Error("PDF contains no readable text");
+  }
+  return text;
+}
+
+async function recognizeImagesWithOcr(images: Buffer[]): Promise<string> {
+  const worker = await createWorker(OCR_LANGUAGES.join("+"));
+  try {
+    const chunks: string[] = [];
+    for (const image of images.slice(0, OCR_PAGE_LIMIT)) {
+      const result = await withTimeout(worker.recognize(image), OCR_TIMEOUT_MS, "OCR page recognition");
+      const text = normalizeExtractedText(result.data.text || "");
+      if (text) chunks.push(text);
+    }
+    return normalizeExtractedText(chunks.join("\n\n"));
+  } finally {
+    await worker.terminate();
+  }
+}
+
+async function extractTextFromPdfOcr(buffer: Buffer): Promise<string> {
+  const PDFParse = await loadPdfParse();
+  const parser = new PDFParse({ data: buffer });
+  try {
+    const screenshots = await parser.getScreenshot({
+      first: OCR_PAGE_LIMIT,
+      scale: OCR_RENDER_SCALE,
+      imageDataUrl: false,
+      imageBuffer: true,
+    });
+
+    const images = screenshots.pages
+      .map((page) => Buffer.from(page.data))
+      .filter((image) => image.length > 0);
+
+    if (!images.length) {
+      throw new Error("PDF OCR fallback could not render any pages");
+    }
+
+    const text = await recognizeImagesWithOcr(images);
+    if (!text) {
+      throw new Error("PDF OCR fallback found no readable text");
+    }
+
+    return text;
+  } finally {
+    await parser.destroy?.();
+  }
+}
+
+async function extractTextFromImageOcr(buffer: Buffer): Promise<string> {
+  const text = await recognizeImagesWithOcr([buffer]);
+  if (!text) {
+    throw new Error("Image OCR fallback found no readable text");
   }
   return text;
 }
@@ -1541,9 +1904,13 @@ async function extractTextFromPdfFallback(buffer: Buffer): Promise<string> {
 
 async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; debug: ExtractionDebug }> {
   let primaryError: unknown = null;
+  let fallbackError: unknown = null;
 
   try {
     const text = await withTimeout(extractTextFromPdfPrimary(buffer), PDF_EXTRACTION_TIMEOUT_MS, "Primary PDF extraction");
+    if (looksThinExtractedText(text)) {
+      throw new Error("PDF extraction returned too little readable text");
+    }
     const prepared = buildPrioritizedSourceText(text);
     return {
       text: prepared.text,
@@ -1562,6 +1929,9 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; debug
 
   try {
     const text = await withTimeout(extractTextFromPdfFallback(buffer), PDF_EXTRACTION_TIMEOUT_MS, "Fallback PDF extraction");
+    if (looksThinExtractedText(text)) {
+      throw new Error("Fallback PDF extraction returned too little readable text");
+    }
     const prepared = buildPrioritizedSourceText(text);
     return {
       text: prepared.text,
@@ -1576,12 +1946,33 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; debug
   } catch (fallbackError) {
     const primaryMessage = primaryError instanceof Error ? primaryError.message : String(primaryError || "");
     const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+    fallbackError = fallbackError;
+  }
+
+  try {
+    const text = await withTimeout(extractTextFromPdfOcr(buffer), OCR_TIMEOUT_MS, "PDF OCR extraction");
+    const prepared = buildPrioritizedSourceText(text);
+    return {
+      text: prepared.text,
+      debug: createExtractionDebug({
+        extractionMethod: "ocr",
+        extractionFallbackUsed: true,
+        extractionFailureClass: null,
+        sourceTextLength: prepared.sourceTextLength,
+        sourceTextTruncated: prepared.sourceTextTruncated,
+      }),
+    };
+  } catch (ocrError) {
+    const primaryMessage = primaryError instanceof Error ? primaryError.message : String(primaryError || "");
+    const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError || "");
+    const ocrMessage = ocrError instanceof Error ? ocrError.message : String(ocrError);
     const combinedError = new Error(
-      [primaryMessage && `primary=${primaryMessage}`, fallbackMessage && `fallback=${fallbackMessage}`]
+      [primaryMessage && `primary=${primaryMessage}`, fallbackMessage && `fallback=${fallbackMessage}`, ocrMessage && `ocr=${ocrMessage}`]
         .filter(Boolean)
         .join(" | ") || "PDF extraction failed",
     );
-    (combinedError as Error & { failureClass?: ExtractionFailureClass }).failureClass = classifyExtractionError(fallbackError || primaryError);
+    (combinedError as Error & { failureClass?: ExtractionFailureClass }).failureClass =
+      classifyExtractionError(ocrError || fallbackError || primaryError);
     throw combinedError;
   }
 }
@@ -1633,11 +2024,12 @@ async function parseWithOpenAiText(cvText: string): Promise<ParsedCandidate> {
   }
 
   const { client, models, provider } = config;
+  const activeModels = getActiveProviderModels(models);
   const systemPrompt = buildUniversalPrompt();
   const preparedText = buildPrioritizedSourceText(cvText).text;
   let lastError: Error | null = null;
 
-  for (const model of models) {
+  for (const model of activeModels) {
     try {
       const completion = await withTimeout(
         client.chat.completions.create({
@@ -1666,7 +2058,7 @@ async function parseWithOpenAiText(cvText: string): Promise<ParsedCandidate> {
       lastError = err instanceof Error ? err : new Error(String(err));
       const errorMsg = lastError.message;
       console.warn(`[CV Parse] provider=${provider} model=${model} failed: ${errorMsg}`);
-      if (errorMsg.includes("rate") || errorMsg.includes("429")) {
+      if (isRetryableProviderError(errorMsg)) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
@@ -1778,7 +2170,9 @@ function buildEnrichmentPrompt(candidate: ParsedCandidate, sourceText?: string) 
     "candidateStrengths and candidateRisks should each contain concise evidence-based bullets.",
     "notableAchievements should only include concrete work signals already present in the source.",
     "parsedExperience may be enriched with scope, techStack, impactHighlights, current, and seniorityContribution only when supported.",
+    "If parsedExperience has fewer than 2 entries but the source text clearly contains multiple role/date blocks, rebuild parsedExperience from that evidence.",
     "parsedEducation may be enriched with confidence only when support exists.",
+    "If parsedEducation is too thin but the source text clearly contains multiple education signals, rebuild parsedEducation from that evidence.",
     "languageItems should include name, level, confidence, and source.",
     "fieldConfidence should include contact, experience, education, languages, compensation, summary as 0-100 integers.",
     "Required JSON keys: summary, executiveHeadline, professionalSnapshot, domainFocus, senioritySignal, candidateStrengths, candidateRisks, notableAchievements, inferredWorkModel, locationFlexibility, salarySignal, languageItems, fieldConfidence, evidence, parsedExperience, parsedEducation, standardizedProfile.",
@@ -1798,10 +2192,11 @@ async function enrichWithOpenAi(candidate: ParsedCandidate, sourceText?: string)
   if (!config) return null;
 
   const { client, models, provider } = config;
+  const activeModels = getActiveProviderModels(models);
   const prompt = buildEnrichmentPrompt(candidate, sourceText);
   let lastError: Error | null = null;
 
-  for (const model of models) {
+  for (const model of activeModels) {
     try {
       const completion = await withTimeout(
         client.chat.completions.create({
@@ -1822,7 +2217,7 @@ async function enrichWithOpenAi(candidate: ParsedCandidate, sourceText?: string)
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       console.warn(`[CV Enrich] provider=${provider} model=${model} failed: ${lastError.message}`);
-      if (lastError.message.includes("rate") || lastError.message.includes("429")) {
+      if (isRetryableProviderError(lastError.message)) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
@@ -1936,27 +2331,33 @@ async function safeFinalizeResponse(
       ].filter(Boolean)),
     );
     const deterministic = buildDeterministicEnrichment(candidate);
-    const normalized = {
-      ...deterministic,
-      summary: normalizeString(deterministic.summary) ?? buildProfessionalSummary(deterministic),
-      executiveHeadline: normalizeString(deterministic.executiveHeadline) ?? buildExecutiveHeadline(deterministic),
-      professionalSnapshot: normalizeString(deterministic.professionalSnapshot) ?? buildProfessionalSnapshot(deterministic),
-      warnings: fallbackWarnings,
-      standardizedProfile: buildStandardizedProfile(deterministic),
-      extractionMethod: extractionDebug.extractionMethod,
-      extractionFallbackUsed: extractionDebug.extractionFallbackUsed,
-      extractionFailureClass: extractionDebug.extractionFailureClass,
-      sourceTextLength: extractionDebug.sourceTextLength,
-      sourceTextTruncated: extractionDebug.sourceTextTruncated,
-      parseReviewRequired: true,
-    };
-    normalized.parseStatus = deriveStatus(normalized);
-    const validated = CvParseResponseSchema.safeParse(normalized);
+    const sanitizedDeterministic = normalizeParsedCandidate(
+      {
+        ...deterministic,
+        summary: normalizeString(deterministic.summary) ?? buildProfessionalSummary(deterministic),
+        executiveHeadline: normalizeString(deterministic.executiveHeadline) ?? buildExecutiveHeadline(deterministic),
+        professionalSnapshot: normalizeString(deterministic.professionalSnapshot) ?? buildProfessionalSnapshot(deterministic),
+        warnings: fallbackWarnings,
+        standardizedProfile: buildStandardizedProfile(deterministic),
+        extractionMethod: extractionDebug.extractionMethod,
+        extractionFallbackUsed: extractionDebug.extractionFallbackUsed,
+        extractionFailureClass: extractionDebug.extractionFailureClass,
+        sourceTextLength: extractionDebug.sourceTextLength,
+        sourceTextTruncated: extractionDebug.sourceTextTruncated,
+        parseReviewRequired: true,
+      },
+      deterministic.parseProvider,
+    );
+    sanitizedDeterministic.parseStatus = deriveStatus(sanitizedDeterministic);
+    const validated = CvParseResponseSchema.safeParse(sanitizedDeterministic);
     if (validated.success) {
       return validated.data as ParsedCandidate;
     }
 
-    const empty = createEmptyParse(candidate.parseProvider, "CV parsing returned a partial result that still needs manual review.");
+    const empty = createEmptyParse(
+      candidate.parseProvider,
+      "CV parsing returned a partial result that still needs manual review.",
+    );
     empty.warnings = fallbackWarnings;
     empty.extractionMethod = extractionDebug.extractionMethod;
     empty.extractionFallbackUsed = extractionDebug.extractionFallbackUsed;
@@ -2081,6 +2482,17 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
         const pdfExtraction = await extractTextFromPdf(buffer);
         extractedText = pdfExtraction.text;
         extractionDebug = pdfExtraction.debug;
+      } else if (kind === "image") {
+        const imageText = await withTimeout(extractTextFromImageOcr(buffer), OCR_TIMEOUT_MS, "Image OCR extraction");
+        const prepared = buildPrioritizedSourceText(imageText);
+        extractedText = prepared.text;
+        extractionDebug = createExtractionDebug({
+          extractionMethod: "ocr",
+          extractionFallbackUsed: true,
+          extractionFailureClass: null,
+          sourceTextLength: prepared.sourceTextLength,
+          sourceTextTruncated: prepared.sourceTextTruncated,
+        });
       } else if (kind === "docx") {
         const docxExtraction = await extractTextFromDocx(buffer);
         extractedText = docxExtraction.text;
@@ -2100,18 +2512,6 @@ router.post("/", requireAuth, requireRole("vendor"), async (req: Request, res: R
     }
     if (extractionDebug.sourceTextTruncated) {
       warnings.push("Large resume text was trimmed to keep parsing responsive.");
-    }
-
-    if (!extractedText && kind === "image") {
-      res.json(
-        await safeFinalizeResponse(
-          createEmptyParse("image-fallback", "This image CV needs Gemini OCR or manual review."),
-          warnings,
-          undefined,
-          extractionDebug,
-        ),
-      );
-      return;
     }
 
     if (!extractedText) {
