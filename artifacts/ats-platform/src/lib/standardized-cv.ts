@@ -1,27 +1,57 @@
-import type { Candidate, CandidateParsedEducation, CandidateParsedExperience } from "@workspace/api-client-react";
+import type { Candidate, CandidateParsedEducation } from "@workspace/api-client-react";
 import { formatTurkishLira, getCandidateExecutiveBrief, parseCandidateTags } from "@/lib/candidate-display";
+import regularFontUrl from "pdfjs-dist/standard_fonts/LiberationSans-Regular.ttf?url";
+import boldFontUrl from "pdfjs-dist/standard_fonts/LiberationSans-Bold.ttf?url";
 
-function sectionText(title: string, lines: string[]) {
-  const body = lines.filter(Boolean).join("\n");
-  if (!body) return "";
-  return `${title}\n${body}`;
+type PdfFontPayload = {
+  regular: string;
+  bold: string;
+};
+
+let pdfFontPayloadPromise: Promise<PdfFontPayload> | null = null;
+
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+
+  return window.btoa(binary);
 }
 
-function experienceHighlightsToLines(experience: CandidateParsedExperience[]) {
-  return experience
-    .flatMap((item) => item.impactHighlights?.filter(Boolean) ?? item.highlights?.filter(Boolean) ?? [])
-    .map((line) => `• ${line}`)
-    .slice(0, 8);
+async function getPdfFontPayload(): Promise<PdfFontPayload> {
+  pdfFontPayloadPromise ??= (async () => {
+    const [regularBuffer, boldBuffer] = await Promise.all([
+      fetch(regularFontUrl).then(async (response) => {
+        if (!response.ok) throw new Error("Standardized CV font could not be loaded.");
+        return response.arrayBuffer();
+      }),
+      fetch(boldFontUrl).then(async (response) => {
+        if (!response.ok) throw new Error("Standardized CV bold font could not be loaded.");
+        return response.arrayBuffer();
+      }),
+    ]);
+
+    return {
+      regular: arrayBufferToBase64(regularBuffer),
+      bold: arrayBufferToBase64(boldBuffer),
+    };
+  })();
+
+  return pdfFontPayloadPromise;
 }
 
-function coreExperienceToLines(experience: CandidateParsedExperience[]) {
-  return experience.slice(0, 6).flatMap((item) => {
-    const header = [item.title, item.company].filter(Boolean).join(" @ ");
-    const dates = [item.startDate, item.endDate].filter(Boolean).join(" - ");
-    const scope = item.scope ? [`Scope: ${item.scope}`] : [];
-    const techStack = item.techStack?.length ? [`Tech stack: ${item.techStack.slice(0, 6).join(", ")}`] : [];
-    return [header, dates, ...scope, ...techStack].filter(Boolean);
-  });
+async function ensurePdfFonts(doc: any) {
+  const payload = await getPdfFontPayload();
+  doc.addFileToVFS("LiberationSans-Regular.ttf", payload.regular);
+  doc.addFileToVFS("LiberationSans-Bold.ttf", payload.bold);
+  doc.addFont("LiberationSans-Regular.ttf", "LiberationSans", "normal");
+  doc.addFont("LiberationSans-Bold.ttf", "LiberationSans", "bold");
+  doc.setFont("LiberationSans", "normal");
 }
 
 function educationToLines(education: CandidateParsedEducation[]) {
@@ -32,23 +62,31 @@ function educationToLines(education: CandidateParsedEducation[]) {
   );
 }
 
+function dedupe(values: Array<string | null | undefined>, limit = 8) {
+  return Array.from(new Set(values.map((value) => value?.trim()).filter(Boolean) as string[])).slice(0, limit);
+}
+
 async function buildStandardizedCandidatePdf(candidate: Candidate) {
   const { englishLevel } = parseCandidateTags(candidate.tags);
   const brief = getCandidateExecutiveBrief(candidate);
   const { default: jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "a4" });
-  const maxWidth = 515;
+  await ensurePdfFonts(doc);
+
+  const maxWidth = 505;
   const pageHeight = doc.internal.pageSize.getHeight();
   let y = 54;
 
   const ensurePage = (neededHeight: number) => {
     if (y + neededHeight <= pageHeight - 48) return;
     doc.addPage();
+    doc.setFont("LiberationSans", "normal");
     y = 54;
   };
 
   const startSecondPage = () => {
     doc.addPage();
+    doc.setFont("LiberationSans", "normal");
     y = 54;
   };
 
@@ -58,11 +96,11 @@ async function buildStandardizedCandidatePdf(candidate: Candidate) {
     const titleHeight = 18;
     const split = doc.splitTextToSize(lines.join("\n"), maxWidth) as string[];
     ensurePage(titleHeight + split.length * 15 + 14);
-    doc.setFont("helvetica", "bold");
+    doc.setFont("LiberationSans", "bold");
     doc.setFontSize(opts?.compact ? 12 : 13);
     doc.text(title, 48, y);
     y += titleHeight;
-    doc.setFont("helvetica", "normal");
+    doc.setFont("LiberationSans", "normal");
     doc.setFontSize(10.5);
     doc.text(split, 48, y);
     y += split.length * 15 + 10;
@@ -74,70 +112,73 @@ async function buildStandardizedCandidatePdf(candidate: Candidate) {
     const titleHeight = 18;
     const splitLines = lines.flatMap((item) => doc.splitTextToSize(`• ${item}`, maxWidth) as string[]);
     ensurePage(titleHeight + splitLines.length * 15 + 14);
-    doc.setFont("helvetica", "bold");
+    doc.setFont("LiberationSans", "bold");
     doc.setFontSize(opts?.compact ? 12 : 13);
     doc.text(title, 48, y);
     y += titleHeight;
-    doc.setFont("helvetica", "normal");
+    doc.setFont("LiberationSans", "normal");
     doc.setFontSize(10.5);
     doc.text(splitLines, 48, y);
     y += splitLines.length * 15 + 10;
   };
 
   doc.setFillColor(15, 23, 42);
-  doc.roundedRect(40, 34, 515, 108, 18, 18, "F");
+  doc.roundedRect(40, 34, 515, 116, 18, 18, "F");
   doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold");
+  doc.setFont("LiberationSans", "bold");
   doc.setFontSize(11);
   doc.text("RecruitFlow Executive Candidate Brief", 58, 58);
-  doc.setFontSize(23);
+  doc.setFontSize(22);
   doc.text(`${candidate.firstName} ${candidate.lastName}`, 58, 88);
-  doc.setFont("helvetica", "normal");
+  doc.setFont("LiberationSans", "normal");
   doc.setFontSize(10.5);
   doc.setTextColor(226, 232, 240);
-  doc.text(candidate.currentTitle || candidate.roleTitle || "Normalized candidate profile", 58, 108, { maxWidth: 320 });
+  doc.text(brief.headline || candidate.currentTitle || candidate.roleTitle || "Aday özeti", 58, 108, { maxWidth: 320 });
   doc.setFontSize(9.5);
-  doc.text(candidate.roleTitle ? `Submitted for ${candidate.roleTitle}` : "Prepared from the parsed candidate profile", 58, 124, { maxWidth: 320 });
+  doc.text(candidate.roleTitle ? `${candidate.roleTitle} rolü için hazırlandı` : "Yapılandırılmış aday profiline göre hazırlandı", 58, 126, {
+    maxWidth: 320,
+  });
   doc.setFillColor(30, 41, 59);
-  doc.roundedRect(422, 52, 116, 64, 14, 14, "F");
+  doc.roundedRect(422, 52, 116, 72, 14, 14, "F");
   doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold");
+  doc.setFont("LiberationSans", "bold");
   doc.setFontSize(20);
   doc.text(`${brief.fitScore}`, 438, 79);
   doc.setFontSize(9.5);
-  doc.text(brief.fitLabel, 438, 94, { maxWidth: 82 });
+  doc.text(brief.fitLabel, 438, 95, { maxWidth: 84 });
 
   doc.setTextColor(15, 23, 42);
-  y = 166;
+  y = 174;
 
-  const meta = [
+  const meta = dedupe([
     candidate.location || null,
     candidate.email,
     candidate.phone || null,
-    candidate.vendorCompanyName ? `Submitted by ${candidate.vendorCompanyName}` : null,
-  ].filter(Boolean);
+    candidate.vendorCompanyName ? `Gönderen ${candidate.vendorCompanyName}` : null,
+  ], 5);
 
   if (meta.length) {
-    doc.setFont("helvetica", "normal");
+    doc.setFont("LiberationSans", "normal");
     doc.setFontSize(10.5);
     doc.text(meta.join("  •  "), 48, y, { maxWidth });
     y += 24;
   }
 
-  const reviewLine = [
-    candidate.parseConfidence != null ? `Parse confidence ${candidate.parseConfidence}%` : null,
-    candidate.parseReviewRequired ? "Profile has a few open details to confirm" : "Profile is ready for stakeholder review",
-    candidate.expectedSalary != null ? `Expected salary ${formatTurkishLira(candidate.expectedSalary)}` : null,
-  ].filter(Boolean);
+  const reviewLine = dedupe([
+    candidate.parseConfidence != null ? `Parse güveni ${candidate.parseConfidence}%` : null,
+    brief.fitSummary,
+    candidate.expectedSalary != null ? `Ücret beklentisi ${formatTurkishLira(candidate.expectedSalary)}` : null,
+  ], 3);
+
   if (reviewLine.length) {
     doc.setFillColor(239, 246, 255);
-    doc.roundedRect(48, y - 12, 515, 30, 12, 12, "F");
+    doc.roundedRect(48, y - 12, 515, 38, 12, 12, "F");
     doc.setTextColor(30, 64, 175);
-    doc.setFont("helvetica", "bold");
+    doc.setFont("LiberationSans", "bold");
     doc.setFontSize(10);
-    doc.text(reviewLine.join("  •  "), 60, y + 6, { maxWidth: 490 });
+    doc.text(doc.splitTextToSize(reviewLine.join("  •  "), 490), 60, y + 4);
     doc.setTextColor(15, 23, 42);
-    y += 34;
+    y += 42;
   }
 
   writeBlock("Executive Headline", [brief.headline], { compact: true });
@@ -148,34 +189,58 @@ async function buildStandardizedCandidatePdf(candidate: Candidate) {
 
   startSecondPage();
 
-  writeBlock("Experience Highlights", experienceHighlightsToLines(candidate.parsedExperience));
-  writeBlock("Core Experience", coreExperienceToLines(candidate.parsedExperience));
+  writeBulletBlock("Experience Highlights", brief.experienceHighlights);
+
+  writeBlock(
+    "Core Experience Timeline",
+    brief.coreExperience.flatMap((item) => {
+      const lines = [item.header, item.timeline, item.scope];
+      if (item.techStack.length) {
+        lines.push(`Teknoloji seti: ${item.techStack.join(", ")}`);
+      }
+      return lines.filter((line): line is string => Boolean(line));
+    }),
+  );
+
   writeBlock("Education & Languages", [
     ...educationToLines(candidate.parsedEducation),
-    candidate.languages ? `Languages: ${candidate.languages}` : "",
-    englishLevel ? `English level: ${englishLevel}` : "",
+    candidate.languageItems?.length
+      ? `Diller: ${candidate.languageItems
+          .map((item) => [item.name, item.level].filter(Boolean).join(" "))
+          .filter(Boolean)
+          .join(", ")}`
+      : candidate.languages
+        ? `Diller: ${candidate.languages}`
+        : "",
+    englishLevel ? `İngilizce seviyesi: ${englishLevel}` : "",
   ]);
-  writeBlock("Compensation / Location / Work Model Snapshot", [
-    brief.locationFlexibility ? `Location: ${brief.locationFlexibility}` : "",
-    brief.workModel ? `Work model: ${brief.workModel}` : "",
-    brief.salarySignal ? brief.salarySignal : "",
-    candidate.yearsExperience != null ? `Years of experience: ${candidate.yearsExperience}` : "",
-  ]);
-  writeBulletBlock("Open Points", brief.riskFlags, { compact: true });
+
+  writeBlock("Compensation / Location / Work Model", dedupe([
+    brief.locationFlexibility ? `Lokasyon: ${brief.locationFlexibility}` : candidate.location ? `Lokasyon: ${candidate.location}` : null,
+    brief.workModel ? `Çalışma modeli: ${brief.workModel}` : null,
+    brief.salarySignal ? brief.salarySignal : candidate.expectedSalary != null ? `Ücret beklentisi: ${formatTurkishLira(candidate.expectedSalary)}` : null,
+    candidate.yearsExperience != null ? `Toplam deneyim: ${candidate.yearsExperience} yıl` : null,
+  ], 4));
+
+  writeBulletBlock("Open Points", brief.openPoints, { compact: true });
 
   if (candidate.fieldConfidence) {
-    writeBlock("Profile Confidence", [
+    writeBlock(
+      "Profile Confidence",
       [
-        candidate.fieldConfidence.contact != null ? `Contact ${candidate.fieldConfidence.contact}%` : null,
-        candidate.fieldConfidence.experience != null ? `Experience ${candidate.fieldConfidence.experience}%` : null,
-        candidate.fieldConfidence.education != null ? `Education ${candidate.fieldConfidence.education}%` : null,
-        candidate.fieldConfidence.languages != null ? `Languages ${candidate.fieldConfidence.languages}%` : null,
-        candidate.fieldConfidence.compensation != null ? `Compensation ${candidate.fieldConfidence.compensation}%` : null,
-        candidate.fieldConfidence.summary != null ? `Summary ${candidate.fieldConfidence.summary}%` : null,
-      ]
-        .filter(Boolean)
-        .join("  •  "),
-    ], { compact: true });
+        [
+          candidate.fieldConfidence.contact != null ? `İletişim ${candidate.fieldConfidence.contact}%` : null,
+          candidate.fieldConfidence.experience != null ? `Deneyim ${candidate.fieldConfidence.experience}%` : null,
+          candidate.fieldConfidence.education != null ? `Eğitim ${candidate.fieldConfidence.education}%` : null,
+          candidate.fieldConfidence.languages != null ? `Diller ${candidate.fieldConfidence.languages}%` : null,
+          candidate.fieldConfidence.compensation != null ? `Ücret ${candidate.fieldConfidence.compensation}%` : null,
+          candidate.fieldConfidence.summary != null ? `Brief ${candidate.fieldConfidence.summary}%` : null,
+        ]
+          .filter(Boolean)
+          .join("  •  "),
+      ],
+      { compact: true },
+    );
   }
 
   return doc;
@@ -191,7 +256,7 @@ export async function previewStandardizedCandidatePdf(candidate: Candidate) {
   const url = URL.createObjectURL(blob);
   const opened = window.open(url, "_blank", "noopener,noreferrer");
   if (!opened) {
-    throw new Error("The preview could not be opened. Please allow pop-ups and try again.");
+    throw new Error("Önizleme açılamadı. Lütfen pop-up iznini kontrol edip tekrar deneyin.");
   }
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

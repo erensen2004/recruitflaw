@@ -249,17 +249,26 @@ type CandidateExecutiveBrief = {
   fitLabel: string;
   fitSummary: string;
   headline: string;
+  summary: string | null;
   professionalSnapshot: string;
   domainFocus: string[];
   strengths: string[];
   riskFlags: string[];
   notableAchievements: string[];
+  experienceHighlights: string[];
+  openPoints: string[];
   normalizationNotes: string[];
   workModel: string | null;
   locationFlexibility: string | null;
   salarySignal: string | null;
   adminReady: boolean;
   spotlight: string;
+  coreExperience: Array<{
+    header: string;
+    timeline: string | null;
+    scope: string | null;
+    techStack: string[];
+  }>;
 };
 
 function normalizeKeywordSet(value?: string | null) {
@@ -304,6 +313,42 @@ function firstMeaningful(items: Array<string | null | undefined>) {
   return items.map((item) => item?.trim()).find((item): item is string => Boolean(item)) ?? null;
 }
 
+function formatNaturalList(values: string[], conjunction = "ve") {
+  if (values.length <= 1) return values[0] ?? "";
+  if (values.length === 2) return `${values[0]} ${conjunction} ${values[1]}`;
+  return `${values.slice(0, -1).join(", ")}, ${conjunction} ${values.at(-1)}`;
+}
+
+function uniqueStrings(values: Array<string | null | undefined>, maxItems = 6) {
+  return Array.from(new Set(values.map((value) => value?.trim()).filter(Boolean) as string[])).slice(0, maxItems);
+}
+
+function buildExperienceHighlights(input: CandidateIntelligenceInput) {
+  return uniqueStrings(
+    (input.parsedExperience ?? []).flatMap((item: any) => [
+      ...(item?.impactHighlights ?? []),
+      ...(item?.highlights ?? []),
+    ]),
+    6,
+  );
+}
+
+function buildCoreExperience(input: CandidateIntelligenceInput) {
+  return (input.parsedExperience ?? [])
+    .slice(0, 5)
+    .map((item: any) => {
+      const header = [item?.title, item?.company].filter(Boolean).join(" @ ");
+      const timeline = [item?.startDate, item?.endDate].filter(Boolean).join(" - ") || null;
+      return {
+        header: header || "Deneyim kaydı",
+        timeline,
+        scope: item?.scope ?? null,
+        techStack: (item?.techStack ?? []).filter(Boolean).slice(0, 6),
+      };
+    })
+    .filter((item) => item.header || item.timeline || item.scope || item.techStack.length);
+}
+
 export function getCandidateDecisionGuidance(input: CandidateIntelligenceInput) {
   const snapshot = getCandidateReadinessSnapshot(input);
   const completeness = snapshot.completeness;
@@ -311,32 +356,32 @@ export function getCandidateDecisionGuidance(input: CandidateIntelligenceInput) 
 
   if (!snapshot.contactReady || !snapshot.compensationReady) {
     return {
-      label: "Hold for profile completion",
+      label: "Profil tamamlanmalı",
       tone: "amber" as const,
-      body: "Key contact or compensation fields are still missing. Finalize the profile before pushing the candidate deeper into the pipeline.",
+      body: "İletişim veya ücret beklentisi gibi temel alanlar eksik. Profili daha ileri aşamaya taşımadan önce tamamlamak gerekir.",
     };
   }
 
   if (input.parseReviewRequired || confidence < 70 || !snapshot.experienceReady) {
     return {
-      label: "Sharpen profile before approval",
+      label: "Onay öncesi kısa temizlik gerekli",
       tone: "amber" as const,
-      body: "The profile has enough signal to continue, but experience structure and a few profile fields should be cleaned up before wider review.",
+      body: "Profilde yeterli sinyal var, ancak deneyim akışı ve birkaç alan wider paylaşım öncesinde toparlanmalı.",
     };
   }
 
   if (completeness >= 85 && confidence >= 80 && snapshot.languageReady) {
     return {
-      label: "Ready for client-facing review",
+      label: "Müşteri paylaşımına hazır",
       tone: "emerald" as const,
-      body: "The candidate record is complete, the parse quality is strong, and the profile is ready for fast stakeholder review.",
+      body: "Aday kaydı dolu, parse kalitesi güçlü ve profil hızlı stakeholder review için hazır.",
     };
   }
 
   return {
-    label: "Strong profile with a few open details",
+    label: "Güçlü profil, birkaç açık nokta var",
     tone: "blue" as const,
-    body: "The record looks solid overall and only needs a short polish pass to make the brief more persuasive.",
+    body: "Kayıt genel olarak güçlü görünüyor; daha ikna edici olması için kısa bir polish pass yeterli.",
   };
 }
 
@@ -345,49 +390,49 @@ export function getCandidateExecutiveBrief(input: CandidateIntelligenceInput): C
   const completeness = snapshot.completeness;
   const confidence = snapshot.confidence;
   const { englishLevel } = snapshot;
-  const domainFocus = (input.domainFocus ?? []).filter(Boolean).slice(0, 5);
+  const domainFocus = uniqueStrings([...(input.domainFocus ?? []), ...(input.parsedSkills ?? []).slice(0, 4)], 5);
   const headline =
     firstMeaningful([
       input.executiveHeadline,
       input.currentTitle,
-      input.roleTitle ? `${input.roleTitle} profile` : null,
-    ]) ?? "Candidate profile";
+      input.roleTitle ? `${input.roleTitle} için aday profili` : null,
+    ]) ?? "Aday profili";
 
-  const strengths = [
+  const strengths = uniqueStrings([
     ...(input.candidateStrengths ?? []),
-    input.currentTitle ? `${input.currentTitle} profile` : null,
-    input.yearsExperience != null ? `${input.yearsExperience} years of relevant experience` : null,
-    input.location ? `Based in ${input.location}` : null,
-    input.parsedSkills?.length ? `Strongest stack signals: ${input.parsedSkills.slice(0, 4).join(", ")}` : null,
+    input.currentTitle ? `${input.currentTitle} odağı net görünüyor` : null,
+    input.yearsExperience != null ? `${input.yearsExperience} yıllık ilgili deneyim sinyali var` : null,
+    input.location ? `${input.location} bazlı çalışıyor` : null,
+    input.parsedSkills?.length ? `Öne çıkan teknik alanlar: ${input.parsedSkills.slice(0, 4).join(", ")}` : null,
     snapshot.compensationReady ? snapshot.salaryLabel : null,
-    englishLevel ? `English level ${englishLevel}` : null,
-    input.parsedExperience?.length ? "Experience timeline is captured" : null,
-    input.parsedEducation?.length ? "Education history is captured" : null,
-  ].filter((item): item is string => Boolean(item));
+    englishLevel ? `İngilizce seviyesi ${englishLevel}` : null,
+    input.parsedExperience?.length ? "Deneyim zaman akışı belirgin" : null,
+    input.parsedEducation?.length ? "Eğitim geçmişi görünür durumda" : null,
+  ]);
 
-  const riskFlags = [
+  const riskFlags = uniqueStrings([
     ...(input.candidateRisks ?? []),
-    !input.phone ? "Missing phone number" : null,
-    input.expectedSalary == null ? "Compensation details are not available in the source CV" : null,
-    !input.parsedExperience?.length ? "Experience history needs a cleaner structure" : null,
-    !input.parsedEducation?.length ? "Education details remain limited" : null,
-    !input.parsedSkills?.length ? "Technical skills are still broad rather than specific" : null,
-    !englishLevel ? "English level is not explicitly confirmed" : null,
-    input.parseReviewRequired ? "A short profile cleanup pass is still recommended" : null,
-    confidence > 0 && confidence < 70 ? `Profile confidence is currently ${confidence}%` : null,
-  ].filter((item): item is string => Boolean(item));
+    !input.phone ? "Telefon numarası eksik" : null,
+    input.expectedSalary == null ? "Ücret beklentisi kaynak CV'de görünmüyor" : null,
+    !input.parsedExperience?.length ? "Deneyim geçmişi daha temiz yapılandırılmalı" : null,
+    !input.parsedEducation?.length ? "Eğitim bilgisi sınırlı kalmış" : null,
+    !input.parsedSkills?.length ? "Teknik yetenekler daha spesifik çıkarılmalı" : null,
+    !englishLevel ? "İngilizce seviyesi açık şekilde doğrulanmamış" : null,
+    input.parseReviewRequired ? "Kısa bir admin temizlik turu faydalı olur" : null,
+    confidence > 0 && confidence < 70 ? `Profil güven skoru şu an ${confidence}%` : null,
+  ]);
 
-  const normalizationNotes = [
-    input.phone ? null : "Confirm a phone number before client outreach.",
-    input.expectedSalary == null ? "Confirm compensation expectations if they matter for this role." : null,
+  const normalizationNotes = uniqueStrings([
+    input.phone ? null : "Müşteri paylaşımı öncesi telefon numarası doğrulanmalı.",
+    input.expectedSalary == null ? "Rol için önemliyse ücret beklentisi ayrıca teyit edilmeli." : null,
     input.professionalSnapshot || input.summary || input.standardizedProfile
       ? null
-      : "Add a stronger recruiter-ready summary before sharing the profile widely.",
-    input.parsedExperience?.length ? null : "Tighten the experience timeline so the brief reads more clearly.",
-    input.parsedEducation?.length ? null : "Add clearer education details if they are available in the source CV.",
-    englishLevel ? null : "Confirm language proficiency before a final stakeholder review.",
-    input.parseReviewRequired ? "A quick internal review will make the brief cleaner." : null,
-  ].filter((item): item is string => Boolean(item));
+      : "Paylaşım öncesi daha güçlü bir recruiter özeti eklenmeli.",
+    input.parsedExperience?.length ? null : "Deneyim akışı netleştirilirse brief daha ikna edici olur.",
+    input.parsedEducation?.length ? null : "Varsa eğitim bilgisi daha açık yazılmalı.",
+    englishLevel ? null : "Son stakeholder review öncesi dil yetkinliği netleştirilmeli.",
+    input.parseReviewRequired ? "Kısa bir iç gözden geçirme brief kalitesini artırır." : null,
+  ]);
 
   const roleKeywords = normalizeKeywordSet(input.roleTitle);
   const titleKeywords = normalizeKeywordSet(input.currentTitle);
@@ -395,20 +440,34 @@ export function getCandidateExecutiveBrief(input: CandidateIntelligenceInput): C
   const overlap = [...roleKeywords].filter((keyword) => titleKeywords.has(keyword) || skillKeywords.has(keyword));
   const overlapSummary = firstMeaningful([
     input.professionalSnapshot,
-    overlap.length ? `Strongest alignment appears around ${overlap.slice(0, 3).join(", ")}.` : null,
+    overlap.length ? `Rol uyumu en çok ${overlap.slice(0, 3).join(", ")} tarafında görünüyor.` : null,
     input.currentTitle && input.roleTitle
-      ? `${input.currentTitle} background appears relevant to the submitted ${input.roleTitle} opening.`
+      ? `${input.currentTitle} geçmişi, sunulan ${input.roleTitle} rolüyle anlamlı uyum gösteriyor.`
       : null,
-    input.currentTitle ? `${input.currentTitle} experience gives the profile a clear technical direction.` : null,
-    input.parsedSkills?.length ? `Structured skills make the profile easy to review quickly.` : null,
-    "The profile is clear enough for stakeholder review, with a few details still worth confirming.",
+    input.currentTitle ? `${input.currentTitle} deneyimi profile net bir teknik yön veriyor.` : null,
+    input.parsedSkills?.length ? `Yapılandırılmış yetenekler profili hızlı review için okunur kılıyor.` : null,
+    "Profil stakeholder review için yeterince net; yalnızca birkaç detay teyit edilirse daha güçlü olur.",
   ])!;
+  const summary = firstMeaningful([
+    input.summary,
+    overlapSummary,
+  ]);
   const professionalSnapshot = firstMeaningful([
     input.professionalSnapshot,
-    mergeUniqueSentences([input.summary?.trim(), overlapSummary]),
-    input.summary,
+    mergeUniqueSentences([summary?.trim(), overlapSummary]),
+    summary,
     input.standardizedProfile,
-  ]) ?? "Candidate profile summary is still being normalized.";
+  ]) ?? "Aday özeti şu anda normalize ediliyor.";
+  const experienceHighlights = uniqueStrings([
+    ...buildExperienceHighlights(input),
+    ...(input.notableAchievements ?? []),
+  ], 6);
+  const notableAchievements = uniqueStrings([
+    ...(input.notableAchievements ?? []),
+    ...buildExperienceHighlights(input),
+  ], 4);
+  const openPoints = riskFlags.slice(0, 4);
+  const coreExperience = buildCoreExperience(input);
 
   let fitScore = 30;
   fitScore += Math.min(18, Math.round(completeness * 0.18));
@@ -425,27 +484,35 @@ export function getCandidateExecutiveBrief(input: CandidateIntelligenceInput): C
 
   const fitLabel =
     fitScore >= 85 && !input.parseReviewRequired
-      ? "Executive-ready profile"
+      ? "Üst düzey review için hazır"
       : fitScore >= 70
-        ? "Strong fit for review"
+        ? "Güçlü review adayı"
         : fitScore >= 55
-          ? "Clear profile with open points"
-          : "Needs profile cleanup";
+          ? "Açık noktaları olan net profil"
+          : "Profil temizliği gerekli";
 
   return {
     fitScore,
     fitLabel,
-    fitSummary: overlapSummary,
+    fitSummary:
+      fitScore >= 80
+        ? "Profil recruiter açısından güçlü okunuyor ve kısa sürede karar vermeyi kolaylaştırıyor."
+        : fitScore >= 65
+          ? "Profilde işe yarar sinyal var; birkaç açık nokta kapatılırsa çok daha güçlü görünür."
+          : "Profil paylaşılabilir durumda, ancak ikna gücü için ek temizlik gerekiyor.",
     headline,
+    summary,
     professionalSnapshot,
     domainFocus,
-    strengths: strengths.slice(0, 6),
-    riskFlags: riskFlags.slice(0, 6),
-    notableAchievements: (input.notableAchievements ?? []).filter(Boolean).slice(0, 4),
-    normalizationNotes: normalizationNotes.slice(0, 5),
+    strengths,
+    riskFlags,
+    notableAchievements,
+    experienceHighlights,
+    openPoints,
+    normalizationNotes,
     workModel: input.inferredWorkModel ?? null,
     locationFlexibility: input.locationFlexibility ?? null,
-    salarySignal: input.salarySignal ?? (snapshot.compensationReady ? `Compensation: ${snapshot.salaryLabel}` : null),
+    salarySignal: input.salarySignal ?? (snapshot.compensationReady ? `Ücret: ${snapshot.salaryLabel}` : null),
     adminReady: fitScore >= 80 && !input.parseReviewRequired && completeness >= 80 && confidence >= 70,
     spotlight: firstMeaningful([
       input.executiveHeadline,
@@ -453,6 +520,7 @@ export function getCandidateExecutiveBrief(input: CandidateIntelligenceInput): C
       input.roleTitle,
       strengths[0],
       strengths[1],
-    ]) ?? "Candidate profile",
+    ]) ?? "Aday profili",
+    coreExperience,
   };
 }
