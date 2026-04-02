@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import OpenAI from "openai";
 import mammoth from "mammoth";
+import JSZip from "jszip";
 import { PdfReader } from "pdfreader";
 import { createWorker } from "tesseract.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
@@ -80,12 +81,13 @@ const NULLISH_STRINGS = new Set([
 const SECTION_HEADINGS = {
   skills: ["skills", "technical skills", "core skills", "competencies", "yetkinlikler", "beceriler"],
   experience: ["experience", "work experience", "professional experience", "employment", "work history", "deneyim"],
-  education: ["education", "academic background", "qualifications", "egitim", "öğrenim"],
-  languages: ["languages", "language", "diller", "dil"],
+  education: ["education", "academic background", "qualifications", "egitim", "öğrenim", "academic history", "training"],
+  languages: ["languages", "language", "diller", "dil", "foreign languages", "yabanci dil", "yabancı dil", "yabanci diller", "yabancı diller"],
   summary: ["summary", "profile", "objective", "professional summary", "about", "özet", "profil"],
 } as const;
 
 const ALL_SECTION_HEADINGS = Object.values(SECTION_HEADINGS).flat() as string[];
+const ALL_SECTION_HEADINGS_NORMALIZED = ALL_SECTION_HEADINGS.map((heading) => normalizeComparableText(heading));
 
 type ParsedExperienceItem = {
   company: string | null;
@@ -218,10 +220,34 @@ const TITLE_HINT_REGEX =
 const COMPANY_HINT_REGEX =
   /\b(a\.?s\.?|ltd|limited|inc|corp|company|technology|technologies|teknoloji|yazılım|yazilim|software|systems|solutions|robotics|bank|holding|university|üniversitesi|university|group)\b/i;
 const DEGREE_HINT_REGEX =
-  /\b(bachelor|master|degree|diploma|associate|lisans|yüksek lisans|önlisans|ön lisans|m.s.|b.s.|mba|phd|doctorate)\b/i;
-const INSTITUTION_HINT_REGEX = /\b(university|üniversite|faculty|fakülte|institute|school|college|academy|lise)\b/i;
+  /\b(bachelor|master|degree|diploma|associate|lisans|yüksek lisans|onlisans|önlisans|ön lisans|m\.s\.|b\.s\.|mba|phd|doctorate|ön lisans|sertifika|certificate|bootcamp|bolum|bölüm|department)\b/i;
+const INSTITUTION_HINT_REGEX = /\b(university|universite|üniversite|faculty|fakulte|fakülte|institute|school|college|academy|lise|high school|meslek lisesi)\b/i;
 const DATE_RANGE_REGEX =
   /(?:(?:0?[1-9]|1[0-2])\s*[./-]\s*)?(?:19|20)\d{2}\s*[-–]\s*(?:present|current|now|devam|halen|ongoing|(?:(?:0?[1-9]|1[0-2])\s*[./-]\s*)?(?:19|20)\d{2})/i;
+const LANGUAGE_ALIAS_MAP = {
+  English: ["english", "ingilizce", "ingilizce"],
+  Turkish: ["turkish", "turkce", "turkce", "turkish native"],
+  German: ["german", "almanca"],
+  French: ["french", "fransizca", "fransizca"],
+  Arabic: ["arabic", "arapca", "arapca"],
+  Russian: ["russian", "rusca", "rusca"],
+  Spanish: ["spanish", "ispanyolca"],
+} as const;
+const LANGUAGE_LEVEL_ALIASES: Record<string, string> = {
+  native: "Native",
+  "ana dil": "Native",
+  anadil: "Native",
+  fluent: "Fluent",
+  professional: "Professional",
+  advanced: "Advanced",
+  ileri: "Advanced",
+  intermediate: "Intermediate",
+  orta: "Intermediate",
+  basic: "Basic",
+  beginner: "Basic",
+  temel: "Basic",
+  elementary: "Basic",
+};
 
 function getConfiguredModels(): string[] {
   const configured =
@@ -780,6 +806,15 @@ function normalizeExtractedText(rawText: string): string {
     .trim();
 }
 
+function normalizeComparableText(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ı/g, "i")
+    .replace(/İ/g, "I")
+    .toLowerCase();
+}
+
 function looksThinExtractedText(text: string): boolean {
   return normalizeExtractedText(text).length < OCR_MIN_TEXT_CHARS;
 }
@@ -832,7 +867,7 @@ function buildPrioritizedSourceText(text: string): { text: string; sourceTextLen
     if (/@/.test(line) || /\+?\d[\d\s().-]{7,}\d/.test(line) || /linkedin|github|portfolio|www\./i.test(line)) {
       addWindow(index, 0, 0);
     }
-    if (ALL_SECTION_HEADINGS.some((heading) => lowered.includes(heading.toLowerCase()))) {
+    if (ALL_SECTION_HEADINGS_NORMALIZED.some((heading) => normalizeComparableText(lowered).includes(heading))) {
       addWindow(index, 0, 8);
     }
   });
@@ -867,6 +902,29 @@ function createExtractionDebug(partial?: Partial<ExtractionDebug>): ExtractionDe
 
 function stripListPrefix(line: string): string {
   return line.replace(/^[•*+\-–]\s*/, "").trim();
+}
+
+function stripHeadingPrefix(line: string, headings: readonly string[]): string | null {
+  const normalizedLine = line.trim();
+  const comparableLine = normalizeComparableText(normalizedLine);
+
+  for (const heading of headings) {
+    const comparableHeading = normalizeComparableText(heading);
+    if (comparableLine === comparableHeading) {
+      return null;
+    }
+    if (comparableLine.startsWith(`${comparableHeading}:`)) {
+      return normalizeString(normalizedLine.slice(heading.length + 1));
+    }
+    if (comparableLine.startsWith(`${comparableHeading} -`)) {
+      return normalizeString(normalizedLine.slice(heading.length + 2));
+    }
+    if (comparableLine.startsWith(`${comparableHeading} `)) {
+      return normalizeString(normalizedLine.slice(heading.length + 1));
+    }
+  }
+
+  return null;
 }
 
 function looksLikeDateRangeLine(line?: string | null): boolean {
@@ -1006,7 +1064,7 @@ function getEducationSummary(candidate: ParsedCandidate): string | null {
 }
 
 function getLanguagesSummary(candidate: ParsedCandidate): string[] {
-  const explicitItems = candidate.languageItems
+  const explicitItems = deriveLanguageItems(candidate)
     .map((item) => {
       if (!item.name) return null;
       return item.level ? `${item.name} (${item.level})` : item.name;
@@ -1099,7 +1157,7 @@ function extractLikelyTitle(lines: string[]): string | null {
     if (!line || /@|http|linkedin|github|\d{5,}/i.test(line)) continue;
     if (line.length > 90) continue;
     const normalized = normalizeHeading(line);
-    if (ALL_SECTION_HEADINGS.includes(normalized)) continue;
+    if (ALL_SECTION_HEADINGS_NORMALIZED.includes(normalized)) continue;
     const compact = normalizeString(line.split(/\s*[|•·]\s*/)[0] ?? line);
     if (compact && compact.length <= 80 && titleKeywords.test(compact)) {
       return compact;
@@ -1115,22 +1173,16 @@ function extractLikelyTitle(lines: string[]): string | null {
 }
 
 function extractLanguagesFromBody(text: string): string | null {
-  const knownLanguages = [
-    "English",
-    "Turkish",
-    "German",
-    "French",
-    "Arabic",
-    "Russian",
-    "Spanish",
-  ];
-  const matches = knownLanguages.filter((language) => new RegExp(`\\b${language}\\b`, "i").test(text));
+  const comparable = normalizeComparableText(text);
+  const matches = Object.entries(LANGUAGE_ALIAS_MAP)
+    .filter(([, aliases]) => aliases.some((alias) => comparable.includes(normalizeComparableText(alias))))
+    .map(([language]) => language);
   return matches.length ? Array.from(new Set(matches)).join(", ") : null;
 }
 
 function extractEducationFromBody(lines: string[]): string | null {
   const educationKeywords =
-    /\b(university|college|institute|school|bachelor|master|degree|diploma|lise|üniversite|faculty)\b/i;
+    /\b(university|college|institute|school|bachelor|master|degree|diploma|lise|üniversite|faculty|fakülte|department|bolum|bölüm|gpa|cgpa|high school|meslek lisesi)\b/i;
   const matches = lines.filter((line) => educationKeywords.test(line)).slice(0, 3);
   return matches.length ? matches.join(" | ") : null;
 }
@@ -1249,48 +1301,121 @@ function deriveDomainFocus(candidate: ParsedCandidate): string[] {
 }
 
 function deriveLanguageItems(candidate: ParsedCandidate): ParsedLanguageItem[] {
-  const raw = normalizeString(candidate.languages);
-  if (!raw) return [];
+  const seedItems = normalizeLanguageItems(candidate.languageItems);
+  const seeds = seedItems
+    .map((item) => ({
+      name: normalizeString(item.name),
+      level: normalizeString(item.level),
+      confidence: item.confidence ?? 82,
+      source: item.source ?? "model",
+    }))
+    .filter((item) => item.name);
 
-  return dedupeList(
-    raw
-      .split(/,|\/|\||•|·/)
-      .map((item) => normalizeString(item))
-      .filter((item): item is string => Boolean(item)),
-  )
+  const rawParts = dedupeList(
+    [candidate.languages ?? null, ...seedItems.map((item) => item.name)]
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      .flatMap((value) =>
+        value
+          .split(/,|\/|\||•|·|;|\n/)
+          .map((item) => normalizeString(item))
+          .filter((item): item is string => Boolean(item)),
+      ),
+  );
+
+  const parsed = rawParts
     .map((entry) => {
-      const levelMatch = entry.match(/^(.*?)(?:\s*[:(-]\s*|\s+)(A1|A2|B1|B2|C1|C2|native|fluent|professional|advanced|intermediate|basic)(?:\)|\s*)?$/i);
-      if (levelMatch) {
-        return {
-          name: normalizeString(levelMatch[1]),
-          level: normalizeString(levelMatch[2]),
-          confidence: 86,
-          source: "parsed-text",
-        };
-      }
+      const comparable = normalizeComparableText(entry);
+      const matchedLanguage = Object.entries(LANGUAGE_ALIAS_MAP).find(([, aliases]) =>
+        aliases.some((alias) => comparable.includes(normalizeComparableText(alias))),
+      )?.[0] ?? normalizeString(entry);
+      const levelMatch = comparable.match(/\b(a1|a2|b1|b2|c1|c2|native|fluent|professional|advanced|intermediate|basic|beginner|elementary|ana dil|anadil|ileri|orta|temel)\b/i);
+      const normalizedLevel = levelMatch ? LANGUAGE_LEVEL_ALIASES[levelMatch[1]!.toLowerCase()] ?? levelMatch[1]!.toUpperCase() : null;
 
       return {
-        name: entry,
-        level: null,
-        confidence: 70,
+        name: matchedLanguage,
+        level: normalizedLevel,
+        confidence: normalizedLevel ? 86 : 72,
         source: "parsed-text",
       };
     })
     .filter((item) => item.name);
+
+  const merged = [...seeds, ...parsed];
+  const seen = new Set<string>();
+  const result: ParsedLanguageItem[] = [];
+
+  for (const item of merged) {
+    const name = normalizeString(item.name);
+    if (!name) continue;
+    const key = normalizeComparableText(name);
+    if (seen.has(key)) {
+      const existing = result.find((entry) => normalizeComparableText(entry.name || "") === key);
+      if (existing && !existing.level && item.level) {
+        existing.level = item.level;
+        existing.confidence = Math.max(existing.confidence ?? 0, item.confidence ?? 0);
+      }
+      continue;
+    }
+    seen.add(key);
+    result.push({
+      name,
+      level: normalizeString(item.level),
+      confidence: item.confidence ?? 72,
+      source: item.source ?? "parsed-text",
+    });
+  }
+
+  return result;
 }
 
 function buildFieldConfidence(candidate: ParsedCandidate): ParsedFieldConfidence {
-  const base = candidate.parseConfidence ?? 50;
-  const score = (boost: number, penalty = 0) => Math.max(15, Math.min(100, Math.round(base + boost - penalty)));
-
+  const contactSignals = [candidate.email, candidate.phone].filter(Boolean).length;
+  const experienceSignals = candidate.parsedExperience.length;
+  const experienceRichSignals = candidate.parsedExperience.filter(
+    (item) => (item.highlights?.length ?? 0) > 0 || item.scope || (item.techStack?.length ?? 0) > 0,
+  ).length;
+  const educationSignals = candidate.parsedEducation.length;
+  const languageSignals = deriveLanguageItems(candidate).length;
+  const summarySignals = [
+    normalizeString(candidate.summary),
+    normalizeString(candidate.executiveHeadline),
+    normalizeString(candidate.professionalSnapshot),
+  ].filter(Boolean).length;
   return {
-    contact: score(candidate.email ? 12 : -10, candidate.phone ? 0 : 14),
-    experience: score(candidate.parsedExperience.length ? 8 : -12, candidate.parsedExperience.length >= 2 ? 0 : 10),
-    education: score(candidate.parsedEducation.length ? 6 : -8),
-    languages: score(candidate.languages || candidate.languageItems.length ? 5 : -10),
-    compensation: score(candidate.expectedSalary != null ? 6 : -12),
-    summary: score(candidate.summary ? 8 : -12, candidate.standardizedProfile ? 0 : 6),
+    contact:
+      contactSignals === 2
+        ? 96
+        : contactSignals === 1
+          ? 62
+          : 12,
+    experience: Math.min(98, 28 + experienceSignals * 18 + experienceRichSignals * 10),
+    education:
+      educationSignals > 0
+        ? Math.min(94, 30 + educationSignals * 18)
+        : candidate.education
+          ? 42
+          : 10,
+    languages:
+      languageSignals > 0
+        ? Math.min(92, 34 + languageSignals * 16)
+        : candidate.languages
+          ? 40
+          : 12,
+    compensation: candidate.expectedSalary != null ? 78 : 18,
+    summary: Math.min(94, 24 + summarySignals * 24 + (candidate.standardizedProfile ? 10 : 0)),
   };
+}
+
+function computeParseConfidence(candidate: ParsedCandidate): number {
+  const fieldConfidence = candidate.fieldConfidence ?? buildFieldConfidence(candidate);
+  const weightedTotal =
+    (fieldConfidence.contact ?? 0) * 0.22 +
+    (fieldConfidence.experience ?? 0) * 0.28 +
+    (fieldConfidence.education ?? 0) * 0.12 +
+    (fieldConfidence.languages ?? 0) * 0.08 +
+    (fieldConfidence.compensation ?? 0) * 0.05 +
+    (fieldConfidence.summary ?? 0) * 0.25;
+  return Math.max(8, Math.min(98, Math.round(weightedTotal)));
 }
 
 function enrichExperienceItems(candidate: ParsedCandidate): ParsedExperienceItem[] {
@@ -1420,6 +1545,9 @@ function buildDeterministicEnrichment(candidate: ParsedCandidate): ParsedCandida
   const enrichedExperience = enrichExperienceItems(candidate);
   const enrichedEducation = enrichEducationItems(candidate);
   const languageItems = deriveLanguageItems(candidate);
+  const derivedLanguages = dedupeList(
+    languageItems.map((item) => item.level ? `${item.name} (${item.level})` : item.name).filter((item): item is string => Boolean(item)),
+  ).join(", ");
   const domainFocus = mergeEvidenceBackedLists(candidate.domainFocus, deriveDomainFocus(candidate));
   const notableAchievements = mergeEvidenceBackedLists(
     candidate.notableAchievements,
@@ -1467,10 +1595,12 @@ function buildDeterministicEnrichment(candidate: ParsedCandidate): ParsedCandida
     ].filter((value): value is string => Boolean(value)),
   );
 
-  return {
+  const enrichedCandidate: ParsedCandidate = {
     ...candidate,
     parsedExperience: enrichedExperience,
     parsedEducation: enrichedEducation,
+    education: candidate.education ?? getEducationSummary({ ...candidate, parsedEducation: enrichedEducation } as ParsedCandidate),
+    languages: candidate.languages ?? (derivedLanguages || null),
     languageItems,
     fieldConfidence,
     executiveHeadline: candidate.executiveHeadline ?? buildExecutiveHeadline(candidate),
@@ -1485,6 +1615,9 @@ function buildDeterministicEnrichment(candidate: ParsedCandidate): ParsedCandida
     salarySignal: candidate.salarySignal ?? inferSalarySignal(candidate),
     evidence,
   };
+
+  enrichedCandidate.parseConfidence = computeParseConfidence(enrichedCandidate);
+  return enrichedCandidate;
 }
 
 function hasUsefulSignals(candidate: ParsedCandidate): boolean {
@@ -1502,7 +1635,7 @@ function hasUsefulSignals(candidate: ParsedCandidate): boolean {
 }
 
 function normalizeHeading(line: string): string {
-  return line.toLowerCase().replace(/[:\-\u2022]/g, " ").replace(/\s+/g, " ").trim();
+  return normalizeComparableText(line).replace(/[:\-\u2022]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function getDocumentLines(text: string): string[] {
@@ -1551,15 +1684,25 @@ function buildPrioritizedResumeText(text: string, maxChars: number): { text: str
 function getSectionLines(lines: string[], headings: readonly string[], maxLines = 12): string[] {
   const startIndex = lines.findIndex((line) => {
     const normalized = normalizeHeading(line);
-    return headings.some((heading) => normalized === heading || normalized.startsWith(`${heading} `));
+    return headings.some((heading) => {
+      const normalizedHeading = normalizeComparableText(heading);
+      return normalized === normalizedHeading || normalized.startsWith(`${normalizedHeading} `);
+    });
   });
   if (startIndex === -1) return [];
 
   const collected: string[] = [];
+  const inlineContent = stripHeadingPrefix(lines[startIndex] ?? "", headings);
+  if (inlineContent) {
+    collected.push(inlineContent);
+    if (collected.length >= maxLines) {
+      return collected;
+    }
+  }
   for (let index = startIndex + 1; index < lines.length; index += 1) {
     const line = lines[index];
     const normalized = normalizeHeading(line);
-    const isAnotherHeading = ALL_SECTION_HEADINGS.some(
+    const isAnotherHeading = ALL_SECTION_HEADINGS_NORMALIZED.some(
       (heading) => normalized === heading || normalized.startsWith(`${heading} `),
     );
     if (isAnotherHeading) break;
@@ -1813,17 +1956,14 @@ function extractHeuristicCandidate(cvText: string): ParsedCandidate {
         ]
       : [];
   candidate.parsedEducation = parsedEducation;
-  candidate.parseConfidence = Math.min(
-    78,
-    (candidate.firstName || candidate.lastName ? 20 : 0) +
-      (candidate.email ? 20 : 0) +
-      (candidate.phone ? 12 : 0) +
-      (candidate.currentTitle ? 8 : 0) +
-      (candidate.parsedSkills.length ? 8 : 0) +
-      (candidate.summary ? 5 : 0) +
-      (candidate.parsedExperience.length ? 3 : 0) +
-      (candidate.parsedEducation.length ? 2 : 0),
-  );
+  if (!candidate.email && !candidate.phone) {
+    candidate.warnings.push("Resume does not clearly expose contact details in the extracted text.");
+  }
+  if (!candidate.parsedEducation.length && !candidate.education) {
+    candidate.warnings.push("Education details are not clearly present in the extracted text.");
+  }
+  candidate.fieldConfidence = buildFieldConfidence(candidate);
+  candidate.parseConfidence = computeParseConfidence(candidate);
   candidate.parseStatus = hasUsefulSignals(candidate) ? "partial" : "failed";
   candidate.parseReviewRequired = true;
   candidate.standardizedProfile = buildStandardizedProfile(candidate);
@@ -1866,7 +2006,7 @@ function mergeParsedCandidates(primary: ParsedCandidate, fallback: ParsedCandida
     parsedSkills: primary.parsedSkills.length ? primary.parsedSkills : fallback.parsedSkills,
     parsedExperience: primary.parsedExperience.length ? primary.parsedExperience : fallback.parsedExperience,
     parsedEducation: primary.parsedEducation.length ? primary.parsedEducation : fallback.parsedEducation,
-    parseConfidence: Math.max(primary.parseConfidence ?? 0, fallback.parseConfidence ?? 0),
+    parseConfidence: primary.parseConfidence ?? fallback.parseConfidence ?? 0,
     parseReviewRequired: primary.parseReviewRequired || fallback.parseReviewRequired,
     parseStatus:
       primary.parseStatus === "parsed"
@@ -1881,6 +2021,9 @@ function mergeParsedCandidates(primary: ParsedCandidate, fallback: ParsedCandida
     merged.summary = buildFallbackSummary(merged);
   }
 
+  merged.fieldConfidence = merged.fieldConfidence ?? buildFieldConfidence(merged);
+  merged.parseConfidence = computeParseConfidence(merged);
+
   return merged;
 }
 
@@ -1889,6 +2032,15 @@ function normalizeParsedCandidate(parsed: Record<string, unknown>, provider: str
   const parsedExperience = normalizeExperience(parsed.parsedExperience ?? parsed.experience);
   const parsedEducation = normalizeEducation(parsed.parsedEducation ?? parsed.educationItems);
   const languageItems = normalizeLanguageItems(parsed.languageItems);
+  const normalizedLanguages =
+    normalizeString(parsed.languages) ??
+    (languageItems.length
+      ? dedupeList(
+          languageItems
+            .map((item) => item.level ? `${item.name} (${item.level})` : item.name)
+            .filter((item): item is string => Boolean(item)),
+        ).join(", ")
+      : null);
   const parseConfidenceRaw = toNumber(parsed.parseConfidence);
 
   const candidate: ParsedCandidate = {
@@ -1902,7 +2054,7 @@ function normalizeParsedCandidate(parsed: Record<string, unknown>, provider: str
     location: normalizeString(parsed.location),
     yearsExperience: toNumber(parsed.yearsExperience),
     education: normalizeString(parsed.education),
-    languages: normalizeString(parsed.languages),
+    languages: normalizedLanguages,
     summary: normalizeString(parsed.summary),
     standardizedProfile: sanitizeStandardizedProfile(normalizeString(parsed.standardizedProfile)),
     executiveHeadline: normalizeString(parsed.executiveHeadline),
@@ -1940,17 +2092,11 @@ function normalizeParsedCandidate(parsed: Record<string, unknown>, provider: str
   };
 
   if (candidate.parseConfidence == null) {
-    const score =
-      (candidate.firstName || candidate.lastName ? 20 : 0) +
-      (candidate.email ? 20 : 0) +
-      (candidate.phone ? 15 : 0) +
-      (candidate.currentTitle ? 10 : 0) +
-      (candidate.parsedSkills.length ? 10 : 0) +
-      (candidate.summary ? 10 : 0) +
-      (candidate.parsedExperience.length ? 10 : 0) +
-      (candidate.parsedEducation.length ? 5 : 0);
-    candidate.parseConfidence = score;
+    candidate.fieldConfidence = candidate.fieldConfidence ?? buildFieldConfidence(candidate);
+    candidate.parseConfidence = computeParseConfidence(candidate);
   }
+
+  candidate.fieldConfidence = candidate.fieldConfidence ?? buildFieldConfidence(candidate);
 
   if (!candidate.summary) {
     candidate.summary = buildFallbackSummary(candidate);
@@ -2260,9 +2406,55 @@ async function extractTextFromPdf(buffer: Buffer): Promise<{ text: string; debug
   }
 }
 
+function decodeXmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+function extractTextFromDocxXml(xml: string): string {
+  return decodeXmlEntities(
+    xml
+      .replace(/<\/w:p>/g, "\n")
+      .replace(/<\/w:tr>/g, "\n")
+      .replace(/<w:tab[^>]*\/>/g, "\t")
+      .replace(/<w:br[^>]*\/>/g, "\n")
+      .replace(/<[^>]+>/g, " "),
+  );
+}
+
+async function extractSupplementalTextFromDocx(buffer: Buffer): Promise<string> {
+  const zip = await JSZip.loadAsync(buffer);
+  const xmlEntries = Object.keys(zip.files)
+    .filter((name) =>
+      /^word\/(document|header\d+|footer\d+|footnotes|endnotes)\.xml$/i.test(name),
+    )
+    .sort((left, right) => left.localeCompare(right));
+
+  const contents = await Promise.all(
+    xmlEntries.map(async (name) => {
+      const file = zip.file(name);
+      if (!file) return "";
+      return extractTextFromDocxXml(await file.async("string"));
+    }),
+  );
+
+  return normalizeExtractedText(contents.join("\n"));
+}
+
 async function extractTextFromDocx(buffer: Buffer): Promise<{ text: string; debug: ExtractionDebug }> {
-  const result = await withTimeout(mammoth.extractRawText({ buffer }), DOCX_EXTRACTION_TIMEOUT_MS, "DOCX extraction");
-  const text = normalizeExtractedText(result.value);
+  const [mammothResult, supplementalText] = await withTimeout(
+    Promise.all([
+      mammoth.extractRawText({ buffer }),
+      extractSupplementalTextFromDocx(buffer).catch(() => ""),
+    ]),
+    DOCX_EXTRACTION_TIMEOUT_MS,
+    "DOCX extraction",
+  );
+  const text = normalizeExtractedText([mammothResult.value, supplementalText].filter(Boolean).join("\n"));
   if (!text) {
     throw new Error("DOCX contains no readable text");
   }
@@ -2652,8 +2844,20 @@ async function finalizeResponse(
   }
 
   const dedupedWarnings = Array.from(new Set(mergedWarnings));
+  const finalLanguageItems = enriched.languageItems.length ? enriched.languageItems : deriveLanguageItems(enriched);
+  const finalLanguages =
+    normalizeString(enriched.languages) ??
+    (finalLanguageItems.length
+      ? dedupeList(
+          finalLanguageItems
+            .map((item) => item.level ? `${item.name} (${item.level})` : item.name)
+            .filter((item): item is string => Boolean(item)),
+        ).join(", ")
+      : null);
   const normalizedRecord = {
     ...enriched,
+    languages: finalLanguages,
+    languageItems: finalLanguageItems,
     summary: normalizeString(enriched.summary) ?? buildProfessionalSummary(enriched),
     executiveHeadline: normalizeString(enriched.executiveHeadline) ?? buildExecutiveHeadline(enriched),
     professionalSnapshot: normalizeString(enriched.professionalSnapshot) ?? buildProfessionalSnapshot(enriched),
@@ -2699,9 +2903,20 @@ async function safeFinalizeResponse(
       ].filter(Boolean)),
     );
     const deterministic = buildDeterministicEnrichment(candidate);
+    const deterministicLanguageItems = deterministic.languageItems.length ? deterministic.languageItems : deriveLanguageItems(deterministic);
     const sanitizedDeterministic = normalizeParsedCandidate(
       {
         ...deterministic,
+        languages:
+          normalizeString(deterministic.languages) ??
+          (deterministicLanguageItems.length
+            ? dedupeList(
+                deterministicLanguageItems
+                  .map((item) => item.level ? `${item.name} (${item.level})` : item.name)
+                  .filter((item): item is string => Boolean(item)),
+              ).join(", ")
+            : null),
+        languageItems: deterministicLanguageItems,
         summary: normalizeString(deterministic.summary) ?? buildProfessionalSummary(deterministic),
         executiveHeadline: normalizeString(deterministic.executiveHeadline) ?? buildExecutiveHeadline(deterministic),
         professionalSnapshot: normalizeString(deterministic.professionalSnapshot) ?? buildProfessionalSnapshot(deterministic),
