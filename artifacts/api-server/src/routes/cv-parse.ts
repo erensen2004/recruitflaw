@@ -22,7 +22,12 @@ const MODEL_INPUT_CHAR_LIMIT = Number(process.env.MAX_CV_MODEL_INPUT_CHARS || "2
 const ENRICHMENT_SOURCE_CHAR_LIMIT = Number(process.env.MAX_CV_ENRICHMENT_CHARS || "14000");
 const DIRECT_DOCUMENT_TIMEOUT_MS = Number(process.env.CV_DIRECT_DOCUMENT_TIMEOUT_MS || "18000");
 const MODEL_TIMEOUT_MS = Number(process.env.CV_MODEL_TIMEOUT_MS || "12000");
-const ENRICHMENT_TIMEOUT_MS = Number(process.env.CV_ENRICHMENT_TIMEOUT_MS || "9000");
+const ENRICHMENT_MODEL_TIMEOUT_MS = Number(process.env.CV_ENRICHMENT_TIMEOUT_MS || "9000");
+const ENRICHMENT_ESCALATION_TIMEOUT_MS = Number(process.env.CV_ENRICHMENT_ESCALATION_TIMEOUT_MS || "12000");
+const ENRICHMENT_PIPELINE_TIMEOUT_MS = Number(
+  process.env.CV_ENRICHMENT_PIPELINE_TIMEOUT_MS ||
+    String(Math.max(18000, ENRICHMENT_MODEL_TIMEOUT_MS + ENRICHMENT_ESCALATION_TIMEOUT_MS + 1500)),
+);
 const MAX_PARSE_SOURCE_TEXT_CHARS = Number(process.env.MAX_CV_PARSE_SOURCE_TEXT_CHARS || "24000");
 const DOCX_EXTRACTION_TIMEOUT_MS = Number(process.env.CV_DOCX_EXTRACTION_TIMEOUT_MS || "12000");
 const PDF_EXTRACTION_TIMEOUT_MS = Number(process.env.CV_PDF_EXTRACTION_TIMEOUT_MS || "12000");
@@ -41,11 +46,16 @@ const GOOGLE_VISION_API_URL = "https://vision.googleapis.com/v1/images:annotate"
 const DEFAULT_VERTEX_LOCATION = process.env.VERTEX_AI_LOCATION || process.env.GOOGLE_CLOUD_LOCATION || "global";
 const DEFAULT_VERTEX_MODEL =
   process.env.VERTEX_GEMINI_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
+const DEFAULT_VERTEX_ESCALATION_MODEL =
+  process.env.VERTEX_GEMINI_ESCALATION_MODEL || process.env.GEMINI_ESCALATION_MODEL || "gemini-2.5-flash";
 const GOOGLE_SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || null;
 const GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 || null;
 const VERTEX_INCLUDE_SOURCE_TEXT =
   process.env.CV_VERTEX_ENRICHMENT_INCLUDE_SOURCE_TEXT === "1" ||
   process.env.CV_VERTEX_ENRICHMENT_INCLUDE_SOURCE_TEXT === "true";
+const ALLOW_OPENAI_ENRICHMENT_FALLBACK =
+  process.env.CV_ALLOW_OPENAI_ENRICHMENT_FALLBACK === "1" ||
+  process.env.CV_ALLOW_OPENAI_ENRICHMENT_FALLBACK === "true";
 
 const DEFAULT_OPENROUTER_MODELS = [
   "liquid/lfm-2.5-1.2b-instruct:free",
@@ -330,7 +340,7 @@ function getGeminiClient(): GeminiClient | null {
     return {
       kind: "apiKey",
       genAI: new GoogleGenerativeAI(apiKey),
-      model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+      model: DEFAULT_VERTEX_MODEL,
     };
   }
 
@@ -1402,14 +1412,22 @@ function buildProfessionalSnapshot(candidate: ParsedCandidate): string | null {
   return sentences.length ? sentences.slice(0, 4).join(" ") : buildProfessionalSummary(candidate);
 }
 
+function mergeEvidenceBackedLists(primary: string[], fallback: string[], limit = 6): string[] {
+  return dedupeList([...primary, ...fallback]).slice(0, limit);
+}
+
 function buildDeterministicEnrichment(candidate: ParsedCandidate): ParsedCandidate {
   const enrichedExperience = enrichExperienceItems(candidate);
   const enrichedEducation = enrichEducationItems(candidate);
   const languageItems = deriveLanguageItems(candidate);
-  const domainFocus = deriveDomainFocus(candidate);
-  const notableAchievements = deriveNotableAchievements({ ...candidate, parsedExperience: enrichedExperience });
+  const domainFocus = mergeEvidenceBackedLists(candidate.domainFocus, deriveDomainFocus(candidate));
+  const notableAchievements = mergeEvidenceBackedLists(
+    candidate.notableAchievements,
+    deriveNotableAchievements({ ...candidate, parsedExperience: enrichedExperience }),
+  );
   const fieldConfidence = buildFieldConfidence({ ...candidate, parsedExperience: enrichedExperience, parsedEducation: enrichedEducation, languageItems } as ParsedCandidate);
-  const candidateStrengths = dedupeList(
+  const candidateStrengths = mergeEvidenceBackedLists(
+    candidate.candidateStrengths,
     [
       getPrimaryTitle(candidate),
       candidate.yearsExperience != null ? `${candidate.yearsExperience} years of experience` : null,
@@ -1423,9 +1441,10 @@ function buildDeterministicEnrichment(candidate: ParsedCandidate): ParsedCandida
           )}`
         : null,
     ].filter((value): value is string => Boolean(value)),
-  ).slice(0, 6);
+  );
 
-  const candidateRisks = dedupeList(
+  const candidateRisks = mergeEvidenceBackedLists(
+    candidate.candidateRisks,
     [
       !candidate.phone ? "Phone number is missing" : null,
       candidate.expectedSalary == null ? "Compensation expectations are missing" : null,
@@ -1435,9 +1454,10 @@ function buildDeterministicEnrichment(candidate: ParsedCandidate): ParsedCandida
       candidate.parseReviewRequired ? "Some profile details still need confirmation" : null,
       (candidate.parseConfidence ?? 0) < 70 ? `Parse confidence is ${candidate.parseConfidence ?? 0}%` : null,
     ].filter((value): value is string => Boolean(value)),
-  ).slice(0, 6);
+  );
 
-  const evidence = dedupeList(
+  const evidence = mergeEvidenceBackedLists(
+    candidate.evidence,
     [
       getPrimaryTitle(candidate) ? `Title signal: ${getPrimaryTitle(candidate)}` : null,
       candidate.location ? `Location signal: ${candidate.location}` : null,
@@ -1445,7 +1465,7 @@ function buildDeterministicEnrichment(candidate: ParsedCandidate): ParsedCandida
       enrichedExperience[0]?.company ? `Employer signal: ${enrichedExperience[0].company}` : null,
       notableAchievements[0] ? `Achievement signal: ${notableAchievements[0]}` : null,
     ].filter((value): value is string => Boolean(value)),
-  ).slice(0, 6);
+  );
 
   return {
     ...candidate,
@@ -2437,9 +2457,13 @@ function buildEnrichmentPrompt(
     "candidateStrengths and candidateRisks should each contain concise evidence-based bullets.",
     "notableAchievements should only include concrete work signals already present in the source.",
     "parsedExperience may be enriched with scope, techStack, impactHighlights, current, and seniorityContribution only when supported.",
-    "If parsedExperience has fewer than 2 entries but the source text clearly contains multiple role/date blocks, rebuild parsedExperience from that evidence.",
+    preparedSource
+      ? "If parsedExperience has fewer than 2 entries but the source text clearly contains multiple role/date blocks, rebuild parsedExperience from that evidence."
+      : "If source text is omitted, keep parsedExperience conservative and do not infer missing role history.",
     "parsedEducation may be enriched with confidence only when support exists.",
-    "If parsedEducation is too thin but the source text clearly contains multiple education signals, rebuild parsedEducation from that evidence.",
+    preparedSource
+      ? "If parsedEducation is too thin but the source text clearly contains multiple education signals, rebuild parsedEducation from that evidence."
+      : "If source text is omitted, keep parsedEducation conservative and do not infer extra schools or degrees.",
     "languageItems should include name, level, confidence, and source.",
     "fieldConfidence should include contact, experience, education, languages, compensation, summary as 0-100 integers.",
     "Required JSON keys: summary, executiveHeadline, professionalSnapshot, domainFocus, senioritySignal, candidateStrengths, candidateRisks, notableAchievements, inferredWorkModel, locationFlexibility, salarySignal, languageItems, fieldConfidence, evidence, parsedExperience, parsedEducation, standardizedProfile.",
@@ -2452,6 +2476,42 @@ function buildEnrichmentPrompt(
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function createGeminiClientWithModel(gemini: GeminiClient, model: string): GeminiClient {
+  return { ...gemini, model };
+}
+
+function isRichExperienceItem(item: ParsedExperienceItem): boolean {
+  return Boolean(
+    (item.highlights && item.highlights.length) ||
+      (item.impactHighlights && item.impactHighlights.length) ||
+      (item.techStack && item.techStack.length) ||
+      item.scope ||
+      item.seniorityContribution,
+  );
+}
+
+function hasGenericRecruiterBriefLanguage(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return /the profile is most credible around|the strongest work signals point to|some profile details still need confirmation/i.test(value);
+}
+
+function getWeakEnrichmentSignals(candidate: ParsedCandidate): string[] {
+  const signals: string[] = [];
+  if (candidate.parseStatus !== "parsed") signals.push("status");
+  if (candidate.parseReviewRequired) signals.push("review");
+  if ((candidate.parseConfidence ?? 0) < 70) signals.push("confidence");
+  if (!candidate.executiveHeadline || candidate.executiveHeadline.length < 18) signals.push("headline");
+  if (!candidate.professionalSnapshot || candidate.professionalSnapshot.length < 140) signals.push("snapshot");
+  if (hasGenericRecruiterBriefLanguage(candidate.professionalSnapshot)) signals.push("generic-snapshot");
+  if (!candidate.summary || candidate.summary.length < 160) signals.push("summary");
+  if (candidate.candidateStrengths.length < 3) signals.push("strengths");
+  if (candidate.notableAchievements.length < 2) signals.push("achievements");
+  if (!candidate.parsedExperience.length || candidate.parsedExperience.every((item) => !isRichExperienceItem(item))) {
+    signals.push("experience");
+  }
+  return signals;
 }
 
 async function enrichWithOpenAi(candidate: ParsedCandidate, sourceText?: string): Promise<ParsedCandidate | null> {
@@ -2475,7 +2535,7 @@ async function enrichWithOpenAi(candidate: ParsedCandidate, sourceText?: string)
           temperature: 0.1,
           response_format: { type: "json_object" },
         }),
-        ENRICHMENT_TIMEOUT_MS,
+        ENRICHMENT_MODEL_TIMEOUT_MS,
         `Enrichment model ${provider}:${model}`,
       );
 
@@ -2501,13 +2561,18 @@ async function enrichWithGemini(candidate: ParsedCandidate, sourceText?: string)
   const gemini = getGeminiClient();
   if (!gemini) return null;
 
-  try {
+  const runEnrichment = async (
+    targetClient: GeminiClient,
+    options?: { includeSourceText?: boolean; sourceCharLimit?: number; timeoutMs?: number },
+  ): Promise<ParsedCandidate | null> => {
     const prompt = buildEnrichmentPrompt(candidate, sourceText, {
-      includeSourceText: gemini.kind === "vertex" ? VERTEX_INCLUDE_SOURCE_TEXT : true,
-      sourceCharLimit: gemini.kind === "vertex" ? Math.min(ENRICHMENT_SOURCE_CHAR_LIMIT, 5000) : ENRICHMENT_SOURCE_CHAR_LIMIT,
+      includeSourceText: options?.includeSourceText ?? (targetClient.kind === "vertex" ? VERTEX_INCLUDE_SOURCE_TEXT : true),
+      sourceCharLimit:
+        options?.sourceCharLimit ??
+        (targetClient.kind === "vertex" ? Math.min(ENRICHMENT_SOURCE_CHAR_LIMIT, 5000) : ENRICHMENT_SOURCE_CHAR_LIMIT),
     });
     const raw = await withTimeout(
-      generateGeminiContent(gemini, {
+      generateGeminiContent(targetClient, {
         contents: [
           {
             role: "user",
@@ -2519,11 +2584,38 @@ async function enrichWithGemini(candidate: ParsedCandidate, sourceText?: string)
           responseMimeType: "application/json",
         },
       }),
-      ENRICHMENT_TIMEOUT_MS,
-      `${gemini.kind === "vertex" ? "Vertex AI" : "Gemini"} enrichment ${gemini.model}`,
+      options?.timeoutMs ?? ENRICHMENT_MODEL_TIMEOUT_MS,
+      `${targetClient.kind === "vertex" ? "Vertex AI" : "Gemini"} enrichment ${targetClient.model}`,
     );
 
-    return normalizeParsedCandidate(extractJsonObject(raw), `${gemini.kind}:${gemini.model}:enrichment`);
+    return normalizeParsedCandidate(extractJsonObject(raw), `${targetClient.kind}:${targetClient.model}:enrichment`);
+  };
+
+  try {
+    const primary = await runEnrichment(gemini);
+    if (!primary) return null;
+
+    const weakSignals = getWeakEnrichmentSignals(primary);
+    const shouldEscalate =
+      weakSignals.length >= 2 &&
+      /flash-lite/i.test(gemini.model) &&
+      gemini.model !== DEFAULT_VERTEX_ESCALATION_MODEL;
+
+    if (!shouldEscalate) {
+      return primary;
+    }
+
+    console.warn(
+      `[CV Enrich] Escalating Gemini enrichment from ${gemini.model} to ${DEFAULT_VERTEX_ESCALATION_MODEL} due to weak signals: ${weakSignals.join(", ")}`,
+    );
+
+    const escalated = await runEnrichment(createGeminiClientWithModel(gemini, DEFAULT_VERTEX_ESCALATION_MODEL), {
+      includeSourceText: Boolean(sourceText),
+      sourceCharLimit: Math.min(ENRICHMENT_SOURCE_CHAR_LIMIT, 8000),
+      timeoutMs: ENRICHMENT_ESCALATION_TIMEOUT_MS,
+    });
+
+    return escalated ?? primary;
   } catch (error) {
     console.warn("[CV Enrich] Gemini enrichment failed.", error);
     return null;
@@ -2532,7 +2624,12 @@ async function enrichWithGemini(candidate: ParsedCandidate, sourceText?: string)
 
 async function enrichCandidate(candidate: ParsedCandidate, sourceText?: string): Promise<ParsedCandidate> {
   const deterministic = buildDeterministicEnrichment(candidate);
-  const enriched = (await enrichWithOpenAi(deterministic, sourceText)) ?? (await enrichWithGemini(deterministic, sourceText));
+  const geminiConfigured = Boolean(getGeminiClient());
+  const enriched =
+    (await enrichWithGemini(deterministic, sourceText)) ??
+    ((!geminiConfigured || ALLOW_OPENAI_ENRICHMENT_FALLBACK)
+      ? await enrichWithOpenAi(deterministic, sourceText)
+      : null);
   if (!enriched) return deterministic;
   return buildDeterministicEnrichment(mergeParsedCandidates(enriched, deterministic));
 }
@@ -2547,7 +2644,7 @@ async function finalizeResponse(
   let enriched = buildDeterministicEnrichment(candidate);
 
   try {
-    enriched = await withTimeout(enrichCandidate(candidate, sourceText), ENRICHMENT_TIMEOUT_MS, "Candidate enrichment");
+    enriched = await withTimeout(enrichCandidate(candidate, sourceText), ENRICHMENT_PIPELINE_TIMEOUT_MS, "Candidate enrichment");
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.warn("[CV Parse] Enrichment timed out, returning deterministic briefing.", errorMessage);
@@ -2561,7 +2658,7 @@ async function finalizeResponse(
     executiveHeadline: normalizeString(enriched.executiveHeadline) ?? buildExecutiveHeadline(enriched),
     professionalSnapshot: normalizeString(enriched.professionalSnapshot) ?? buildProfessionalSnapshot(enriched),
     warnings: dedupedWarnings,
-    standardizedProfile: buildStandardizedProfile(enriched),
+    standardizedProfile: sanitizeStandardizedProfile(normalizeString(enriched.standardizedProfile)) ?? buildStandardizedProfile(enriched),
     extractionMethod: extractionDebug.extractionMethod,
     extractionFallbackUsed: extractionDebug.extractionFallbackUsed,
     extractionFailureClass: extractionDebug.extractionFailureClass,
@@ -2609,7 +2706,8 @@ async function safeFinalizeResponse(
         executiveHeadline: normalizeString(deterministic.executiveHeadline) ?? buildExecutiveHeadline(deterministic),
         professionalSnapshot: normalizeString(deterministic.professionalSnapshot) ?? buildProfessionalSnapshot(deterministic),
         warnings: fallbackWarnings,
-        standardizedProfile: buildStandardizedProfile(deterministic),
+        standardizedProfile:
+          sanitizeStandardizedProfile(normalizeString(deterministic.standardizedProfile)) ?? buildStandardizedProfile(deterministic),
         extractionMethod: extractionDebug.extractionMethod,
         extractionFallbackUsed: extractionDebug.extractionFallbackUsed,
         extractionFailureClass: extractionDebug.extractionFailureClass,
