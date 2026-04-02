@@ -188,17 +188,32 @@ router.post("/forgot-password", validate(ForgotPasswordSchema), async (req, res)
 
       if (resetUrl) {
         try {
-          await sendPasswordResetEmail({
+          const delivery = await sendPasswordResetEmail({
             to: user.email,
             name: user.name,
             resetUrl,
             expiresAt: reset.expiresAt,
           });
+          console.info("[forgot-password] email sent", {
+            userId: user.id,
+            to: user.email,
+            deliveryId: delivery.id,
+          });
         } catch (emailError) {
           console.error("[forgot-password] email send failed", emailError);
+          Errors.serviceUnavailable(
+            res,
+            "Password reset email delivery is temporarily unavailable. Please try again shortly or contact support.",
+          );
+          return;
         }
       } else {
         console.warn("[forgot-password] PUBLIC_APP_URL is not configured; reset email skipped");
+        Errors.serviceUnavailable(
+          res,
+          "Password reset email delivery is temporarily unavailable. Please contact support.",
+        );
+        return;
       }
     }
 

@@ -57,6 +57,11 @@ export async function sendPasswordResetEmail(input: {
     const payload = await response.text();
     throw new Error(`Resend request failed: ${response.status} ${payload}`);
   }
+
+  const payload = await response.json().catch(() => null) as { id?: string } | null;
+  return {
+    id: payload?.id ?? null,
+  };
 }
 
 function escapeHtml(value: string) {
