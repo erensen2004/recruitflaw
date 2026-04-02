@@ -274,6 +274,32 @@ function normalizeKeywordSet(value?: string | null) {
   );
 }
 
+function splitSentences(value?: string | null) {
+  return (value || "")
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean)
+    .map((sentence) => /[.!?]$/.test(sentence) ? sentence : `${sentence}.`);
+}
+
+function mergeUniqueSentences(values: Array<string | null | undefined>, maxSentences = 5) {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+
+  for (const value of values) {
+    for (const sentence of splitSentences(value)) {
+      const key = sentence.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(sentence);
+      if (merged.length >= maxSentences) return merged.join(" ");
+    }
+  }
+
+  return merged.join(" ");
+}
+
 function firstMeaningful(items: Array<string | null | undefined>) {
   return items.map((item) => item?.trim()).find((item): item is string => Boolean(item)) ?? null;
 }
@@ -319,11 +345,6 @@ export function getCandidateExecutiveBrief(input: CandidateIntelligenceInput): C
   const completeness = snapshot.completeness;
   const confidence = snapshot.confidence;
   const { englishLevel } = snapshot;
-  const professionalSnapshot = firstMeaningful([
-    input.professionalSnapshot,
-    input.summary,
-    input.standardizedProfile,
-  ]) ?? "Candidate profile summary is still being normalized.";
   const domainFocus = (input.domainFocus ?? []).filter(Boolean).slice(0, 5);
   const headline =
     firstMeaningful([
@@ -382,6 +403,12 @@ export function getCandidateExecutiveBrief(input: CandidateIntelligenceInput): C
     input.parsedSkills?.length ? `Structured skills make the profile easy to review quickly.` : null,
     "The profile is clear enough for stakeholder review, with a few details still worth confirming.",
   ])!;
+  const professionalSnapshot = firstMeaningful([
+    input.professionalSnapshot,
+    mergeUniqueSentences([input.summary?.trim(), overlapSummary]),
+    input.summary,
+    input.standardizedProfile,
+  ]) ?? "Candidate profile summary is still being normalized.";
 
   let fitScore = 30;
   fitScore += Math.min(18, Math.round(completeness * 0.18));

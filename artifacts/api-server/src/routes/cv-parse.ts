@@ -1074,14 +1074,90 @@ function getLanguagesSummary(candidate: ParsedCandidate): string[] {
   return dedupeList([...explicitItems, ...splitLooseList(candidate.languages)]).slice(0, 3);
 }
 
+function buildDecisionContext(candidate: ParsedCandidate): string[] {
+  const parts = dedupeList([
+    candidate.location ? `Based in ${candidate.location}` : null,
+    deriveLanguageItems(candidate).length
+      ? `Languages include ${formatNaturalList(
+          deriveLanguageItems(candidate)
+            .map((item) => (item.level ? `${item.name} (${item.level})` : item.name))
+            .filter(Boolean) as string[],
+        )}`
+      : null,
+    candidate.inferredWorkModel ?? inferWorkModel(candidate),
+    candidate.expectedSalary != null ? inferSalarySignal(candidate) : null,
+  ].filter((value): value is string => Boolean(value)));
+
+  return parts.slice(0, 3);
+}
+
+function splitRecruiterSentences(value?: string | null): string[] {
+  return (value || "")
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => normalizeString(sentence))
+    .filter((sentence): sentence is string => Boolean(sentence))
+    .map((sentence) => /[.!?]$/.test(sentence) ? sentence : `${sentence}.`);
+}
+
+function dedupeRecruiterSentences(sentences: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const sentence of sentences) {
+    const comparable = normalizeComparableText(sentence);
+    if (!comparable || seen.has(comparable)) continue;
+    seen.add(comparable);
+    result.push(sentence);
+  }
+
+  return result;
+}
+
+function sanitizeRecruiterSummary(candidate: ParsedCandidate, fallback: string | null): string | null {
+  const candidateSummary = normalizeString(candidate.summary);
+  const sentences = dedupeRecruiterSentences([
+    ...splitRecruiterSentences(candidateSummary),
+    ...splitRecruiterSentences(fallback),
+  ]);
+
+  if (!sentences.length) return null;
+
+  const decisionContext = buildDecisionContext(candidate);
+  const hasDecisionContext = sentences.some((sentence) => /decision context|based in|languages include|remote|hybrid|office|compensation/i.test(sentence));
+
+  if (!hasDecisionContext && decisionContext.length) {
+    sentences.push(`Decision context: ${decisionContext.join("; ")}.`);
+  }
+
+  return dedupeRecruiterSentences(sentences).slice(0, 4).join(" ");
+}
+
+function sanitizeProfessionalSnapshot(candidate: ParsedCandidate, fallback: string | null): string | null {
+  const summarySentences = new Set(splitRecruiterSentences(candidate.summary).map((sentence) => normalizeComparableText(sentence)));
+  const snapshotSentences = dedupeRecruiterSentences([
+    ...splitRecruiterSentences(candidate.professionalSnapshot),
+    ...splitRecruiterSentences(fallback),
+  ]).filter((sentence) => !summarySentences.has(normalizeComparableText(sentence)));
+
+  if (!snapshotSentences.length) {
+    const rebuilt = splitRecruiterSentences(buildProfessionalSnapshot(candidate));
+    return dedupeRecruiterSentences(rebuilt).slice(0, 5).join(" ");
+  }
+
+  return snapshotSentences.slice(0, 5).join(" ");
+}
+
 function buildProfessionalSummary(candidate: ParsedCandidate): string | null {
   const title = getPrimaryTitle(candidate);
   const years = formatExperienceYears(candidate.yearsExperience);
   const location = normalizeString(candidate.location);
   const skills = getSummarySkills(candidate);
-  const education = getEducationSummary(candidate);
+  const domainFocus = deriveDomainFocus(candidate);
   const languages = getLanguagesSummary(candidate);
   const highlights = getExperienceHighlights(candidate);
+  const achievements = deriveNotableAchievements(candidate);
+  const decisionContext = buildDecisionContext(candidate);
   const existingSummary = normalizeString(candidate.summary);
   const experienceSignals = dedupeList(
     candidate.parsedExperience.flatMap((item) =>
@@ -1090,19 +1166,10 @@ function buildProfessionalSummary(candidate: ParsedCandidate): string | null {
         .filter((value): value is string => Boolean(value)),
     ),
   ).slice(0, 2);
-  const decisionMeta = dedupeList([
-    location ? `Based in ${location}` : null,
-    languages.length ? `Languages include ${formatNaturalList(languages)}` : null,
-    candidate.expectedSalary != null ? inferSalarySignal(candidate) : null,
-  ].filter((value): value is string => Boolean(value)));
   const sentences: string[] = [];
 
   if (title) {
-    const intro = [
-      title,
-      years ? `with ${years} of experience` : null,
-      location ? `based in ${location}` : null,
-    ]
+    const intro = [title, years ? `with ${years} of experience` : null, location ? `based in ${location}` : null]
       .filter(Boolean)
       .join(" ");
     sentences.push(`${intro}.`);
@@ -1114,26 +1181,20 @@ function buildProfessionalSummary(candidate: ParsedCandidate): string | null {
     sentences.push(`Candidate based in ${location}.`);
   }
 
-  if (skills.length) {
-    sentences.push(`Core strengths are concentrated around ${formatNaturalList(skills.slice(0, 4))}.`);
+  const focusSignals = dedupeList([...domainFocus, ...skills]).slice(0, 4);
+  if (focusSignals.length) {
+    sentences.push(`Primary focus areas include ${formatNaturalList(focusSignals)}.`);
   } else if (experienceSignals.length) {
     sentences.push(`Recent work includes ${formatNaturalList(experienceSignals)}.`);
-  } else if (highlights.length) {
-    sentences.push(`Recent experience signals include ${formatNaturalList(highlights.slice(0, 2))}.`);
   }
 
-  if (highlights.length) {
-    sentences.push(`Recent work highlights include ${formatNaturalList(highlights.slice(0, 2))}.`);
-  } else if (education) {
-    sentences.push(`Education background includes ${education}.`);
+  const proofSignals = dedupeList([...achievements, ...highlights, ...experienceSignals]).slice(0, 2);
+  if (proofSignals.length) {
+    sentences.push(`Strongest evidence comes from ${formatNaturalList(proofSignals)}.`);
   }
 
-  if (decisionMeta.length) {
-    sentences.push(`${decisionMeta.join(". ")}.`);
-  } else if (education && languages.length) {
-    sentences.push(`Education includes ${education}, and languages include ${formatNaturalList(languages)}.`);
-  } else if (education) {
-    sentences.push(`Education includes ${education}.`);
+  if (decisionContext.length) {
+    sentences.push(`Decision context: ${decisionContext.join("; ")}.`);
   } else if (languages.length) {
     sentences.push(`Languages include ${formatNaturalList(languages)}.`);
   }
@@ -1142,7 +1203,7 @@ function buildProfessionalSummary(candidate: ParsedCandidate): string | null {
     return existingSummary;
   }
 
-  return sentences.slice(0, 4).join(" ");
+  return sanitizeRecruiterSummary(candidate, sentences.slice(0, 4).join(" "));
 }
 
 function buildFallbackSummary(candidate: ParsedCandidate): string | null {
@@ -1503,6 +1564,13 @@ function buildProfessionalSnapshot(candidate: ParsedCandidate): string | null {
   const focus = deriveDomainFocus(candidate);
   const languages = deriveLanguageItems(candidate).map((item) => item.level ? `${item.name} (${item.level})` : item.name).filter(Boolean) as string[];
   const achievements = deriveNotableAchievements(candidate);
+  const employers = dedupeList(
+    candidate.parsedExperience
+      .map((item) => normalizeString(item.company))
+      .filter((item): item is string => Boolean(item)),
+  ).slice(0, 2);
+  const strongestStack = getSummarySkills(candidate).slice(0, 4);
+  const decisionContext = buildDecisionContext(candidate);
   const sentences: string[] = [];
 
   if (title) {
@@ -1520,21 +1588,23 @@ function buildProfessionalSnapshot(candidate: ParsedCandidate): string | null {
     sentences.push(`The profile is most credible around ${formatNaturalList(focus.slice(0, 4))}.`);
   }
 
+  if (strongestStack.length) {
+    sentences.push(`The strongest stack and delivery signals point to ${formatNaturalList(strongestStack)}.`);
+  }
+
   if (achievements.length) {
-    sentences.push(`The strongest work signals point to ${formatNaturalList(achievements.slice(0, 2))}.`);
+    sentences.push(`Recent work is best evidenced by ${formatNaturalList(achievements.slice(0, 2))}.`);
+  } else if (employers.length) {
+    sentences.push(`Recent employer signals include ${formatNaturalList(employers)}.`);
   }
 
-  if (languages.length || candidate.expectedSalary != null) {
-    const meta = [
-      languages.length ? `Languages: ${formatNaturalList(languages)}` : null,
-      candidate.expectedSalary != null ? inferSalarySignal(candidate) : null,
-    ]
-      .filter(Boolean)
-      .join(". ");
-    if (meta) sentences.push(`${meta}.`);
+  if (decisionContext.length) {
+    sentences.push(`Decision context includes ${decisionContext.join("; ")}.`);
+  } else if (languages.length) {
+    sentences.push(`Languages include ${formatNaturalList(languages)}.`);
   }
 
-  return sentences.length ? sentences.slice(0, 4).join(" ") : buildProfessionalSummary(candidate);
+  return sentences.length ? sentences.slice(0, 5).join(" ") : buildProfessionalSummary(candidate);
 }
 
 function mergeEvidenceBackedLists(primary: string[], fallback: string[], limit = 6): string[] {
@@ -2631,6 +2701,19 @@ function buildEnrichmentPrompt(
     includeSourceText && sourceText ? buildPrioritizedSourceText(sourceText).text.slice(0, sourceCharLimit) : null;
   const candidateForEnrichment = {
     ...candidate,
+    candidateStrengths: candidate.candidateStrengths.slice(0, 5),
+    candidateRisks: candidate.candidateRisks.slice(0, 5),
+    notableAchievements: candidate.notableAchievements.slice(0, 5),
+    evidence: candidate.evidence.slice(0, 6),
+    parsedExperience: candidate.parsedExperience.slice(0, 6).map((item) => ({
+      ...item,
+      techStack: item.techStack?.slice(0, 8) ?? [],
+      highlights: item.highlights?.slice(0, 3) ?? [],
+      impactHighlights: item.impactHighlights?.slice(0, 3) ?? [],
+    })),
+    parsedEducation: candidate.parsedEducation.slice(0, 4),
+    parsedSkills: candidate.parsedSkills.slice(0, 14),
+    languageItems: candidate.languageItems.slice(0, 6),
     extractionMethod: undefined,
     extractionFallbackUsed: undefined,
     extractionFailureClass: undefined,
@@ -2644,10 +2727,13 @@ function buildEnrichmentPrompt(
     "Prefer short, factual, recruiter-friendly output.",
     "If a field is weak or unsupported, return null or an empty array.",
     "Update summary so it becomes a professional 3-4 sentence recruiter summary.",
+    "summary must follow this order: who the candidate is, main specialization, strongest evidence from experience/stack/domain, then decision context such as location, language, work model, or compensation.",
     "executiveHeadline should be one short line, not a paragraph.",
-    "professionalSnapshot should read like a polished candidate intro.",
+    "professionalSnapshot should read like a polished candidate intro and be more detailed than summary.",
+    "Do not repeat the same sentence structure or wording between summary and professionalSnapshot.",
     "candidateStrengths and candidateRisks should each contain concise evidence-based bullets.",
     "notableAchievements should only include concrete work signals already present in the source.",
+    "standardizedProfile is internal fallback text only, so keep it compact and normalized rather than salesy.",
     "parsedExperience may be enriched with scope, techStack, impactHighlights, current, and seniorityContribution only when supported.",
     preparedSource
       ? "If parsedExperience has fewer than 2 entries but the source text clearly contains multiple role/date blocks, rebuild parsedExperience from that evidence."
@@ -2689,6 +2775,25 @@ function hasGenericRecruiterBriefLanguage(value: string | null | undefined): boo
   return /the profile is most credible around|the strongest work signals point to|some profile details still need confirmation/i.test(value);
 }
 
+function hasGenericSummaryLanguage(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return /core strengths are concentrated around|strongest evidence comes from|decision context:/i.test(value);
+}
+
+function hasSummarySnapshotOverlap(summary: string | null | undefined, snapshot: string | null | undefined): boolean {
+  const summarySentences = splitRecruiterSentences(summary)
+    .map((sentence) => normalizeComparableText(sentence))
+    .filter(Boolean);
+  const snapshotSentences = splitRecruiterSentences(snapshot)
+    .map((sentence) => normalizeComparableText(sentence))
+    .filter(Boolean);
+
+  if (!summarySentences.length || !snapshotSentences.length) return false;
+
+  const overlapCount = summarySentences.filter((sentence) => snapshotSentences.includes(sentence)).length;
+  return overlapCount >= Math.min(2, summarySentences.length);
+}
+
 function getWeakEnrichmentSignals(candidate: ParsedCandidate): string[] {
   const signals: string[] = [];
   if (candidate.parseStatus !== "parsed") signals.push("status");
@@ -2698,6 +2803,7 @@ function getWeakEnrichmentSignals(candidate: ParsedCandidate): string[] {
   if (!candidate.professionalSnapshot || candidate.professionalSnapshot.length < 140) signals.push("snapshot");
   if (hasGenericRecruiterBriefLanguage(candidate.professionalSnapshot)) signals.push("generic-snapshot");
   if (!candidate.summary || candidate.summary.length < 160) signals.push("summary");
+  if (hasGenericSummaryLanguage(candidate.summary)) signals.push("generic-summary");
   if (candidate.candidateStrengths.length < 3) signals.push("strengths");
   if (candidate.notableAchievements.length < 2) signals.push("achievements");
   if (!candidate.parsedExperience.length || candidate.parsedExperience.every((item) => !isRichExperienceItem(item))) {
@@ -2788,8 +2894,14 @@ async function enrichWithGemini(candidate: ParsedCandidate, sourceText?: string)
     if (!primary) return null;
 
     const weakSignals = getWeakEnrichmentSignals(primary);
+    const structuralSignals = weakSignals.filter((signal) =>
+      ["status", "review", "confidence", "headline", "strengths", "achievements", "experience"].includes(signal),
+    );
+    const severeCopySignals = weakSignals.filter((signal) =>
+      ["snapshot", "generic-snapshot", "summary", "generic-summary"].includes(signal),
+    );
     const shouldEscalate =
-      weakSignals.length >= 2 &&
+      (structuralSignals.length > 0 || severeCopySignals.length >= 3 || hasSummarySnapshotOverlap(primary.summary, primary.professionalSnapshot)) &&
       /flash-lite/i.test(gemini.model) &&
       gemini.model !== DEFAULT_VERTEX_ESCALATION_MODEL;
 
@@ -2858,9 +2970,12 @@ async function finalizeResponse(
     ...enriched,
     languages: finalLanguages,
     languageItems: finalLanguageItems,
-    summary: normalizeString(enriched.summary) ?? buildProfessionalSummary(enriched),
+    summary: sanitizeRecruiterSummary(enriched, normalizeString(enriched.summary) ?? buildProfessionalSummary(enriched)),
     executiveHeadline: normalizeString(enriched.executiveHeadline) ?? buildExecutiveHeadline(enriched),
-    professionalSnapshot: normalizeString(enriched.professionalSnapshot) ?? buildProfessionalSnapshot(enriched),
+    professionalSnapshot: sanitizeProfessionalSnapshot(
+      enriched,
+      normalizeString(enriched.professionalSnapshot) ?? buildProfessionalSnapshot(enriched),
+    ),
     warnings: dedupedWarnings,
     standardizedProfile: sanitizeStandardizedProfile(normalizeString(enriched.standardizedProfile)) ?? buildStandardizedProfile(enriched),
     extractionMethod: extractionDebug.extractionMethod,

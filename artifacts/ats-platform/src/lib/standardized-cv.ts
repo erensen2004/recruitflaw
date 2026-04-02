@@ -7,14 +7,20 @@ function sectionText(title: string, lines: string[]) {
   return `${title}\n${body}`;
 }
 
-function experienceToLines(experience: CandidateParsedExperience[]) {
-  return experience.flatMap((item) => {
+function experienceHighlightsToLines(experience: CandidateParsedExperience[]) {
+  return experience
+    .flatMap((item) => item.impactHighlights?.filter(Boolean) ?? item.highlights?.filter(Boolean) ?? [])
+    .map((line) => `• ${line}`)
+    .slice(0, 8);
+}
+
+function coreExperienceToLines(experience: CandidateParsedExperience[]) {
+  return experience.slice(0, 6).flatMap((item) => {
     const header = [item.title, item.company].filter(Boolean).join(" @ ");
     const dates = [item.startDate, item.endDate].filter(Boolean).join(" - ");
     const scope = item.scope ? [`Scope: ${item.scope}`] : [];
-    const techStack = item.techStack?.length ? [`Tech stack: ${item.techStack.join(", ")}`] : [];
-    const highlights = (item.impactHighlights?.filter(Boolean) ?? item.highlights?.filter(Boolean) ?? []).map((line) => `• ${line}`);
-    return [header, dates, ...scope, ...techStack, ...highlights].filter(Boolean);
+    const techStack = item.techStack?.length ? [`Tech stack: ${item.techStack.slice(0, 6).join(", ")}`] : [];
+    return [header, dates, ...scope, ...techStack].filter(Boolean);
   });
 }
 
@@ -37,6 +43,11 @@ async function buildStandardizedCandidatePdf(candidate: Candidate) {
 
   const ensurePage = (neededHeight: number) => {
     if (y + neededHeight <= pageHeight - 48) return;
+    doc.addPage();
+    y = 54;
+  };
+
+  const startSecondPage = () => {
     doc.addPage();
     y = 54;
   };
@@ -129,35 +140,28 @@ async function buildStandardizedCandidatePdf(candidate: Candidate) {
     y += 34;
   }
 
-  writeBlock("Executive Headline", [
-    brief.headline,
-  ], { compact: true });
-  writeBlock("Why This Candidate", [
-    brief.professionalSnapshot,
-  ]);
+  writeBlock("Executive Headline", [brief.headline], { compact: true });
+  writeBlock("Professional Snapshot", [brief.professionalSnapshot]);
   writeBulletBlock("Top Strengths", brief.strengths, { compact: true });
   writeBulletBlock("Domain Focus", brief.domainFocus, { compact: true });
-  writeBlock("Experience Highlights", experienceToLines(candidate.parsedExperience).slice(0, 12));
   writeBulletBlock("Notable Achievements", brief.notableAchievements, { compact: true });
-  writeBlock("Core Experience", experienceToLines(candidate.parsedExperience));
-  writeBlock("Key Skills", [candidate.parsedSkills.length ? candidate.parsedSkills.join(", ") : candidate.tags || "Skills not available"], { compact: true });
+
+  startSecondPage();
+
+  writeBlock("Experience Highlights", experienceHighlightsToLines(candidate.parsedExperience));
+  writeBlock("Core Experience", coreExperienceToLines(candidate.parsedExperience));
   writeBlock("Education & Languages", [
     ...educationToLines(candidate.parsedEducation),
     candidate.languages ? `Languages: ${candidate.languages}` : "",
     englishLevel ? `English level: ${englishLevel}` : "",
   ]);
-  writeBlock("Candidate Snapshot", [
+  writeBlock("Compensation / Location / Work Model Snapshot", [
     brief.locationFlexibility ? `Location: ${brief.locationFlexibility}` : "",
     brief.workModel ? `Work model: ${brief.workModel}` : "",
     brief.salarySignal ? brief.salarySignal : "",
     candidate.yearsExperience != null ? `Years of experience: ${candidate.yearsExperience}` : "",
   ]);
   writeBulletBlock("Open Points", brief.riskFlags, { compact: true });
-  writeBlock("Internal Notes", [
-    candidate.languages ? `Languages: ${candidate.languages}` : "",
-    candidate.expectedSalary != null ? `Expected salary: ${formatTurkishLira(candidate.expectedSalary)}` : "",
-    brief.adminReady ? "Internal readiness: strong" : "Internal readiness: follow-up recommended",
-  ]);
 
   if (candidate.fieldConfidence) {
     writeBlock("Profile Confidence", [
