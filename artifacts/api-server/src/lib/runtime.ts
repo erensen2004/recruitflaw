@@ -106,6 +106,11 @@ async function ensureSupportTables() {
       `);
 
       await pool.query(`
+        ALTER TABLE public.users
+        ADD COLUMN IF NOT EXISTS admin_managed boolean NOT NULL DEFAULT false
+      `);
+
+      await pool.query(`
         ALTER TABLE public.candidates
         ADD COLUMN IF NOT EXISTS executive_headline text
       `);

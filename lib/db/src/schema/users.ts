@@ -10,6 +10,7 @@ export const usersTable = pgTable("users", {
   passwordHash: text("password_hash").notNull(),
   role: text("role", { enum: ["admin", "client", "vendor"] }).notNull(),
   companyId: integer("company_id").references(() => companiesTable.id),
+  adminManaged: boolean("admin_managed").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

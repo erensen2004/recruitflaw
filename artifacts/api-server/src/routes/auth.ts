@@ -172,49 +172,56 @@ router.post("/forgot-password", validate(ForgotPasswordSchema), async (req, res)
         id: usersTable.id,
         email: usersTable.email,
         name: usersTable.name,
+        adminManaged: usersTable.adminManaged,
       })
       .from(usersTable)
       .where(eq(usersTable.email, email));
 
-    if (user) {
-      const reset = await createPasswordSetupToken({
-        userId: user.id,
-        purpose: "reset",
-      });
+    if (!user || !user.adminManaged) {
+      Errors.forbidden(
+        res,
+        "Password reset email is only available for accounts created by your RecruitFlow admin. Please contact your admin for access.",
+      );
+      return;
+    }
+
+    const reset = await createPasswordSetupToken({
+      userId: user.id,
+      purpose: "reset",
+    });
       const origin = process.env.PUBLIC_APP_URL?.trim();
       const resetUrl = origin
         ? new URL(`/reset-password?token=${encodeURIComponent(reset.token)}`, origin).toString()
         : null;
 
-      if (resetUrl) {
-        try {
-          const delivery = await sendPasswordResetEmail({
-            to: user.email,
-            name: user.name,
-            resetUrl,
-            expiresAt: reset.expiresAt,
-          });
-          console.info("[forgot-password] email sent", {
-            userId: user.id,
-            to: user.email,
-            deliveryId: delivery.id,
-          });
-        } catch (emailError) {
-          console.error("[forgot-password] email send failed", emailError);
-          Errors.serviceUnavailable(
-            res,
-            "Password reset email delivery is temporarily unavailable. Please try again shortly or contact support.",
-          );
-          return;
-        }
-      } else {
-        console.warn("[forgot-password] PUBLIC_APP_URL is not configured; reset email skipped");
+    if (resetUrl) {
+      try {
+        const delivery = await sendPasswordResetEmail({
+          to: user.email,
+          name: user.name,
+          resetUrl,
+          expiresAt: reset.expiresAt,
+        });
+        console.info("[forgot-password] email sent", {
+          userId: user.id,
+          to: user.email,
+          deliveryId: delivery.id,
+        });
+      } catch (emailError) {
+        console.error("[forgot-password] email send failed", emailError);
         Errors.serviceUnavailable(
           res,
-          "Password reset email delivery is temporarily unavailable. Please contact support.",
+          "Password reset email delivery is temporarily unavailable. Please try again shortly or contact support.",
         );
         return;
       }
+    } else {
+      console.warn("[forgot-password] PUBLIC_APP_URL is not configured; reset email skipped");
+      Errors.serviceUnavailable(
+        res,
+        "Password reset email delivery is temporarily unavailable. Please contact support.",
+      );
+      return;
     }
 
     res.json({
@@ -223,10 +230,7 @@ router.post("/forgot-password", validate(ForgotPasswordSchema), async (req, res)
     });
   } catch (err) {
     console.error(err);
-    res.json({
-      ok: true,
-      message: "If that email exists in RecruitFlow, a password reset link has been sent.",
-    });
+    Errors.internal(res);
   }
 });
 

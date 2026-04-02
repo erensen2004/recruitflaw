@@ -24,6 +24,10 @@ export default function AdminUsers() {
   const [createdUserName, setCreatedUserName] = useState("");
   const [createdUserEmail, setCreatedUserEmail] = useState("");
   const [temporaryPassword, setTemporaryPassword] = useState("");
+  const [resetEmailStatus, setResetEmailStatus] = useState<{
+    sent: boolean;
+    error?: string | null;
+  } | null>(null);
   const [isSendingReset, setIsSendingReset] = useState(false);
   const [formData, setFormData] = useState<CreateUserForm>({
     name: "",
@@ -46,6 +50,7 @@ export default function AdminUsers() {
 
   const resetForm = () => {
     setFormData({ name: "", email: "", role: "client", companyId: "none" });
+    setResetEmailStatus(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -76,13 +81,22 @@ export default function AdminUsers() {
       setCreatedUserName(payload?.name || formData.name.trim());
       setCreatedUserEmail(payload?.email || formData.email.trim().toLowerCase());
       setTemporaryPassword(payload?.temporaryPassword || "");
+      setResetEmailStatus(payload?.resetEmail ?? null);
       setIsOpen(false);
       resetForm();
 
-      toast({
-        title: "User created",
-        description: "Temporary password is ready. The preferred onboarding path is still forgot password.",
-      });
+      if (payload?.resetEmail?.sent) {
+        toast({
+          title: "User created",
+          description: "The account was created and the onboarding reset email was sent automatically.",
+        });
+      } else {
+        toast({
+          title: "User created",
+          description: payload?.resetEmail?.error || "The account was created, but the onboarding reset email could not be sent.",
+          variant: "destructive",
+        });
+      }
     } catch (error) {
       toast({
         title: "Error creating user",
@@ -115,7 +129,9 @@ export default function AdminUsers() {
         title: "Reset email queued",
         description: payload?.message || "If the account exists, a reset link has been sent.",
       });
+      setResetEmailStatus({ sent: true });
     } catch (error) {
+      setResetEmailStatus({ sent: false, error: error instanceof Error ? error.message : "Please try again." });
       toast({
         title: "Reset email failed",
         description: error instanceof Error ? error.message : "Please try again.",
@@ -151,7 +167,7 @@ export default function AdminUsers() {
             <DialogHeader>
               <DialogTitle>Create New User</DialogTitle>
               <DialogDescription>
-                Create the account with a random temporary password. Users can sign in with it or use forgot password to set their own permanent password.
+                Create the account with a random temporary password. RecruitFlow will automatically send a reset email, and only admin-created accounts can receive reset mail later.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="mt-4 space-y-4">
@@ -204,9 +220,14 @@ export default function AdminUsers() {
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-500">Temporary password shown once</p>
               <p className="mt-1 text-sm font-medium text-sky-900">
-                {createdUserName} can sign in with this password, but the preferred onboarding path is to use forgot password.
+                {createdUserName} can sign in with this password, but the preferred onboarding path is the admin-issued reset email.
               </p>
               <p className="mt-1 text-xs text-sky-700">{createdUserEmail}</p>
+              <p className={`mt-2 text-xs font-medium ${resetEmailStatus?.sent ? "text-emerald-700" : "text-amber-700"}`}>
+                {resetEmailStatus?.sent
+                  ? "Onboarding reset email sent automatically."
+                  : resetEmailStatus?.error || "Automatic reset email status is unavailable."}
+              </p>
               <p className="mt-3 rounded-xl border border-sky-200 bg-white px-4 py-3 font-mono text-sm font-semibold text-slate-900">
                 {temporaryPassword}
               </p>
@@ -218,7 +239,7 @@ export default function AdminUsers() {
               </Button>
               <Button type="button" className="rounded-full" onClick={sendResetEmail} disabled={isSendingReset}>
                 {isSendingReset ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
-                Send reset email
+                Retry reset email
               </Button>
             </div>
           </div>

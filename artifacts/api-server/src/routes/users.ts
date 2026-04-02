@@ -6,6 +6,8 @@ import { eq } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole } from "../lib/authz.js";
 import { Errors } from "../lib/errors.js";
+import { createPasswordSetupToken } from "../lib/password-setup.js";
+import { sendPasswordResetEmail } from "../lib/email.js";
 import { CreateUserSchema } from "../lib/schemas.js";
 import { validate } from "../middlewares/validate.js";
 
@@ -21,6 +23,7 @@ router.get("/", requireAuth, requireRole("admin"), async (_req, res) => {
         role: usersTable.role,
         companyId: usersTable.companyId,
         companyName: companiesTable.name,
+        adminManaged: usersTable.adminManaged,
         isActive: usersTable.isActive,
         createdAt: usersTable.createdAt,
       })
@@ -48,6 +51,7 @@ router.post("/", requireAuth, requireRole("admin"), validate(CreateUserSchema), 
         passwordHash,
         role,
         companyId: companyId ?? null,
+        adminManaged: true,
         isActive: true,
       })
       .returning({
@@ -56,13 +60,49 @@ router.post("/", requireAuth, requireRole("admin"), validate(CreateUserSchema), 
         name: usersTable.name,
         role: usersTable.role,
         companyId: usersTable.companyId,
+        adminManaged: usersTable.adminManaged,
         isActive: usersTable.isActive,
         createdAt: usersTable.createdAt,
       });
+
+    const origin = process.env.PUBLIC_APP_URL?.trim();
+    let resetEmail: { sent: boolean; error?: string | null; deliveryId?: string | null } = { sent: false };
+
+    if (origin) {
+      const reset = await createPasswordSetupToken({
+        userId: user.id,
+        createdByUserId: req.user!.userId,
+        purpose: "reset",
+      });
+      const resetUrl = new URL(`/reset-password?token=${encodeURIComponent(reset.token)}`, origin).toString();
+
+      try {
+        const delivery = await sendPasswordResetEmail({
+          to: user.email,
+          name: user.name,
+          resetUrl,
+          expiresAt: reset.expiresAt,
+        });
+        resetEmail = { sent: true, deliveryId: delivery.id };
+      } catch (error) {
+        console.error("[users.create] onboarding reset email failed", error);
+        resetEmail = {
+          sent: false,
+          error: error instanceof Error ? error.message : "Reset email could not be sent.",
+        };
+      }
+    } else {
+      resetEmail = {
+        sent: false,
+        error: "PUBLIC_APP_URL is not configured, so the onboarding reset email could not be sent.",
+      };
+    }
+
     res.status(201).json({
       ...user,
       companyName: null,
       temporaryPassword,
+      resetEmail,
     });
   } catch (err: unknown) {
     if ((err as { code?: string }).code === "23505") {
@@ -102,6 +142,7 @@ router.patch("/:id", requireAuth, requireRole("admin"), async (req, res) => {
         name: usersTable.name,
         role: usersTable.role,
         companyId: usersTable.companyId,
+        adminManaged: usersTable.adminManaged,
         isActive: usersTable.isActive,
         createdAt: usersTable.createdAt,
       });
