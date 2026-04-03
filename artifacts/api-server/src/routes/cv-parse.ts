@@ -1020,7 +1020,7 @@ function formatNaturalList(values: string[], conjunction = "ve"): string {
 
 function formatExperienceYears(yearsExperience: number | null): string | null {
   if (yearsExperience == null || yearsExperience <= 0) return null;
-  return yearsExperience === 1 ? "1 yıl" : `${yearsExperience} yıl`;
+  return yearsExperience === 1 ? "1 year" : `${yearsExperience} years`;
 }
 
 function sanitizeRecruiterNarrativeText(value: string | null): string | null {
@@ -1055,26 +1055,7 @@ function hasMalformedRecruiterText(value: string | null | undefined): boolean {
 }
 
 function looksEnglishDominantNarrative(value: string | null | undefined): boolean {
-  const normalized = sanitizeRecruiterNarrativeText(value ?? null)?.toLowerCase();
-  if (!normalized) return false;
-
-  const englishHits = (
-    normalized.match(
-      /\b(the|with|and|for|from|experience|experienced|years|based|languages|decision|profile|candidate|focused|skilled|proficient|strong|interest|gained|through|projects|project|development|management|student|ability|specializes|proven|lifecycle|business|analysis)\b/g,
-    ) ?? []
-  ).length;
-  const turkishHits = (
-    normalized.match(
-      /\b(ve|ile|için|deneyim|deneyimli|aday|profil|lokasyon|dil|ücret|çalışma|bazlı|güçlü|uzmanlık|alanları|karar|bağlamı|tarafında|öne|projelerde|alanında|geliştirdi|yıl)\b/g,
-    ) ?? []
-  ).length;
-  const hasTurkishCharacters = /[çğıöşü]/i.test(normalized);
-  const tokenCount = normalized.split(/\s+/).filter(Boolean).length;
-
-  if (!hasTurkishCharacters && englishHits >= 3 && turkishHits === 0) return true;
-  if (englishHits >= 4 && englishHits >= turkishHits * 2 && tokenCount >= 12) return true;
-
-  return englishHits >= 3 && englishHits > turkishHits + 1;
+  return false;
 }
 
 function getPrimaryTitle(candidate: ParsedCandidate): string | null {
@@ -1130,13 +1111,13 @@ function getLanguagesSummary(candidate: ParsedCandidate): string[] {
 
 function buildDecisionContext(candidate: ParsedCandidate): string[] {
   const parts = dedupeList([
-    candidate.location ? `${candidate.location} bazlı` : null,
+    candidate.location ? `${candidate.location}-based` : null,
     deriveLanguageItems(candidate).length
-      ? `Dil tarafında ${formatNaturalList(
+      ? `Languages: ${formatNaturalList(
           deriveLanguageItems(candidate)
             .map((item) => (item.level ? `${item.name} (${item.level})` : item.name))
             .filter(Boolean) as string[],
-          "ve",
+          "and",
         )}`
       : null,
     candidate.inferredWorkModel ?? inferWorkModel(candidate),
@@ -1170,9 +1151,7 @@ function dedupeRecruiterSentences(sentences: string[]): string[] {
 }
 
 function sanitizeRecruiterSummary(candidate: ParsedCandidate, fallback: string | null): string | null {
-  const candidateSummary = looksEnglishDominantNarrative(candidate.summary)
-    ? null
-    : sanitizeRecruiterNarrativeText(candidate.summary);
+  const candidateSummary = sanitizeRecruiterNarrativeText(candidate.summary);
   const sentences = dedupeRecruiterSentences([
     ...splitRecruiterSentences(candidateSummary),
     ...splitRecruiterSentences(sanitizeRecruiterNarrativeText(fallback)),
@@ -1182,11 +1161,11 @@ function sanitizeRecruiterSummary(candidate: ParsedCandidate, fallback: string |
 
   const decisionContext = buildDecisionContext(candidate);
   const hasDecisionContext = sentences.some((sentence) =>
-    /istanbul|ankara|izmir|uzaktan|hibrit|ofis|maaş|ücret|dil|ingilizce|lokasyon|çalışma modeli/i.test(sentence),
+    /istanbul|ankara|izmir|remote|hybrid|onsite|salary|compensation|language|english|location|work model/i.test(sentence),
   );
 
   if (!hasDecisionContext && decisionContext.length) {
-    sentences.push(`Karar bağlamı: ${decisionContext.join("; ")}.`);
+    sentences.push(`Decision context: ${decisionContext.join("; ")}.`);
   }
 
   return dedupeRecruiterSentences(sentences).slice(0, 4).join(" ");
@@ -1195,7 +1174,7 @@ function sanitizeRecruiterSummary(candidate: ParsedCandidate, fallback: string |
 function sanitizeProfessionalSnapshot(candidate: ParsedCandidate, fallback: string | null): string | null {
   const summarySentences = new Set(splitRecruiterSentences(candidate.summary).map((sentence) => normalizeComparableText(sentence)));
   const snapshotSentences = dedupeRecruiterSentences([
-    ...splitRecruiterSentences(looksEnglishDominantNarrative(candidate.professionalSnapshot) ? null : candidate.professionalSnapshot),
+    ...splitRecruiterSentences(candidate.professionalSnapshot),
     ...splitRecruiterSentences(sanitizeRecruiterNarrativeText(fallback)),
   ]).filter((sentence) => !summarySentences.has(normalizeComparableText(sentence)));
 
@@ -1228,34 +1207,34 @@ function buildProfessionalSummary(candidate: ParsedCandidate): string | null {
   const sentences: string[] = [];
 
   if (title) {
-    const intro = [title, years ? `${years} deneyimle` : null, location ? `${location} bazlı` : null]
+    const intro = [title, years ? `with ${years} of experience` : null, location ? `${location}-based` : null]
       .filter(Boolean)
       .join(" ");
     sentences.push(`${intro}.`);
   } else if (years && location) {
-    sentences.push(`${location} bazlı, ${years} deneyimli aday profili.`);
+    sentences.push(`${location}-based candidate with ${years} of experience.`);
   } else if (years) {
-    sentences.push(`${years} deneyime sahip aday profili.`);
+    sentences.push(`Candidate with ${years} of relevant experience.`);
   } else if (location) {
-    sentences.push(`Aday ${location} bazlı görünüyor.`);
+    sentences.push(`Candidate appears to be based in ${location}.`);
   }
 
   const focusSignals = dedupeList([...domainFocus, ...skills]).slice(0, 4);
   if (focusSignals.length) {
-    sentences.push(`Ana uzmanlık alanları ${formatNaturalList(focusSignals, "ve")} etrafında şekilleniyor.`);
+    sentences.push(`Core strengths are concentrated around ${formatNaturalList(focusSignals, "and")}.`);
   } else if (experienceSignals.length) {
-    sentences.push(`En güçlü deneyim sinyali ${formatNaturalList(experienceSignals, "ve")} tarafında görünüyor.`);
+    sentences.push(`The strongest experience signal comes from ${formatNaturalList(experienceSignals, "and")}.`);
   }
 
   const proofSignals = dedupeList([...achievements, ...highlights, ...experienceSignals]).slice(0, 2);
   if (proofSignals.length) {
-    sentences.push(`En güçlü kanıt ${formatNaturalList(proofSignals, "ve")} üzerinden geliyor.`);
+    sentences.push(`The strongest evidence comes from ${formatNaturalList(proofSignals, "and")}.`);
   }
 
   if (decisionContext.length) {
-    sentences.push(`Karar bağlamı: ${decisionContext.join("; ")}.`);
+    sentences.push(`Decision context: ${decisionContext.join("; ")}.`);
   } else if (languages.length) {
-    sentences.push(`Dil yetkinliği tarafında ${formatNaturalList(languages, "ve")} öne çıkıyor.`);
+    sentences.push(`Language coverage is visible in ${formatNaturalList(languages, "and")}.`);
   }
 
   if (!sentences.length) {
@@ -1318,13 +1297,13 @@ function buildStandardizedProfile(candidate: ParsedCandidate): string | null {
   const education = candidate.education;
   const languages = candidate.languages;
   const sections = [
-    headline ? `Başlık: ${headline}` : null,
-    contact ? `İletişim: ${contact}` : null,
-    location ? `Lokasyon: ${location}` : null,
-    experience ? `Deneyim: ${experience}` : null,
-    skills ? `Yetenekler: ${skills}` : null,
-    education ? `Eğitim: ${education}` : null,
-    languages ? `Diller: ${languages}` : null,
+    headline ? `Headline: ${headline}` : null,
+    contact ? `Contact: ${contact}` : null,
+    location ? `Location: ${location}` : null,
+    experience ? `Experience: ${experience}` : null,
+    skills ? `Skills: ${skills}` : null,
+    education ? `Education: ${education}` : null,
+    languages ? `Languages: ${languages}` : null,
   ].filter(Boolean);
   return sections.length ? sections.join("\n") : null;
 }
@@ -1337,34 +1316,34 @@ function inferSenioritySignal(candidate: ParsedCandidate): string | null {
   const title = (candidate.currentTitle || candidate.parsedExperience[0]?.title || "").toLowerCase();
   const years = candidate.yearsExperience ?? 0;
 
-  if (/\b(principal|staff|head|director)\b/.test(title)) return "Principal seviye profil";
-  if (/\b(lead|manager)\b/.test(title)) return "Lead seviye profil";
-  if (/\b(senior|sr)\b/.test(title) || years >= 8) return "Senior seviye profil";
-  if (years >= 5) return "Mid-senior seviye profil";
-  if (years >= 3) return "Mid seviye profil";
-  if (years > 0) return "Erken kariyer profili";
-  return title ? "Kıdem seviyesi mevcut unvandan türetildi" : null;
+  if (/\b(principal|staff|head|director)\b/.test(title)) return "Principal-level profile";
+  if (/\b(lead|manager)\b/.test(title)) return "Lead-level profile";
+  if (/\b(senior|sr)\b/.test(title) || years >= 8) return "Senior-level profile";
+  if (years >= 5) return "Mid-senior profile";
+  if (years >= 3) return "Mid-level profile";
+  if (years > 0) return "Early-career profile";
+  return title ? "Seniority inferred from current title" : null;
 }
 
 function inferWorkModel(candidate: ParsedCandidate): string | null {
   const text = [candidate.location, candidate.summary, candidate.standardizedProfile].filter(Boolean).join(" ").toLowerCase();
   if (!text) return null;
-  if (/\bremote\b/.test(text)) return "Uzaktan çalışmaya açık";
-  if (/\bhybrid\b/.test(text)) return "Hibrit çalışmaya açık";
-  if (/\boffice|on-site|onsite\b/.test(text)) return "Ofis odaklı";
+  if (/\bremote\b/.test(text)) return "Open to remote work";
+  if (/\bhybrid\b/.test(text)) return "Open to hybrid work";
+  if (/\boffice|on-site|onsite\b/.test(text)) return "Office-oriented";
   return null;
 }
 
 function inferLocationFlexibility(candidate: ParsedCandidate): string | null {
   const workModel = inferWorkModel(candidate);
   if (candidate.location && workModel) return `${candidate.location} • ${workModel}`;
-  if (candidate.location) return `${candidate.location} bazlı`;
+  if (candidate.location) return `${candidate.location}-based`;
   return workModel;
 }
 
 function inferSalarySignal(candidate: ParsedCandidate): string | null {
   if (candidate.expectedSalary != null) {
-    return `Ücret beklentisi ${Math.round(candidate.expectedSalary).toLocaleString("tr-TR")} TL seviyesinde görünüyor`;
+    return `Expected compensation appears to be around ${Math.round(candidate.expectedSalary).toLocaleString("en-US")} TRY`;
   }
   return null;
 }
@@ -1610,8 +1589,8 @@ function buildExecutiveHeadline(candidate: ParsedCandidate): string | null {
 
   const parts = [
     title,
-    years ? `${years} deneyimle` : null,
-    focus.length ? `${formatNaturalList(focus.slice(0, 3), "ve")} odağıyla` : null,
+    years ? `with ${years} of experience` : null,
+    focus.length ? `focused on ${formatNaturalList(focus.slice(0, 3), "and")}` : null,
   ].filter(Boolean);
 
   return parts.length ? parts.join(" ") : null;
@@ -1635,8 +1614,8 @@ function buildProfessionalSnapshot(candidate: ParsedCandidate): string | null {
   if (title) {
     const intro = [
       title,
-      years ? `${years} deneyimle` : null,
-      candidate.location ? `${candidate.location} bazlı` : null,
+      years ? `with ${years} of experience` : null,
+      candidate.location ? `${candidate.location}-based` : null,
     ]
       .filter(Boolean)
       .join(" ");
@@ -1644,23 +1623,23 @@ function buildProfessionalSnapshot(candidate: ParsedCandidate): string | null {
   }
 
   if (focus.length) {
-    sentences.push(`Profilin en güçlü yönü ${formatNaturalList(focus.slice(0, 4), "ve")} çevresinde toplanıyor.`);
+    sentences.push(`The profile is strongest around ${formatNaturalList(focus.slice(0, 4), "and")}.`);
   }
 
   if (strongestStack.length) {
-    sentences.push(`Teknik ve teslimat sinyalleri en çok ${formatNaturalList(strongestStack, "ve")} tarafında güçleniyor.`);
+    sentences.push(`The clearest technical delivery signals come from ${formatNaturalList(strongestStack, "and")}.`);
   }
 
   if (achievements.length) {
-    sentences.push(`Son dönemdeki işi en iyi ${formatNaturalList(achievements.slice(0, 2), "ve")} üzerinden okunuyor.`);
+    sentences.push(`Recent execution is best evidenced by ${formatNaturalList(achievements.slice(0, 2), "and")}.`);
   } else if (employers.length) {
-    sentences.push(`Yakın dönem şirket deneyimi ${formatNaturalList(employers, "ve")} çevresinde görülüyor.`);
+    sentences.push(`Recent company experience is concentrated around ${formatNaturalList(employers, "and")}.`);
   }
 
   if (decisionContext.length) {
-    sentences.push(`Karar bağlamında ${decisionContext.join("; ")} öne çıkıyor.`);
+    sentences.push(`Decision context includes ${decisionContext.join("; ")}.`);
   } else if (languages.length) {
-    sentences.push(`Dil tarafında ${formatNaturalList(languages, "ve")} sinyali bulunuyor.`);
+    sentences.push(`Language coverage includes ${formatNaturalList(languages, "and")}.`);
   }
 
   return sentences.length ? sentences.slice(0, 5).join(" ") : buildProfessionalSummary(candidate);
@@ -1691,11 +1670,11 @@ function buildDeterministicEnrichment(candidate: ParsedCandidate): ParsedCandida
       ...domainFocus,
       ...notableAchievements,
       languageItems.length
-        ? `Diller: ${formatNaturalList(
+        ? `Languages: ${formatNaturalList(
             languageItems
               .map((item) => (item.level ? `${item.name} (${item.level})` : item.name))
               .filter(Boolean) as string[],
-            "ve",
+            "and",
           )}`
         : null,
     ].filter((value): value is string => Boolean(value)),
@@ -1704,24 +1683,24 @@ function buildDeterministicEnrichment(candidate: ParsedCandidate): ParsedCandida
   const candidateRisks = mergeEvidenceBackedLists(
     candidate.candidateRisks,
     [
-      !candidate.phone ? "Telefon numarası eksik" : null,
-      candidate.expectedSalary == null ? "Ücret beklentisi net değil" : null,
-      !enrichedExperience.length ? "Deneyim akışı zayıf görünüyor" : null,
-      !enrichedEducation.length ? "Eğitim bilgisi ince kalmış" : null,
-      !languageItems.length ? "Dil yetkinliği net değil" : null,
-      candidate.parseReviewRequired ? "Bazı profil detaylarının doğrulanması gerekiyor" : null,
-      (candidate.parseConfidence ?? 0) < 70 ? `Parse güveni ${candidate.parseConfidence ?? 0}% seviyesinde` : null,
+      !candidate.phone ? "Phone number is missing" : null,
+      candidate.expectedSalary == null ? "Expected compensation is not confirmed" : null,
+      !enrichedExperience.length ? "Experience timeline still looks thin" : null,
+      !enrichedEducation.length ? "Education details are still thin" : null,
+      !languageItems.length ? "Language coverage is not explicit" : null,
+      candidate.parseReviewRequired ? "Some profile details still need confirmation" : null,
+      (candidate.parseConfidence ?? 0) < 70 ? `Parse confidence is currently ${candidate.parseConfidence ?? 0}%` : null,
     ].filter((value): value is string => Boolean(value)),
   );
 
   const evidence = mergeEvidenceBackedLists(
     candidate.evidence,
     [
-      getPrimaryTitle(candidate) ? `Unvan sinyali: ${getPrimaryTitle(candidate)}` : null,
-      candidate.location ? `Lokasyon sinyali: ${candidate.location}` : null,
-      domainFocus.length ? `Alan sinyali: ${formatNaturalList(domainFocus.slice(0, 3), "ve")}` : null,
-      enrichedExperience[0]?.company ? `Şirket sinyali: ${enrichedExperience[0].company}` : null,
-      notableAchievements[0] ? `Başarı sinyali: ${notableAchievements[0]}` : null,
+      getPrimaryTitle(candidate) ? `Title signal: ${getPrimaryTitle(candidate)}` : null,
+      candidate.location ? `Location signal: ${candidate.location}` : null,
+      domainFocus.length ? `Domain signal: ${formatNaturalList(domainFocus.slice(0, 3), "and")}` : null,
+      enrichedExperience[0]?.company ? `Company signal: ${enrichedExperience[0].company}` : null,
+      notableAchievements[0] ? `Achievement signal: ${notableAchievements[0]}` : null,
     ].filter((value): value is string => Boolean(value)),
   );
 
@@ -2781,22 +2760,22 @@ function buildEnrichmentPrompt(
     sourceTextTruncated: undefined,
   };
   return [
-    "Yapılandırılmış aday profilini recruiter kullanımı için Türkçe bir executive brief'e dönüştürüyorsun.",
-    "Yalnızca structured JSON ve varsa kısa CV metni içindeki kanıtları kullan. İşveren, tarih, proje, teknoloji, eğitim veya kıdem uydurma.",
+    "You are turning a structured candidate profile into a polished English executive brief for recruiters.",
+    "Use only the structured JSON and, when provided, the short source excerpt. Do not invent employers, dates, projects, technologies, education, or seniority.",
     "Return exactly one JSON object and nothing else.",
-    "Çıktı dili doğal, akıcı ve düzgün Türkçe recruiter dili olsun. Teknik terimler gerektiğinde İngilizce kalabilir.",
-    "Kısa ama güçlü, somut ve recruiter-friendly yaz. Aynı cümleyi veya aynı kalıbı tekrar etme.",
+    "Write in polished, concise, recruiter-facing English. Keep technical terms accurate and natural.",
+    "Be concrete, grounded, and professional. Do not repeat the same sentence or sentence pattern.",
     "If a field is weak or unsupported, return null or an empty array.",
-    "summary 3-4 cümlelik hızlı recruiter özeti olsun.",
-    "summary sırası şu olsun: aday kimdir, ana uzmanlık alanı nedir, en güçlü deneyim/stack/domain kanıtı nedir, karar için önemli bağlam nedir.",
-    "executiveHeadline tek satırlık kısa bir başlık olsun; paragraf yazma.",
-    "professionalSnapshot summary'den daha detaylı, daha premium ve daha ikna edici olsun.",
-    "professionalSnapshot ile summary aynı cümleleri veya aynı ifadeleri tekrar etmesin.",
-    "candidateStrengths kısa, somut ve kanıt temelli maddeler olsun.",
-    "candidateRisks açık riskten çok recruiter open point mantığında, profesyonel ve kontrollü yazılsın.",
-    "notableAchievements yalnızca kaynakta desteklenen somut iş/çıktı sinyallerinden oluşsun.",
-    "domainFocus rol alanını tarif eden 2-5 kısa odak ifadesi olsun.",
-    "standardizedProfile sadece iç fallback alanı; satış metni değil, kompakt normalize metin olarak tut.",
+    "summary should be a fast 3-4 sentence recruiter summary.",
+    "summary order: who the candidate is, what they specialize in, what the strongest proof is, and what decision context matters.",
+    "executiveHeadline should be a short one-line heading, not a paragraph.",
+    "professionalSnapshot should be more premium, more persuasive, and more detailed than the summary.",
+    "professionalSnapshot must not repeat the same sentences or phrasing used in summary.",
+    "candidateStrengths should be short, concrete, and evidence-backed.",
+    "candidateRisks should read like professional recruiter open points, not harsh criticism.",
+    "notableAchievements must contain only source-supported outcomes or delivery signals.",
+    "domainFocus should contain 2-5 short focus phrases that describe role alignment.",
+    "standardizedProfile is only an internal fallback field; keep it compact and normalized, not promotional.",
     "parsedExperience may be enriched with scope, techStack, impactHighlights, current, and seniorityContribution only when supported.",
     preparedSource
       ? "If parsedExperience has fewer than 2 entries but the source text clearly contains multiple role/date blocks, rebuild parsedExperience from that evidence."
@@ -2807,7 +2786,7 @@ function buildEnrichmentPrompt(
       : "If source text is omitted, keep parsedEducation conservative and do not infer extra schools or degrees.",
     "languageItems should include name, level, confidence, and source.",
     "fieldConfidence should include contact, experience, education, languages, compensation, summary as 0-100 integers.",
-    "Bozuk Türkçe, kırık token, yarım kelime veya anlamsız tekrar üretme.",
+    "Do not produce broken wording, malformed tokens, half-words, or empty repetition.",
     "Required JSON keys: summary, executiveHeadline, professionalSnapshot, domainFocus, senioritySignal, candidateStrengths, candidateRisks, notableAchievements, inferredWorkModel, locationFlexibility, salarySignal, languageItems, fieldConfidence, evidence, parsedExperience, parsedEducation, standardizedProfile.",
     "",
     "Structured candidate JSON:",
@@ -2836,14 +2815,14 @@ function isRichExperienceItem(item: ParsedExperienceItem): boolean {
 
 function hasGenericRecruiterBriefLanguage(value: string | null | undefined): boolean {
   if (!value) return false;
-  return /the profile is most credible around|the strongest work signals point to|some profile details still need confirmation|profilin en güçlü yönü|teknik ve teslimat sinyalleri|karar bağlamında/i.test(
+  return /the profile is most credible around|the strongest work signals point to|some profile details still need confirmation|the profile is strongest around|the clearest technical delivery signals come from|decision context includes/i.test(
     value,
   );
 }
 
 function hasGenericSummaryLanguage(value: string | null | undefined): boolean {
   if (!value) return false;
-  return /core strengths are concentrated around|strongest evidence comes from|decision context:|ana uzmanlık alanları|en güçlü kanıt|karar bağlamı:/i.test(
+  return /core strengths are concentrated around|strongest evidence comes from|decision context:|the strongest experience signal comes from|language coverage is visible in/i.test(
     value,
   );
 }

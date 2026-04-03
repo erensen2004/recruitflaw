@@ -133,9 +133,9 @@ async function buildStandardizedCandidatePdf(candidate: Candidate) {
   doc.setFont("LiberationSans", "normal");
   doc.setFontSize(10.5);
   doc.setTextColor(226, 232, 240);
-  doc.text(brief.headline || candidate.currentTitle || candidate.roleTitle || "Aday özeti", 58, 108, { maxWidth: 320 });
+  doc.text(brief.headline || candidate.currentTitle || candidate.roleTitle || "Candidate summary", 58, 108, { maxWidth: 320 });
   doc.setFontSize(9.5);
-  doc.text(candidate.roleTitle ? `${candidate.roleTitle} rolü için hazırlandı` : "Yapılandırılmış aday profiline göre hazırlandı", 58, 126, {
+  doc.text(candidate.roleTitle ? `Prepared for the ${candidate.roleTitle} role` : "Prepared from the structured candidate profile", 58, 126, {
     maxWidth: 320,
   });
   doc.setFillColor(30, 41, 59);
@@ -154,7 +154,7 @@ async function buildStandardizedCandidatePdf(candidate: Candidate) {
     candidate.location || null,
     candidate.email,
     candidate.phone || null,
-    candidate.vendorCompanyName ? `Gönderen ${candidate.vendorCompanyName}` : null,
+    candidate.vendorCompanyName ? `Submitted by ${candidate.vendorCompanyName}` : null,
   ], 5);
 
   if (meta.length) {
@@ -165,9 +165,9 @@ async function buildStandardizedCandidatePdf(candidate: Candidate) {
   }
 
   const reviewLine = dedupe([
-    candidate.parseConfidence != null ? `Parse güveni ${candidate.parseConfidence}%` : null,
+    candidate.parseConfidence != null ? `Parse confidence ${candidate.parseConfidence}%` : null,
     brief.fitSummary,
-    candidate.expectedSalary != null ? `Ücret beklentisi ${formatTurkishLira(candidate.expectedSalary)}` : null,
+    candidate.expectedSalary != null ? `Expected compensation ${formatTurkishLira(candidate.expectedSalary)}` : null,
   ], 3);
 
   if (reviewLine.length) {
@@ -196,7 +196,7 @@ async function buildStandardizedCandidatePdf(candidate: Candidate) {
     brief.coreExperience.flatMap((item) => {
       const lines = [item.header, item.timeline, item.scope];
       if (item.techStack.length) {
-        lines.push(`Teknoloji seti: ${item.techStack.join(", ")}`);
+        lines.push(`Tech stack: ${item.techStack.join(", ")}`);
       }
       return lines.filter((line): line is string => Boolean(line));
     }),
@@ -205,21 +205,21 @@ async function buildStandardizedCandidatePdf(candidate: Candidate) {
   writeBlock("Education & Languages", [
     ...educationToLines(candidate.parsedEducation),
     candidate.languageItems?.length
-      ? `Diller: ${candidate.languageItems
+      ? `Languages: ${candidate.languageItems
           .map((item) => [item.name, item.level].filter(Boolean).join(" "))
           .filter(Boolean)
           .join(", ")}`
       : candidate.languages
-        ? `Diller: ${candidate.languages}`
+        ? `Languages: ${candidate.languages}`
         : "",
-    englishLevel ? `İngilizce seviyesi: ${englishLevel}` : "",
+    englishLevel ? `English level: ${englishLevel}` : "",
   ]);
 
   writeBlock("Compensation / Location / Work Model", dedupe([
-    brief.locationFlexibility ? `Lokasyon: ${brief.locationFlexibility}` : candidate.location ? `Lokasyon: ${candidate.location}` : null,
-    brief.workModel ? `Çalışma modeli: ${brief.workModel}` : null,
-    brief.salarySignal ? brief.salarySignal : candidate.expectedSalary != null ? `Ücret beklentisi: ${formatTurkishLira(candidate.expectedSalary)}` : null,
-    candidate.yearsExperience != null ? `Toplam deneyim: ${candidate.yearsExperience} yıl` : null,
+    brief.locationFlexibility ? `Location: ${brief.locationFlexibility}` : candidate.location ? `Location: ${candidate.location}` : null,
+    brief.workModel ? `Work model: ${brief.workModel}` : null,
+    brief.salarySignal ? brief.salarySignal : candidate.expectedSalary != null ? `Expected compensation: ${formatTurkishLira(candidate.expectedSalary)}` : null,
+    candidate.yearsExperience != null ? `Total experience: ${candidate.yearsExperience} years` : null,
   ], 4));
 
   writeBulletBlock("Open Points", brief.openPoints, { compact: true });
@@ -229,11 +229,11 @@ async function buildStandardizedCandidatePdf(candidate: Candidate) {
       "Profile Confidence",
       [
         [
-          candidate.fieldConfidence.contact != null ? `İletişim ${candidate.fieldConfidence.contact}%` : null,
-          candidate.fieldConfidence.experience != null ? `Deneyim ${candidate.fieldConfidence.experience}%` : null,
-          candidate.fieldConfidence.education != null ? `Eğitim ${candidate.fieldConfidence.education}%` : null,
-          candidate.fieldConfidence.languages != null ? `Diller ${candidate.fieldConfidence.languages}%` : null,
-          candidate.fieldConfidence.compensation != null ? `Ücret ${candidate.fieldConfidence.compensation}%` : null,
+          candidate.fieldConfidence.contact != null ? `Contact ${candidate.fieldConfidence.contact}%` : null,
+          candidate.fieldConfidence.experience != null ? `Experience ${candidate.fieldConfidence.experience}%` : null,
+          candidate.fieldConfidence.education != null ? `Education ${candidate.fieldConfidence.education}%` : null,
+          candidate.fieldConfidence.languages != null ? `Languages ${candidate.fieldConfidence.languages}%` : null,
+          candidate.fieldConfidence.compensation != null ? `Compensation ${candidate.fieldConfidence.compensation}%` : null,
           candidate.fieldConfidence.summary != null ? `Brief ${candidate.fieldConfidence.summary}%` : null,
         ]
           .filter(Boolean)
@@ -256,7 +256,7 @@ export async function previewStandardizedCandidatePdf(candidate: Candidate) {
   const url = URL.createObjectURL(blob);
   const opened = window.open(url, "_blank", "noopener,noreferrer");
   if (!opened) {
-    throw new Error("Önizleme açılamadı. Lütfen pop-up iznini kontrol edip tekrar deneyin.");
+    throw new Error("Preview could not be opened. Please check your pop-up settings and try again.");
   }
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
