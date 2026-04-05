@@ -15,7 +15,7 @@ export function PrivateObjectLink({
   objectPath,
   className,
   children,
-  loadingLabel = "Opening CV…",
+  loadingLabel = "Preparing CV…",
   disabled = false,
   onClick,
   ...buttonProps
@@ -47,7 +47,14 @@ export function PrivateObjectLink({
         }
       }}
     >
-      {opening ? <Loader2 className="h-4 w-4 animate-spin" /> : children}
+      {opening ? (
+        <span className="inline-flex items-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>{loadingLabel}</span>
+        </span>
+      ) : (
+        children
+      )}
     </button>
   );
 }
