@@ -16,6 +16,7 @@ import { parseResumeFileWithFallback, type ParsedCandidateProfile } from "@/lib/
 import { uploadResumeFile } from "@/lib/resume-upload";
 import { formatTurkishLira, parseCandidateTags } from "@/lib/candidate-display";
 import { PrivateObjectLink } from "@/components/private-object-link";
+import { InterviewWorkflowPanel } from "@/components/interview-workflow";
 
 const EDITABLE_STATUSES = new Set(["submitted", "screening", "pending_approval"]);
 
@@ -557,6 +558,16 @@ export default function VendorCandidateDetail() {
                 )}
               </div>
             </div>
+
+            <InterviewWorkflowPanel
+              candidateId={candidate.id}
+              candidateName={`${candidate.firstName} ${candidate.lastName}`}
+              candidateStatus={candidate.status}
+              roleTitle={candidate.roleTitle ?? "Role"}
+              roleId={candidate.roleId}
+              vendorCompanyName={candidate.vendorCompanyName}
+              compact
+            />
 
             <ReviewThreadPanel
               scopeType="candidate"

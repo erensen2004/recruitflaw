@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { UserCircle, Loader2, ArrowLeft, FileText, MapPin, Eye } from "lucide-react";
+import { CalendarClock } from "lucide-react";
 import { useRoute, Link } from "wouter";
 import { format } from "date-fns";
 import { useQueryClient } from "@tanstack/react-query";
@@ -21,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { invalidateCandidateQueries, syncCandidateAcrossCaches } from "@/lib/candidate-query";
 import { ReviewThreadPanel } from "@/components/review-thread-panel";
+import { InterviewRequestDialog } from "@/components/interview-workflow";
 import {
   formatTurkishLira,
   getStatusReasonDescription,
@@ -30,6 +32,7 @@ import {
 } from "@/lib/candidate-display";
 import { getRoleSummaryLines } from "@/lib/role-display";
 import { PrivateObjectLink } from "@/components/private-object-link";
+import { createInterviewRequest } from "@/lib/interviews";
 
 const CANDIDATE_STATUSES = ["submitted", "screening", "interview", "offer", "hired", "rejected"] as const;
 type CandidateStatusValue = (typeof CANDIDATE_STATUSES)[number];
@@ -59,6 +62,8 @@ export default function ClientRoleCandidates() {
   const [statusReasonCandidateId, setStatusReasonCandidateId] = useState<number | null>(null);
   const [statusReasonText, setStatusReasonText] = useState("");
   const [statusReasonError, setStatusReasonError] = useState("");
+  const [interviewDialogOpen, setInterviewDialogOpen] = useState(false);
+  const [interviewCandidateId, setInterviewCandidateId] = useState<number | null>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -122,10 +127,30 @@ export default function ClientRoleCandidates() {
     submitStatusUpdate(statusReasonCandidateId, statusReasonTarget, reason);
   };
 
+  const openInterviewDialog = (candidateId: number) => {
+    setInterviewCandidateId(candidateId);
+    setInterviewDialogOpen(true);
+  };
+
+  const submitInterviewRequest = async (payload: Parameters<typeof createInterviewRequest>[1]) => {
+    if (interviewCandidateId == null) {
+      throw new Error("No candidate selected for the interview request.");
+    }
+
+    const result = await createInterviewRequest(interviewCandidateId, payload);
+    await invalidateCandidateQueries(queryClient, interviewCandidateId);
+    if (result.process?.candidateId) {
+      await invalidateCandidateQueries(queryClient, result.process.candidateId);
+    }
+    toast({ title: "Interview request sent" });
+  };
+
   const backHref = isAdminRoute ? "/admin/roles" : "/client/roles";
   const detailHrefBase = isAdminRoute ? "/admin/candidates" : "/client/candidates";
   const roleCandidatesHref = isAdminRoute ? `/admin/roles/${roleId}/candidates` : `/client/roles/${roleId}/candidates`;
   const roleDetails = role ? getRoleSummaryLines(role) : null;
+  const selectedInterviewCandidate =
+    interviewCandidateId != null ? candidates?.find((candidate) => candidate.id === interviewCandidateId) ?? null : null;
 
   return (
     <DashboardLayout allowedRoles={["client", "admin"]}>
@@ -275,6 +300,18 @@ export default function ClientRoleCandidates() {
                       </div>
 
                       <div className="flex items-center gap-2 xl:justify-end">
+                        {!isAdminRoute ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 rounded-lg border-sky-200 bg-white px-2.5 text-[11px] text-sky-700 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-900"
+                            onClick={() => openInterviewDialog(candidate.id)}
+                          >
+                            <CalendarClock className="h-3.5 w-3.5" />
+                            Interview
+                          </Button>
+                        ) : null}
                         <Link
                           href={`${detailHrefBase}/${candidate.id}?back=${encodeURIComponent(roleCandidatesHref)}`}
                           className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[11px] font-medium text-slate-700 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-primary hover:bg-primary/5 hover:text-primary hover:shadow-md active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
@@ -354,6 +391,19 @@ export default function ClientRoleCandidates() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        <InterviewRequestDialog
+          open={interviewDialogOpen}
+          onOpenChange={(open) => {
+            setInterviewDialogOpen(open);
+            if (!open) setInterviewCandidateId(null);
+          }}
+          candidateName={selectedInterviewCandidate ? `${selectedInterviewCandidate.firstName} ${selectedInterviewCandidate.lastName}` : "Candidate"}
+          roleTitle={role?.title || "Role"}
+          onSubmit={submitInterviewRequest}
+          submitLabel="Send request"
+          description="Create a structured interview thread from this role candidate row."
+        />
       </div>
     </DashboardLayout>
   );

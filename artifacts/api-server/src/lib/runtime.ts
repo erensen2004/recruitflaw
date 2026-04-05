@@ -175,6 +175,116 @@ async function ensureSupportTables() {
         ADD COLUMN IF NOT EXISTS evidence jsonb
       `);
 
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS public.interview_processes (
+          id serial PRIMARY KEY,
+          candidate_id integer NOT NULL REFERENCES public.candidates(id) ON DELETE CASCADE,
+          role_id integer NOT NULL REFERENCES public.job_roles(id) ON DELETE CASCADE,
+          client_company_id integer NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+          vendor_company_id integer NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+          status text NOT NULL DEFAULT 'open',
+          opened_at timestamptz NOT NULL DEFAULT now(),
+          closed_at timestamptz,
+          closed_reason text,
+          created_by_user_id integer NOT NULL REFERENCES public.users(id),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        )
+      `);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS public.interview_meetings (
+          id serial PRIMARY KEY,
+          process_id integer NOT NULL REFERENCES public.interview_processes(id) ON DELETE CASCADE,
+          status text NOT NULL DEFAULT 'negotiating',
+          meeting_index integer NOT NULL,
+          title text,
+          scheduled_date text,
+          scheduled_start_time text,
+          scheduled_end_time text,
+          timezone text,
+          created_by_user_id integer NOT NULL REFERENCES public.users(id),
+          confirmed_proposal_id integer,
+          completed_at timestamptz,
+          cancelled_at timestamptz,
+          cancel_reason text,
+          summary_note text,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        )
+      `);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS public.interview_proposals (
+          id serial PRIMARY KEY,
+          meeting_id integer NOT NULL REFERENCES public.interview_meetings(id) ON DELETE CASCADE,
+          proposed_by_role text NOT NULL,
+          proposed_by_user_id integer NOT NULL REFERENCES public.users(id),
+          proposal_type text NOT NULL,
+          proposed_date text NOT NULL,
+          start_time text,
+          end_time text,
+          window_label text,
+          timezone text NOT NULL,
+          duration_minutes integer NOT NULL,
+          note text,
+          response_status text NOT NULL DEFAULT 'pending',
+          created_at timestamptz NOT NULL DEFAULT now()
+        )
+      `);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS public.interview_activity (
+          id serial PRIMARY KEY,
+          process_id integer NOT NULL REFERENCES public.interview_processes(id) ON DELETE CASCADE,
+          meeting_id integer REFERENCES public.interview_meetings(id) ON DELETE CASCADE,
+          actor_user_id integer REFERENCES public.users(id),
+          actor_role text NOT NULL,
+          event_type text NOT NULL,
+          payload jsonb,
+          created_at timestamptz NOT NULL DEFAULT now()
+        )
+      `);
+
+      await pool.query(`
+        ALTER TABLE public.interview_meetings
+        ADD COLUMN IF NOT EXISTS title text
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS interview_processes_candidate_idx
+        ON public.interview_processes (candidate_id, opened_at DESC)
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS interview_processes_open_idx
+        ON public.interview_processes (status, candidate_id, updated_at DESC)
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS interview_meetings_process_idx
+        ON public.interview_meetings (process_id, meeting_index DESC)
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS interview_meetings_status_idx
+        ON public.interview_meetings (status, updated_at DESC)
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS interview_proposals_meeting_idx
+        ON public.interview_proposals (meeting_id, created_at DESC)
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS interview_proposals_pending_idx
+        ON public.interview_proposals (response_status, created_at DESC)
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS interview_activity_process_idx
+        ON public.interview_activity (process_id, created_at ASC)
+      `);
+
     } catch (error) {
       console.warn("[runtime] support table bootstrap skipped", error);
     }

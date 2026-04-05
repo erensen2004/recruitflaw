@@ -1,12 +1,5 @@
 import { Router } from "express";
-import {
-  db,
-  candidatesTable,
-  candidateStatusHistoryTable,
-  jobRolesTable,
-  companiesTable,
-  usersTable,
-} from "@workspace/db";
+import { db, candidatesTable, candidateStatusHistoryTable, jobRolesTable, companiesTable } from "@workspace/db";
 import { eq, and, desc, ilike, or, isNull, isNotNull, gte, ne } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole, resolveCandidateAccess } from "../lib/authz.js";
@@ -18,6 +11,11 @@ import {
   WithdrawCandidateSchema,
 } from "../lib/schemas.js";
 import { Errors } from "../lib/errors.js";
+import {
+  candidateStatusShouldCloseInterviewProcess,
+  closeOpenInterviewProcessesForCandidate,
+  getActorLabel,
+} from "../lib/interviews.js";
 
 const router = Router();
 
@@ -147,28 +145,6 @@ function buildDuplicateCandidateMessage(input: {
 }) {
   const candidateName = `${input.duplicate.firstName} ${input.duplicate.lastName}`.trim();
   return `${candidateName || "This candidate"} is already in the ${input.roleTitle} pipeline with status "${input.duplicate.status}".`;
-}
-
-async function getActorLabel(userId: number): Promise<string> {
-  const [userRow] = await db
-    .select({
-      name: usersTable.name,
-      role: usersTable.role,
-      companyId: usersTable.companyId,
-    })
-    .from(usersTable)
-    .where(eq(usersTable.id, userId));
-
-  if (!userRow) return "Review team";
-  if (userRow.role === "admin") return "Admin team";
-  if (!userRow.companyId) return userRow.role === "client" ? "Client team" : "Vendor team";
-
-  const [company] = await db
-    .select({ name: companiesTable.name })
-    .from(companiesTable)
-    .where(eq(companiesTable.id, userRow.companyId));
-
-  return company?.name ?? (userRow.role === "client" ? "Client team" : "Vendor team");
 }
 
 function formatCandidate(c: {
@@ -884,6 +860,13 @@ router.post(
         console.warn("candidate_status_history table is missing; withdraw history entry skipped");
       }
 
+      await closeOpenInterviewProcessesForCandidate({
+        candidateId: candidate.id,
+        actorUserId: req.user!.userId,
+        actorRole: req.user!.role as "admin" | "client" | "vendor",
+        reason: req.body.reason?.trim() || "Candidate withdrawn by vendor",
+      });
+
       const [role] = await db
         .select({ title: jobRolesTable.title, status: jobRolesTable.status })
         .from(jobRolesTable)
@@ -921,6 +904,15 @@ router.patch(
         .set({ status, updatedAt: new Date() })
         .where(eq(candidatesTable.id, id))
         .returning();
+
+      if (status !== "interview") {
+        await closeOpenInterviewProcessesForCandidate({
+          candidateId: candidate.id,
+          reason: `Candidate moved to ${status}`,
+          actorUserId: req.user!.userId,
+          actorRole: req.user!.role as "admin" | "client" | "vendor",
+        });
+      }
 
       try {
         await db.insert(candidateStatusHistoryTable).values({

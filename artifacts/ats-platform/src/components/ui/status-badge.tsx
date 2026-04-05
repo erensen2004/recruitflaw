@@ -1,11 +1,13 @@
 import { cn } from "@/lib/utils";
 
 interface StatusBadgeProps {
-  status: string;
+  status?: string | null;
   className?: string;
 }
 
 export function StatusBadge({ status, className }: StatusBadgeProps) {
+  const safeStatus = typeof status === "string" && status.trim() ? status.trim() : "unknown";
+
   const getBadgeStyle = (s: string) => {
     switch (s.toLowerCase()) {
       // Role Statuses
@@ -27,6 +29,16 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
         return "bg-yellow-100 text-yellow-800 border-yellow-200";
       case "interview":
         return "bg-blue-100 text-blue-800 border-blue-200";
+      case "negotiating":
+        return "bg-sky-100 text-sky-800 border-sky-200";
+      case "open":
+        return "bg-sky-100 text-sky-800 border-sky-200";
+      case "scheduled":
+        return "bg-violet-100 text-violet-800 border-violet-200";
+      case "completed":
+        return "bg-emerald-100 text-emerald-800 border-emerald-200";
+      case "cancelled":
+        return "bg-slate-100 text-slate-700 border-slate-200";
       case "offer":
         return "bg-purple-100 text-purple-800 border-purple-200";
       case "hired":
@@ -65,11 +77,11 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
     <span
       className={cn(
         "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-[0.01em] shadow-sm ring-1 ring-white/70",
-        getBadgeStyle(status),
+        getBadgeStyle(safeStatus),
         className
       )}
     >
-      {formatText(status)}
+      {formatText(safeStatus)}
     </span>
   );
 }

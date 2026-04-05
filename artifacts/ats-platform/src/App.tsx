@@ -18,6 +18,7 @@ const AdminCandidates = lazy(() => import("@/pages/admin/candidates"));
 const AdminContracts = lazy(() => import("@/pages/admin/contracts"));
 const AdminTimesheets = lazy(() => import("@/pages/admin/timesheets"));
 const AdminAnalytics = lazy(() => import("@/pages/admin/analytics"));
+const Interviews = lazy(() => import("@/pages/interviews"));
 
 const ClientRoles = lazy(() => import("@/pages/client/roles"));
 const ClientRoleCandidates = lazy(() => import("./pages/client/role-candidates"));
@@ -63,6 +64,7 @@ function Router() {
       <Route path="/admin/contracts" component={AdminContracts} />
       <Route path="/admin/timesheets" component={AdminTimesheets} />
       <Route path="/admin/analytics" component={AdminAnalytics} />
+      <Route path="/admin/interviews" component={Interviews} />
 
       <Route path="/client" component={() => <Redirect to="/client/roles" />} />
       <Route path="/client/roles" component={ClientRoles} />
@@ -71,6 +73,7 @@ function Router() {
       <Route path="/client/candidates/:id" component={ClientCandidateDetail} />
       <Route path="/client/compare" component={ClientCandidateCompare} />
       <Route path="/client/timesheets" component={ClientTimesheets} />
+      <Route path="/client/interviews" component={Interviews} />
 
       <Route path="/vendor" component={() => <Redirect to="/vendor/positions" />} />
       <Route path="/vendor/positions" component={VendorPositions} />
@@ -80,6 +83,7 @@ function Router() {
       <Route path="/vendor/candidates/:id" component={VendorCandidateDetail} />
       <Route path="/vendor/contracts" component={VendorContracts} />
       <Route path="/vendor/timesheets" component={VendorTimesheets} />
+      <Route path="/vendor/interviews" component={Interviews} />
 
       <Route path="/" component={() => <Redirect to="/login" />} />
       <Route component={NotFound} />

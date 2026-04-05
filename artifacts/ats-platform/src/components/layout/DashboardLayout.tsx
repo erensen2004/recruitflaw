@@ -3,11 +3,12 @@ import { useGetMe } from "@workspace/api-client-react";
 import {
   Building2, Users, Briefcase, UserCircle,
   FileText, Clock, LogOut, Loader2, LayoutDashboard,
-  Menu, X, BarChart3, LockKeyhole
+  Menu, X, BarChart3, LockKeyhole, CalendarClock
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getCompanyDisplayName } from "@/lib/candidate-display";
+import { fetchInterviewInbox } from "@/lib/interviews";
 
 const SIDEBAR_NAV = {
   admin: [
@@ -15,6 +16,7 @@ const SIDEBAR_NAV = {
     { name: "Companies", href: "/admin/companies", icon: Building2 },
     { name: "Users", href: "/admin/users", icon: Users },
     { name: "All Candidates", href: "/admin/candidates", icon: UserCircle },
+    { name: "Interview Requests", href: "/admin/interviews", icon: CalendarClock },
     { name: "Contracts", href: "/admin/contracts", icon: FileText },
     { name: "Timesheets", href: "/admin/timesheets", icon: Clock },
     { name: "Analytics", href: "/admin/analytics", icon: BarChart3 },
@@ -22,11 +24,13 @@ const SIDEBAR_NAV = {
   client: [
     { name: "My Roles", href: "/client/roles", icon: Briefcase },
     { name: "All Candidates", href: "/client/candidates", icon: UserCircle },
+    { name: "Interview Requests", href: "/client/interviews", icon: CalendarClock },
     { name: "Timesheets", href: "/client/timesheets", icon: Clock },
   ],
   vendor: [
     { name: "Open Positions", href: "/vendor/positions", icon: LayoutDashboard },
     { name: "My Candidates", href: "/vendor/candidates", icon: UserCircle },
+    { name: "Interview Requests", href: "/vendor/interviews", icon: CalendarClock },
     { name: "Active Contracts", href: "/vendor/contracts", icon: FileText },
     { name: "Timesheets", href: "/vendor/timesheets", icon: Clock },
   ]
@@ -35,11 +39,33 @@ const SIDEBAR_NAV = {
 export function DashboardLayout({ children, allowedRoles }: { children: React.ReactNode, allowedRoles: string[] }) {
   const [location, setLocation] = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [interviewBadgeCount, setInterviewBadgeCount] = useState<number | null>(null);
   const { data: user, isLoading, error } = useGetMe();
   const token = typeof localStorage !== "undefined" ? localStorage.getItem("ats_token") : null;
   const errorStatus = typeof error === "object" && error && "status" in error ? (error as { status?: number }).status : undefined;
   const isForbiddenForRole = Boolean(user && !allowedRoles.includes(user.role));
   const shouldRedirectToLogin = !isLoading && (!token || errorStatus === 401 || isForbiddenForRole);
+
+  useEffect(() => {
+    if (!user || !["admin", "client", "vendor"].includes(user.role)) {
+      setInterviewBadgeCount(null);
+      return;
+    }
+
+    let ignore = false;
+    void (async () => {
+      try {
+        const items = await fetchInterviewInbox("needs_action");
+        if (!ignore) setInterviewBadgeCount(items.length);
+      } catch {
+        if (!ignore) setInterviewBadgeCount(null);
+      }
+    })();
+
+    return () => {
+      ignore = true;
+    };
+  }, [user?.role]);
 
   useEffect(() => {
     setIsMobileMenuOpen(false);
@@ -130,7 +156,12 @@ export function DashboardLayout({ children, allowedRoles }: { children: React.Re
                 onClick={() => setIsMobileMenuOpen(false)}
               >
                 <item.icon className={`w-5 h-5 ${isActive ? "text-white" : "text-sidebar-foreground/70"}`} />
-                <span className="font-medium">{item.name}</span>
+                <span className="min-w-0 flex-1 font-medium">{item.name}</span>
+                {item.name === "Interview Requests" && typeof interviewBadgeCount === "number" && interviewBadgeCount > 0 ? (
+                  <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold text-current">
+                    {interviewBadgeCount}
+                  </span>
+                ) : null}
               </div>
             </Link>
           );

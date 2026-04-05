@@ -7,6 +7,8 @@ const TagsInputSchema = z.union([
 
 const NonEmptyOptionalStringSchema = z.string().trim().min(1);
 const CandidateStatusValueSchema = z.enum(["submitted", "screening", "interview", "offer", "hired", "rejected"]);
+const InterviewProposalTypeSchema = z.enum(["exact_slot", "flexible_window"]);
+const InterviewListViewSchema = z.enum(["needs_action", "scheduled", "history", "all"]);
 const RoleWorkModeSchema = z.enum(["full-office", "hybrid", "full-remote"]);
 const RoleEmploymentTypeSchema = z.enum(["full-time", "part-time", "other"]);
 const LegacyRoleEmploymentTypeSchema = z.enum(["contract", "freelance"]);
@@ -177,6 +179,57 @@ export const UpdateCandidateSchema = z.object({
 
 export const WithdrawCandidateSchema = z.object({
   reason: z.string().max(1000).nullable().optional(),
+});
+
+const InterviewScheduleInputSchema = z.object({
+  title: z.string().trim().max(200).nullable().optional(),
+  proposalType: InterviewProposalTypeSchema.default("exact_slot"),
+  proposedDate: z.string().trim().min(1).max(50),
+  startTime: z.string().trim().max(20).nullable().optional(),
+  endTime: z.string().trim().max(20).nullable().optional(),
+  windowLabel: z.string().trim().max(200).nullable().optional(),
+  timezone: z.string().trim().min(1).max(100),
+  durationMinutes: z.number().int().min(5).max(1440),
+  note: z.string().trim().max(2000).nullable().optional(),
+}).superRefine((data, ctx) => {
+  if (data.proposalType === "exact_slot" && !data.startTime?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["startTime"],
+      message: "Start time is required for exact slot proposals",
+    });
+  }
+
+  if (data.proposalType === "flexible_window" && !data.windowLabel?.trim() && !data.note?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["windowLabel"],
+      message: "Flexible window proposals need a short label or note",
+    });
+  }
+});
+
+export const CreateInterviewRequestSchema = InterviewScheduleInputSchema;
+export const CreateInterviewMeetingSchema = InterviewScheduleInputSchema;
+export const CreateInterviewProposalSchema = InterviewScheduleInputSchema;
+
+export const AcceptInterviewProposalSchema = z.object({
+  note: z.string().trim().max(2000).nullable().optional(),
+});
+
+export const CompleteInterviewMeetingSchema = z.object({
+  summaryNote: z.string().trim().max(2000).nullable().optional(),
+});
+
+export const CancelInterviewMeetingSchema = z.object({
+  reason: z.string().trim().max(2000).nullable().optional(),
+});
+
+export const InterviewListQuerySchema = z.object({
+  view: InterviewListViewSchema.default("needs_action"),
+  countOnly: z.boolean().default(false),
+  candidateId: z.number().int().positive().nullable().optional(),
+  roleId: z.number().int().positive().nullable().optional(),
 });
 
 // ─── Roles ───────────────────────────────────────────────────────────────────

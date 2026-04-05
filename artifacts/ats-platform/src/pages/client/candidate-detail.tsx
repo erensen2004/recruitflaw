@@ -38,6 +38,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { invalidateCandidateQueries, syncCandidateAcrossCaches } from "@/lib/candidate-query";
 import { PrivateObjectLink } from "@/components/private-object-link";
 import { ReviewThreadPanel } from "@/components/review-thread-panel";
+import { InterviewWorkflowPanel } from "@/components/interview-workflow";
 import {
   formatTurkishLira,
   getCandidateCompleteness,
@@ -1073,6 +1074,16 @@ export default function ClientCandidateDetail() {
                 )}
               </div>
             </div>
+
+            <InterviewWorkflowPanel
+              candidateId={candidate.id}
+              candidateName={`${candidate.firstName} ${candidate.lastName}`}
+              candidateStatus={candidate.status}
+              roleTitle={candidate.roleTitle ?? "Role"}
+              roleId={candidate.roleId}
+              vendorCompanyName={candidate.vendorCompanyName}
+              compact
+            />
 
             <ReviewThreadPanel
               scopeType="candidate"
