@@ -124,6 +124,7 @@ export default function ClientRoleCandidates() {
 
   const backHref = isAdminRoute ? "/admin/roles" : "/client/roles";
   const detailHrefBase = isAdminRoute ? "/admin/candidates" : "/client/candidates";
+  const roleCandidatesHref = isAdminRoute ? `/admin/roles/${roleId}/candidates` : `/client/roles/${roleId}/candidates`;
   const roleDetails = role ? getRoleSummaryLines(role) : null;
 
   return (
@@ -143,18 +144,18 @@ export default function ClientRoleCandidates() {
         </div>
 
         {role ? (
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="space-y-3">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="text-xl font-bold text-slate-900">{role.title}</h2>
+                  <h2 className="text-lg font-bold text-slate-900">{role.title}</h2>
                   <StatusBadge status={role.status} />
                 </div>
-                <div className="flex flex-wrap gap-3 text-sm text-slate-500">
+                <div className="flex flex-wrap gap-2 text-xs text-slate-500">
                   {role.companyName ? <span>{role.companyName}</span> : null}
                   {role.location ? (
                     <span className="inline-flex items-center gap-1">
-                      <MapPin className="h-3.5 w-3.5" />
+                      <MapPin className="h-3 w-3" />
                       {role.location}
                     </span>
                   ) : null}
@@ -162,24 +163,24 @@ export default function ClientRoleCandidates() {
                   {roleDetails?.employmentTypeLabel ? <span>{roleDetails.employmentTypeLabel}</span> : null}
                 </div>
               </div>
-              <div className="rounded-xl bg-slate-50 px-4 py-3 text-right">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Pipeline state</div>
-                <div className="mt-1 text-sm font-semibold text-slate-800">
+              <div className="rounded-xl bg-slate-50 px-3 py-2.5 text-right">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Pipeline state</div>
+                <div className="mt-1 text-xs font-semibold text-slate-800">
                   {role.status === "published" ? "Open for approved candidates" : role.status === "on_hold" ? "Temporarily paused" : role.status === "closed" ? "Closed role" : "Still under admin review"}
                 </div>
               </div>
             </div>
 
-            <div className="mt-4 grid gap-4 lg:grid-cols-[2fr,1fr]">
-              <div className="rounded-xl bg-slate-50 p-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Role brief</div>
-                <div className="mt-2 text-sm leading-6 text-slate-700">
+            <div className="mt-3 grid gap-3 lg:grid-cols-[2fr,1fr]">
+              <div className="rounded-xl bg-slate-50 p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Role brief</div>
+                <div className="mt-1.5 line-clamp-3 text-xs leading-5 text-slate-700">
                   {roleDetails?.descriptionBody || "The admin team has not added a detailed hiring brief yet."}
                 </div>
               </div>
-              <div className="rounded-xl bg-slate-50 p-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Required skills</div>
-                <div className="mt-2 text-sm text-slate-700">{role.skills || "No skills specified"}</div>
+              <div className="rounded-xl bg-slate-50 p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Required skills</div>
+                <div className="mt-1.5 line-clamp-3 text-xs leading-5 text-slate-700">{role.skills || "No skills specified"}</div>
               </div>
             </div>
           </div>
@@ -189,25 +190,25 @@ export default function ClientRoleCandidates() {
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-50/50 border-b border-slate-200">
-                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Candidate</th>
-                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Submitted By</th>
-                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Salary Req.</th>
-                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">CV</th>
-                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Submitted</th>
-                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider w-56">Update Status</th>
+                <tr className="border-b border-slate-200 bg-slate-50/50">
+                  <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Candidate</th>
+                  <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Submitted By</th>
+                  <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Salary Req.</th>
+                  <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">CV</th>
+                  <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Submitted</th>
+                  <th className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Status</th>
+                  <th className="w-56 px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Update Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {isLoading ? (
-                  <tr><td colSpan={7} className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-slate-400" /></td></tr>
+                  <tr><td colSpan={7} className="p-8 text-center"><Loader2 className="mx-auto h-5 w-5 animate-spin text-slate-400" /></td></tr>
                 ) : candidates?.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-12 text-center">
-                      <UserCircle className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-                      <p className="text-slate-500 font-medium">No candidates submitted yet</p>
-                      <p className="text-sm text-slate-400 mt-1">Approved vendor submissions will appear here for this role.</p>
+                    <td colSpan={7} className="p-10 text-center">
+                      <UserCircle className="mx-auto mb-2 h-10 w-10 text-slate-300" />
+                      <p className="font-medium text-slate-500">No candidates submitted yet</p>
+                      <p className="mt-1 text-sm text-slate-400">Approved vendor submissions will appear here for this role.</p>
                     </td>
                   </tr>
                 ) : (candidates ?? []).map((candidate) => {
@@ -215,15 +216,15 @@ export default function ClientRoleCandidates() {
                   const { englishLevel } = parseCandidateTags(candidate.tags);
                   return (
                     <tr key={candidate.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0 text-slate-600">
-                            <UserCircle className="w-6 h-6" />
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+                            <UserCircle className="h-5 w-5" />
                           </div>
                           <div>
                             <div className="font-semibold text-slate-900">{candidate.firstName} {candidate.lastName}</div>
-                            <div className="text-sm text-slate-500">{candidate.email}{candidate.phone ? ` • ${candidate.phone}` : ""}</div>
-                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <div className="text-xs text-slate-500">{candidate.email}{candidate.phone ? ` • ${candidate.phone}` : ""}</div>
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                               <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${parseBadge.className}`}>
                                 {parseBadge.label}
                               </span>
@@ -236,26 +237,26 @@ export default function ClientRoleCandidates() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-slate-600 font-medium">{candidate.vendorCompanyName}</td>
-                      <td className="px-6 py-4 text-slate-600">{formatTurkishLira(candidate.expectedSalary)}</td>
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3 text-sm font-medium text-slate-600">{candidate.vendorCompanyName}</td>
+                      <td className="px-4 py-3 text-sm text-slate-600">{formatTurkishLira(candidate.expectedSalary)}</td>
+                      <td className="px-4 py-3">
                         {candidate.cvUrl ? (
                           <PrivateObjectLink
                             objectPath={candidate.cvUrl}
                             className="inline-flex items-center gap-1.5 text-sm font-medium text-primary transition-all hover:text-primary/80 hover:underline active:scale-[0.98]"
                           >
-                            <FileText className="w-4 h-4" /> View CV
+                            <FileText className="h-4 w-4" /> View CV
                           </PrivateObjectLink>
                         ) : (
-                          <span className="text-slate-400 text-sm">—</span>
+                          <span className="text-sm text-slate-400">—</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{format(new Date(candidate.submittedAt), "MMM d, yyyy")}</td>
-                      <td className="px-6 py-4"><StatusBadge status={candidate.status} /></td>
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-3 text-sm text-slate-600">{format(new Date(candidate.submittedAt), "MMM d, yyyy")}</td>
+                      <td className="px-4 py-3"><StatusBadge status={candidate.status} /></td>
+                      <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <Link
-                            href={`${detailHrefBase}/${candidate.id}`}
+                            href={`${detailHrefBase}/${candidate.id}?back=${encodeURIComponent(roleCandidatesHref)}`}
                             className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-medium text-slate-700 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-primary hover:bg-primary/5 hover:text-primary hover:shadow-md active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                           >
                             <Eye className="h-3.5 w-3.5" />
@@ -268,7 +269,7 @@ export default function ClientRoleCandidates() {
                           >
                             <SelectTrigger
                               className={cn(
-                                "h-9 min-w-[150px] rounded-lg transition-all",
+                                "h-8 min-w-[132px] rounded-lg text-xs transition-all",
                                 updatingStatus && pendingCandidateId === candidate.id && "border-primary/50 bg-primary/5 text-primary",
                               )}
                             >

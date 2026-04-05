@@ -32,7 +32,7 @@ import {
   BadgeCheck,
   Clock3,
 } from "lucide-react";
-import { useRoute, Link } from "wouter";
+import { useLocation, useRoute, Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateCandidateQueries, syncCandidateAcrossCaches } from "@/lib/candidate-query";
@@ -216,6 +216,7 @@ function getSignalClasses(tone: ReviewSignalTone) {
 }
 
 export default function ClientCandidateDetail() {
+  const [location] = useLocation();
   const [, clientParams] = useRoute("/client/candidates/:id");
   const [, adminParams] = useRoute("/admin/candidates/:id");
   const params = clientParams ?? adminParams;
@@ -380,7 +381,19 @@ export default function ClientCandidateDetail() {
   }
 
   const parsedSkills = candidate.parsedSkills?.length ? candidate.parsedSkills : visibleTags;
-  const backHref = isAdminRoute || me?.role === "admin" ? "/admin/candidates" : "/client/candidates";
+  const queryParams = new URLSearchParams(location.split("?")[1] ?? "");
+  const backHrefParam = queryParams.get("back");
+  const isRoleCandidatesBack =
+    Boolean(backHrefParam?.startsWith("/")) &&
+    Boolean(backHrefParam?.includes("/roles/")) &&
+    Boolean(backHrefParam?.includes("/candidates"));
+  const backHref =
+    backHrefParam && backHrefParam.startsWith("/")
+      ? backHrefParam
+      : isAdminRoute || me?.role === "admin"
+        ? "/admin/candidates"
+        : "/client/candidates";
+  const backLabel = isRoleCandidatesBack ? "Back to Role" : "Back to Candidates";
   const normalizedProfileCards = buildNormalizedProfileCards(candidate);
   const adminReviewSignals = buildAdminReviewSignals(candidate);
   const completenessScore = getCandidateCompleteness(candidate);
@@ -507,7 +520,7 @@ export default function ClientCandidateDetail() {
           href={backHref}
           className="inline-flex items-center text-sm font-medium text-slate-500 hover:text-primary transition-colors"
         >
-          <ArrowLeft className="mr-1 h-4 w-4" /> Back to Candidates
+          <ArrowLeft className="mr-1 h-4 w-4" /> {backLabel}
         </Link>
 
         <div className="grid gap-6 xl:grid-cols-[1.6fr,1fr]">

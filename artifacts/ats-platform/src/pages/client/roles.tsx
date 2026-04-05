@@ -1,8 +1,14 @@
 import { useMemo, useState } from "react";
-import { useCreateRole, useListRoles, useUpdateRole } from "@workspace/api-client-react";
+import { getListRolesQueryKey, useCreateRole, useListRoles, useUpdateRole, useUpdateRoleStatus } from "@workspace/api-client-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -13,10 +19,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Loader2, MapPin, Pencil, Plus, Trash2, Users } from "lucide-react";
+import { Loader2, MapPin, MoreHorizontal, Pencil, Plus, Trash2, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { getListRolesQueryKey } from "@workspace/api-client-react";
 import { Link } from "wouter";
 import {
   EMPLOYMENT_TYPES,
@@ -45,6 +50,33 @@ const CLIENT_ROLE_FILTERS: Array<{ key: ClientRoleFilter; label: string }> = [
   { key: "closed", label: "Closed" },
 ];
 
+type ClientLifecycleRoleStatus = "published" | "on_hold" | "closed";
+
+function getClientLifecycleActions(status: string) {
+  if (status === "published") {
+    return [
+      { label: "Move to on hold", status: "on_hold" as ClientLifecycleRoleStatus },
+      { label: "Close", status: "closed" as ClientLifecycleRoleStatus },
+    ];
+  }
+
+  if (status === "on_hold") {
+    return [
+      { label: "Publish", status: "published" as ClientLifecycleRoleStatus },
+      { label: "Close", status: "closed" as ClientLifecycleRoleStatus },
+    ];
+  }
+
+  if (status === "closed") {
+    return [
+      { label: "Publish", status: "published" as ClientLifecycleRoleStatus },
+      { label: "Move to on hold", status: "on_hold" as ClientLifecycleRoleStatus },
+    ];
+  }
+
+  return [];
+}
+
 const emptyForm = {
   title: "",
   description: "",
@@ -62,6 +94,7 @@ export default function ClientRoles() {
   const [activeFilter, setActiveFilter] = useState<ClientRoleFilter>("all");
   const [editingRoleId, setEditingRoleId] = useState<number | null>(null);
   const [deleteRoleId, setDeleteRoleId] = useState<number | null>(null);
+  const [pendingStatusRoleId, setPendingStatusRoleId] = useState<number | null>(null);
   const [formData, setFormData] = useState(emptyForm);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -104,6 +137,34 @@ export default function ClientRoles() {
 
   const { mutateAsync: createRoleAsync, isPending: isCreating } = useCreateRole();
   const { mutateAsync: updateRoleAsync, isPending: isUpdating } = useUpdateRole();
+  const { mutate: updateRoleStatus, isPending: isUpdatingStatus } = useUpdateRoleStatus({
+    mutation: {
+      onSuccess: (_, vars) => {
+        setPendingStatusRoleId(null);
+        void queryClient.invalidateQueries({ queryKey: getListRolesQueryKey() });
+        const nextStatus = (vars.data as { status?: string })?.status;
+        toast({
+          title:
+            nextStatus === "published"
+              ? "Role published"
+              : nextStatus === "on_hold"
+                ? "Role put on hold"
+                : nextStatus === "closed"
+                  ? "Role closed"
+                  : "Role status updated",
+          description: "The role list has been refreshed.",
+        });
+      },
+      onError: (error: Error) => {
+        setPendingStatusRoleId(null);
+        toast({
+          title: "Role status update failed",
+          description: error.message || "Please try again.",
+          variant: "destructive",
+        });
+      },
+    },
+  });
 
   const resetForm = () => {
     setFormData(emptyForm);
@@ -232,6 +293,13 @@ export default function ClientRoles() {
     } finally {
       setDeleteRoleId(null);
     }
+  };
+
+  const changeRoleStatus = (roleId: number, status: ClientLifecycleRoleStatus) => {
+    const currentRole = roles?.find((role) => role.id === roleId);
+    if (isUpdatingStatus || currentRole?.status === status) return;
+    setPendingStatusRoleId(roleId);
+    updateRoleStatus({ id: roleId, data: { status } });
   };
 
   return (
@@ -495,16 +563,47 @@ export default function ClientRoles() {
                     </div>
 
                     <div className="flex items-center justify-end gap-2 xl:shrink-0">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 rounded-lg px-2.5 text-xs"
-                        onClick={() => openEditDialog(role)}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                        Edit
-                      </Button>
+                      {role.status === "published" || role.status === "on_hold" || role.status === "closed" ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 rounded-lg px-2.5 text-xs"
+                              disabled={isUpdatingStatus && pendingStatusRoleId === role.id}
+                            >
+                              <MoreHorizontal className="h-3.5 w-3.5" />
+                              Status
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-52 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                            {getClientLifecycleActions(role.status).map((action) => (
+                              <DropdownMenuItem
+                                key={action.status}
+                                className="rounded-lg px-3 py-2 text-sm"
+                                onSelect={(event) => {
+                                  event.preventDefault();
+                                  changeRoleStatus(role.id, action.status);
+                                }}
+                              >
+                                {action.label}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 rounded-lg px-2.5 text-xs"
+                          onClick={() => openEditDialog(role)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          Edit
+                        </Button>
+                      )}
                       <Button
                         type="button"
                         variant="ghost"
@@ -520,7 +619,7 @@ export default function ClientRoles() {
                         href={`/client/roles/${role.id}/candidates`}
                         className="inline-flex h-8 items-center justify-center rounded-lg border border-primary/20 bg-primary px-3 text-xs font-semibold text-white shadow-sm transition-all duration-150 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                       >
-                        View
+                        View Candidates
                       </Link>
                     </div>
                   </div>

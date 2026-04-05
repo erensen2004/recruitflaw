@@ -12,6 +12,8 @@ const router = Router();
 type WorkModeValue = "full-office" | "hybrid" | "full-remote";
 type EmploymentTypeValue = "full-time" | "part-time" | "other" | "contract" | "freelance";
 type RoleStatusValue = "draft" | "pending_approval" | "published" | "on_hold" | "closed";
+const CLIENT_MANAGED_ROLE_STATUSES = new Set<RoleStatusValue>(["published", "on_hold", "closed"]);
+const PRE_APPROVAL_ROLE_STATUSES = new Set<RoleStatusValue>(["draft", "pending_approval"]);
 
 function normalizeWorkMode(value: string | null | undefined): WorkModeValue | null {
   if (!value) return null;
@@ -312,6 +314,13 @@ router.patch(
           : isRemote ?? false;
       }
       if (req.user!.role === "client") {
+        if (CLIENT_MANAGED_ROLE_STATUSES.has(access.status as RoleStatusValue)) {
+          Errors.forbidden(
+            res,
+            "Clients cannot edit approved roles directly. Use role actions to move them on hold, closed, or back to published.",
+          );
+          return;
+        }
         updates.status = "draft";
       }
 
@@ -359,14 +368,33 @@ router.patch(
       const access = await resolveRoleAccess(req, res, id);
       if (!access) return;
 
-      if (userRole === "client" && status !== "pending_approval" && status !== "draft") {
-        Errors.forbidden(res, "Clients can only save roles as draft or send them for approval");
-        return;
-      }
+      if (userRole === "client") {
+        const currentStatus = access.status as RoleStatusValue;
+        const nextStatus = status as RoleStatusValue;
+        const currentIsPublishedLifecycle = CLIENT_MANAGED_ROLE_STATUSES.has(currentStatus);
+        const nextIsPublishedLifecycle = CLIENT_MANAGED_ROLE_STATUSES.has(nextStatus);
+        const currentIsPreApproval = PRE_APPROVAL_ROLE_STATUSES.has(currentStatus);
+        const nextIsPreApproval = PRE_APPROVAL_ROLE_STATUSES.has(nextStatus);
 
-      if ((status === "published" || status === "on_hold" || status === "closed") && userRole !== "admin") {
-        Errors.forbidden(res, "Only admins can publish, hold, or close roles");
-        return;
+        if (currentIsPreApproval && nextIsPublishedLifecycle) {
+          Errors.forbidden(res, "Only admins can publish a new role for the first time");
+          return;
+        }
+
+        if (currentIsPublishedLifecycle && nextIsPreApproval) {
+          Errors.forbidden(res, "Approved roles cannot be moved back to draft by clients");
+          return;
+        }
+
+        if (!currentIsPreApproval && !currentIsPublishedLifecycle) {
+          Errors.forbidden(res, "Clients cannot manage this role status");
+          return;
+        }
+
+        if (!nextIsPreApproval && !nextIsPublishedLifecycle) {
+          Errors.forbidden(res, "Clients can only move approved roles between published, on hold, or closed");
+          return;
+        }
       }
 
       const [role] = await db
