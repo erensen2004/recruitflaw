@@ -88,95 +88,32 @@ function getReviewTabStatus(status: string) {
 }
 
 function getRoleActionCopy(status: string) {
-  switch (status) {
-    case "pending_approval":
-      return {
-        primary: {
-          label: "Approve & publish",
-          status: "published" as const,
-          variant: "default" as const,
-          className: "rounded-lg h-8 border-emerald-700 bg-emerald-600 text-white hover:bg-emerald-700 hover:text-white",
-        },
-        secondary: {
-          label: "Send back to draft",
-          status: "draft" as const,
-          variant: "outline" as const,
-          className: "rounded-lg h-8 border-sky-200 bg-white text-sky-800 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-900",
-        },
-        destructive: {
-          label: "Reject / close",
-          status: "closed" as const,
-          variant: "outline" as const,
-          className: "rounded-lg h-8 border-rose-200 bg-white text-rose-700 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800",
-        },
-      };
-    case "published":
-      return {
-        primary: {
-          label: "Put on hold",
-          status: "on_hold" as const,
-          variant: "outline" as const,
-          className: "rounded-lg h-8 border-amber-200 bg-white text-amber-800 hover:border-amber-300 hover:bg-amber-50 hover:text-amber-900",
-        },
-        secondary: {
-          label: "Send back to draft",
-          status: "draft" as const,
-          variant: "outline" as const,
-          className: "rounded-lg h-8 border-sky-200 bg-white text-sky-800 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-900",
-        },
-        destructive: {
-          label: "Reject / close",
-          status: "closed" as const,
-          variant: "outline" as const,
-          className: "rounded-lg h-8 border-rose-200 bg-white text-rose-700 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800",
-        },
-      };
-    case "on_hold":
-      return {
-        primary: {
-          label: "Resume publishing",
-          status: "published" as const,
-          variant: "default" as const,
-          className: "rounded-lg h-8 border-emerald-700 bg-emerald-600 text-white hover:bg-emerald-700 hover:text-white",
-        },
-        secondary: {
-          label: "Send back to draft",
-          status: "draft" as const,
-          variant: "outline" as const,
-          className: "rounded-lg h-8 border-sky-200 bg-white text-sky-800 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-900",
-        },
-        destructive: {
-          label: "Close",
-          status: "closed" as const,
-          variant: "outline" as const,
-          className: "rounded-lg h-8 border-rose-200 bg-white text-rose-700 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800",
-        },
-      };
-    case "closed":
-      return {
-        primary: {
-          label: "Reopen as draft",
-          status: "draft" as const,
-          variant: "outline" as const,
-          className: "rounded-lg h-8 border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900",
-        },
-      };
-    default:
-      return {
-        primary: {
+  return {
+    primary: status === "published"
+      ? null
+      : {
           label: "Publish",
           status: "published" as const,
           variant: "default" as const,
           className: "rounded-lg h-8 border-emerald-700 bg-emerald-600 text-white hover:bg-emerald-700 hover:text-white",
         },
-        secondary: {
-          label: "Reject / close",
+    secondary: status === "draft"
+      ? null
+      : {
+          label: "Move to draft",
+          status: "draft" as const,
+          variant: "outline" as const,
+          className: "rounded-lg h-8 border-sky-200 bg-white text-sky-800 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-900",
+        },
+    destructive: status === "closed"
+      ? null
+      : {
+          label: "Close",
           status: "closed" as const,
           variant: "outline" as const,
           className: "rounded-lg h-8 border-rose-200 bg-white text-rose-700 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800",
         },
-      };
-  }
+  };
 }
 
 function formatRoleDate(value: string | number | Date | null | undefined) {
@@ -433,6 +370,7 @@ function RoleActionsMenu({
   disabled: boolean;
   onUpdateStatus: (roleId: number, status: "draft" | "pending_approval" | "published" | "on_hold" | "closed") => void;
 }) {
+  const primaryAction = "primary" in actions ? actions.primary ?? null : null;
   const secondaryAction = "secondary" in actions ? actions.secondary ?? null : null;
   const destructiveAction = "destructive" in actions ? actions.destructive ?? null : null;
 
@@ -444,20 +382,31 @@ function RoleActionsMenu({
           <MoreHorizontal className="ml-1.5 h-3.5 w-3.5" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-52">
-        <DropdownMenuItem onSelect={() => onUpdateStatus(roleId, actions.primary.status)}>
-          {actions.primary.label}
-        </DropdownMenuItem>
+      <DropdownMenuContent
+        align="end"
+        className="z-[100] w-44 rounded-xl border border-slate-200 bg-white p-1 shadow-xl"
+      >
+        {primaryAction ? (
+          <DropdownMenuItem
+            className="whitespace-nowrap rounded-lg text-sm font-medium text-slate-700 focus:bg-slate-100 focus:text-slate-900"
+            onSelect={() => onUpdateStatus(roleId, primaryAction.status)}
+          >
+            {primaryAction.label}
+          </DropdownMenuItem>
+        ) : null}
         {secondaryAction ? (
-          <DropdownMenuItem onSelect={() => onUpdateStatus(roleId, secondaryAction.status)}>
+          <DropdownMenuItem
+            className="whitespace-nowrap rounded-lg text-sm font-medium text-slate-700 focus:bg-slate-100 focus:text-slate-900"
+            onSelect={() => onUpdateStatus(roleId, secondaryAction.status)}
+          >
             {secondaryAction.label}
           </DropdownMenuItem>
         ) : null}
         {destructiveAction ? (
           <>
-            <DropdownMenuSeparator />
+            {(primaryAction || secondaryAction) ? <DropdownMenuSeparator /> : null}
             <DropdownMenuItem
-              className="text-rose-700 focus:bg-rose-50 focus:text-rose-800"
+              className="whitespace-nowrap rounded-lg text-sm font-medium text-rose-700 focus:bg-rose-50 focus:text-rose-800"
               onSelect={() => onUpdateStatus(roleId, destructiveAction.status)}
             >
               {destructiveAction.label}
