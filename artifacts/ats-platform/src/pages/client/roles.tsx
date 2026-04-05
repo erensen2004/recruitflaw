@@ -34,6 +34,17 @@ import {
   workModeLabel,
 } from "@/lib/role-display";
 
+type ClientRoleFilter = "all" | "draft" | "pending" | "published" | "on_hold" | "closed";
+
+const CLIENT_ROLE_FILTERS: Array<{ key: ClientRoleFilter; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "draft", label: "Draft" },
+  { key: "pending", label: "Awaiting approval" },
+  { key: "published", label: "Live" },
+  { key: "on_hold", label: "On hold" },
+  { key: "closed", label: "Closed" },
+];
+
 const emptyForm = {
   title: "",
   description: "",
@@ -48,6 +59,7 @@ export default function ClientRoles() {
   const { data: roles, isLoading } = useListRoles();
   const [isOpen, setIsOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<ClientRoleFilter>("all");
   const [editingRoleId, setEditingRoleId] = useState<number | null>(null);
   const [deleteRoleId, setDeleteRoleId] = useState<number | null>(null);
   const [formData, setFormData] = useState(emptyForm);
@@ -58,6 +70,37 @@ export default function ClientRoles() {
     () => roles?.find((role) => role.id === editingRoleId) ?? null,
     [editingRoleId, roles],
   );
+
+  const filteredRoles = useMemo(() => {
+    if (!roles) return [];
+    if (activeFilter === "all") return roles;
+
+    return roles.filter((role) => {
+      if (activeFilter === "pending") return role.status === "pending_approval";
+      return role.status === activeFilter;
+    });
+  }, [activeFilter, roles]);
+
+  const roleCounts = useMemo(() => {
+    const counts: Record<ClientRoleFilter, number> = {
+      all: roles?.length ?? 0,
+      draft: 0,
+      pending: 0,
+      published: 0,
+      on_hold: 0,
+      closed: 0,
+    };
+
+    for (const role of roles ?? []) {
+      if (role.status === "pending_approval") {
+        counts.pending += 1;
+      } else if (role.status === "draft" || role.status === "published" || role.status === "on_hold" || role.status === "closed") {
+        counts[role.status] += 1;
+      }
+    }
+
+    return counts;
+  }, [roles]);
 
   const { mutateAsync: createRoleAsync, isPending: isCreating } = useCreateRole();
   const { mutateAsync: updateRoleAsync, isPending: isUpdating } = useUpdateRole();
@@ -381,16 +424,35 @@ export default function ClientRoles() {
         </DialogContent>
       </Dialog>
 
+      <div className="mb-4 flex flex-wrap gap-2">
+        {CLIENT_ROLE_FILTERS.map((filter) => (
+          <Button
+            key={filter.key}
+            type="button"
+            variant={activeFilter === filter.key ? "default" : "outline"}
+            className="h-8 rounded-full px-3 text-xs"
+            onClick={() => setActiveFilter(filter.key)}
+          >
+            {filter.label}
+            <span className="ml-2 rounded-full bg-black/10 px-1.5 py-0.5 text-[10px] font-semibold text-current">
+              {roleCounts[filter.key]}
+            </span>
+          </Button>
+        ))}
+      </div>
+
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         {isLoading ? (
           <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
-        ) : roles?.length === 0 ? (
+        ) : filteredRoles.length === 0 ? (
           <div className="text-center p-12 text-slate-500">
-            You haven&apos;t opened any positions yet.
+            {roles?.length
+              ? "No roles match this filter."
+              : "You haven&apos;t opened any positions yet."}
           </div>
         ) : (
           <div className="divide-y divide-slate-200">
-            {(roles ?? []).map((role) => {
+            {filteredRoles.map((role) => {
               const details = getRoleSummaryLines(role);
               return (
                 <div
