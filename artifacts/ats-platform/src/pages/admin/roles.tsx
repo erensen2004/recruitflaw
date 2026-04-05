@@ -3,6 +3,13 @@ import { getListRolesQueryKey, useListRoles, useUpdateRole, useUpdateRoleStatus 
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,17 +21,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  ArrowRight,
   Briefcase,
-  CheckCircle2,
   Eye,
   Filter,
   Loader2,
+  MoreHorizontal,
   Pencil,
   Search,
   Sparkles,
-  XCircle,
-  UploadCloud,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
@@ -360,40 +364,12 @@ function RoleReviewCard({
           <Pencil className="mr-1.5 h-4 w-4" />
           Edit review
         </Button>
-        <Button
-          type="button"
-          variant={actions.primary.variant}
-          className={actions.primary.className}
+        <RoleActionsMenu
+          roleId={role.id}
+          actions={actions}
           disabled={actionDisabled}
-          onClick={() => onUpdateStatus(role.id, actions.primary.status)}
-        >
-          <UploadCloud className="mr-1.5 h-4 w-4" />
-          {actions.primary.label}
-        </Button>
-        {secondaryAction ? (
-          <Button
-            type="button"
-            variant={secondaryAction.variant}
-            className={secondaryAction.className}
-            disabled={actionDisabled}
-            onClick={() => onUpdateStatus(role.id, secondaryAction.status)}
-          >
-            <ArrowRight className="mr-1.5 h-4 w-4" />
-            {secondaryAction.label}
-          </Button>
-        ) : null}
-        {destructiveAction ? (
-          <Button
-            type="button"
-            variant={destructiveAction.variant}
-            className={destructiveAction.className}
-            disabled={actionDisabled}
-            onClick={() => onUpdateStatus(role.id, destructiveAction.status)}
-          >
-            <XCircle className="mr-1.5 h-4 w-4" />
-            {destructiveAction.label}
-          </Button>
-        ) : null}
+          onUpdateStatus={onUpdateStatus}
+        />
         <Link
           href={`/admin/roles/${role.id}/candidates`}
           className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50/80 px-4 text-sm font-medium text-slate-700 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-primary hover:bg-primary/5 hover:text-primary hover:shadow-md active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
@@ -443,6 +419,53 @@ function RoleReviewCard({
         </div>
       </div>
     </div>
+  );
+}
+
+function RoleActionsMenu({
+  roleId,
+  actions,
+  disabled,
+  onUpdateStatus,
+}: {
+  roleId: number;
+  actions: ReturnType<typeof getRoleActionCopy>;
+  disabled: boolean;
+  onUpdateStatus: (roleId: number, status: "draft" | "pending_approval" | "published" | "on_hold" | "closed") => void;
+}) {
+  const secondaryAction = "secondary" in actions ? actions.secondary ?? null : null;
+  const destructiveAction = "destructive" in actions ? actions.destructive ?? null : null;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="outline" className="h-8 rounded-lg px-3 text-xs" disabled={disabled}>
+          Actions
+          <MoreHorizontal className="ml-1.5 h-3.5 w-3.5" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-52">
+        <DropdownMenuItem onSelect={() => onUpdateStatus(roleId, actions.primary.status)}>
+          {actions.primary.label}
+        </DropdownMenuItem>
+        {secondaryAction ? (
+          <DropdownMenuItem onSelect={() => onUpdateStatus(roleId, secondaryAction.status)}>
+            {secondaryAction.label}
+          </DropdownMenuItem>
+        ) : null}
+        {destructiveAction ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-rose-700 focus:bg-rose-50 focus:text-rose-800"
+              onSelect={() => onUpdateStatus(roleId, destructiveAction.status)}
+            >
+              {destructiveAction.label}
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -771,159 +794,92 @@ export default function AdminRoles() {
           </div>
         ) : null}
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50/50 border-b border-slate-200">
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Role Title</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Company</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Updated</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={5} className="p-8 text-center">
-                    <Loader2 className="mx-auto h-6 w-6 animate-spin text-slate-400" />
-                  </td>
-                </tr>
-              ) : filteredRoles.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="p-12 text-center text-slate-500">
-                    No roles matched this review queue.
-                  </td>
-                </tr>
-              ) : filteredRoles.map((role) => {
-                const reviewState = getRoleReviewStateMeta(role.status);
-                const summary = getRoleSummaryLines(role);
-                const selected = previewRole?.id === role.id;
-                const rowActions = getRoleActionCopy(role.status);
-                const rowSecondaryAction = "secondary" in rowActions ? rowActions.secondary! : null;
-                const rowDestructiveAction = "destructive" in rowActions ? rowActions.destructive! : null;
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        {isLoading ? (
+          <div className="p-8 text-center">
+            <Loader2 className="mx-auto h-6 w-6 animate-spin text-slate-400" />
+          </div>
+        ) : filteredRoles.length === 0 ? (
+          <div className="p-12 text-center text-slate-500">
+            No roles matched this review queue.
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {filteredRoles.map((role) => {
+              const reviewState = getRoleReviewStateMeta(role.status);
+              const summary = getRoleSummaryLines(role);
+              const selected = previewRole?.id === role.id;
+              const actionDisabled = isUpdatingStatus && pendingRoleId === role.id;
 
-                return (
-                  <tr
-                    key={role.id}
-                    className={`cursor-pointer transition-colors ${selected ? "bg-sky-50/70" : "hover:bg-slate-50/50"}`}
+              return (
+                <div
+                  key={role.id}
+                  className={`flex flex-col gap-3 px-4 py-3 transition-colors sm:px-5 lg:flex-row lg:items-center lg:gap-4 ${
+                    selected ? "bg-sky-50/70" : "hover:bg-slate-50/60"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-start gap-3 text-left"
                     onClick={() => setSelectedRoleId(role.id)}
                   >
-                    <td className="px-6 py-4 align-top">
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                          <Briefcase className="h-4 w-4" />
-                        </div>
-                        <div className="min-w-0">
-                          <button
-                            type="button"
-                            className="text-left font-semibold text-slate-900 transition-colors hover:text-primary"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setSelectedRoleId(role.id);
-                            }}
-                          >
-                            {role.title}
-                          </button>
-                          <div className="mt-1 text-sm text-slate-500">
-                            {summary.workModeLabel}
-                            {summary.employmentTypeLabel ? ` · ${summary.employmentTypeLabel}` : ""}
-                          </div>
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600">
-                              {reviewState.label}
-                            </span>
-                            <span className="rounded-full bg-sky-100 px-2.5 py-0.5 text-[11px] font-semibold text-sky-700">
-                              {role.candidateCount ?? 0} candidates
-                            </span>
-                          </div>
-                        </div>
+                    <div className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <Briefcase className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-sm font-semibold text-slate-900">{role.title}</span>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                          {role.companyName}
+                        </span>
+                        <StatusBadge status={role.status} />
+                        <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
+                          {role.candidateCount ?? 0} candidates
+                        </span>
                       </div>
-                    </td>
-                    <td className="px-6 py-4 text-slate-600 font-medium align-top">{role.companyName}</td>
-                    <td className="px-6 py-4 align-top">
-                      <StatusBadge status={role.status} />
-                      <p className="mt-2 max-w-[14rem] text-xs leading-5 text-slate-500">{reviewState.body}</p>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600 align-top">
-                      <div className="font-medium text-slate-700">{format(new Date(role.updatedAt), "MMM d, yyyy")}</div>
-                      <div className="mt-1 text-xs text-slate-400">Created {format(new Date(role.createdAt), "MMM d, yyyy")}</div>
-                    </td>
-                    <td className="px-6 py-4 align-top">
-                        <div className="grid min-w-[11rem] gap-2 xl:min-w-[13rem] xl:justify-items-end">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                          disabled={isUpdatingRole}
-                          className="rounded-lg h-8"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openEditDialog(role as AdminReviewRole);
-                          }}
-                        >
-                          <Pencil className="w-3.5 h-3.5 mr-1.5" />
-                          Edit
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant={rowActions.primary.variant}
-                          disabled={isUpdatingStatus && pendingRoleId === role.id}
-                          className={rowActions.primary.className}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            changeStatus(role.id, rowActions.primary.status);
-                          }}
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-                            {rowActions.primary.label}
-                          </Button>
-                        {rowSecondaryAction ? (
-                          <Button
-                            size="sm"
-                            variant={rowSecondaryAction.variant}
-                            disabled={isUpdatingStatus && pendingRoleId === role.id}
-                            className={rowSecondaryAction.className}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              changeStatus(role.id, rowSecondaryAction.status);
-                            }}
-                          >
-                            <ArrowRight className="w-3.5 h-3.5 mr-1.5" />
-                            {rowSecondaryAction.label}
-                          </Button>
-                        ) : null}
-                        {rowDestructiveAction ? (
-                          <Button
-                            size="sm"
-                            variant={rowDestructiveAction.variant}
-                            disabled={isUpdatingStatus && pendingRoleId === role.id}
-                            className={rowDestructiveAction.className}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              changeStatus(role.id, rowDestructiveAction.status);
-                            }}
-                          >
-                            <XCircle className="w-3.5 h-3.5 mr-1.5" />
-                            {rowDestructiveAction.label}
-                          </Button>
-                        ) : null}
-                          <Link
-                          href={`/admin/roles/${role.id}/candidates`}
-                          className="inline-flex min-h-8 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 hover:text-primary active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                          Open pipeline
-                        </Link>
-                        </div>
-                      </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                        <span>{role.location || "No location"}</span>
+                        <span>{summary.workModeLabel}</span>
+                        <span>{summary.employmentTypeLabel || "Type not set"}</span>
+                        <span>Updated {format(new Date(role.updatedAt), "MMM d")}</span>
+                        <span className="text-slate-400">{reviewState.label}</span>
+                      </div>
+                      <p className="mt-1 truncate text-xs text-slate-500">
+                        {summary.descriptionBody || reviewState.body}
+                      </p>
+                    </div>
+                  </button>
+
+                  <div className="flex flex-wrap items-center gap-2 lg:ml-auto lg:justify-end">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={isUpdatingRole}
+                      className="h-8 rounded-lg px-3 text-xs"
+                      onClick={() => openEditDialog(role as AdminReviewRole)}
+                    >
+                      <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                      Edit
+                    </Button>
+                    <RoleActionsMenu
+                      roleId={role.id}
+                      actions={getRoleActionCopy(role.status)}
+                      disabled={actionDisabled}
+                      onUpdateStatus={changeStatus}
+                    />
+                    <Link
+                      href={`/admin/roles/${role.id}/candidates`}
+                      className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 hover:text-primary active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      Pipeline
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {previewRole ? (

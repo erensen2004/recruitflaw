@@ -13,7 +13,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Briefcase, Loader2, MapPin, Pencil, Plus, Trash2, Users } from "lucide-react";
+import { Loader2, MapPin, Pencil, Plus, Trash2, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListRolesQueryKey } from "@workspace/api-client-react";
@@ -381,76 +381,92 @@ export default function ClientRoles() {
         </DialogContent>
       </Dialog>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         {isLoading ? (
-          <div className="col-span-full flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
+          <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
         ) : roles?.length === 0 ? (
-          <div className="col-span-full text-center p-12 bg-white rounded-2xl border border-slate-200 text-slate-500">
+          <div className="text-center p-12 text-slate-500">
             You haven&apos;t opened any positions yet.
           </div>
-        ) : (roles ?? []).map((role) => {
-          const details = getRoleSummaryLines(role);
-          return (
-            <div key={role.id} className="bg-white rounded-2xl p-6 shadow-lg shadow-black/5 border border-slate-100 hover:shadow-xl transition-all flex flex-col">
-              <div className="flex justify-between items-start mb-3">
-                <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
-                  <Briefcase className="w-5 h-5" />
-                </div>
-                <StatusBadge status={role.status} />
-              </div>
-
-              <h3 className="text-lg font-bold text-slate-900 mb-1">{role.title}</h3>
-
-              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500 mb-3">
-                {role.location ? (
-                  <span className="flex items-center gap-1">
-                    <MapPin className="w-3 h-3" />
-                    {role.location}
-                  </span>
-                ) : null}
-                <span className="rounded-full bg-slate-100 px-2 py-0.5">{details.workModeLabel}</span>
-                {details.employmentTypeLabel ? (
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5">{details.employmentTypeLabel}</span>
-                ) : null}
-              </div>
-
-              <p className="text-sm text-slate-500 line-clamp-3 mb-4 flex-1">
-                {details.descriptionBody || "Waiting for the admin team to finalize and publish the hiring brief."}
-              </p>
-
-              <div className="mb-4 flex flex-wrap gap-2">
-                <Button type="button" variant="outline" size="sm" className="rounded-lg" onClick={() => openEditDialog(role)}>
-                  <Pencil className="h-3.5 w-3.5" />
-                  Edit
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="rounded-lg text-red-600 hover:bg-red-50 hover:text-red-700"
-                  disabled={deleteRoleId === role.id}
-                  onClick={() => handleDeleteRole(role.id)}
+        ) : (
+          <div className="divide-y divide-slate-200">
+            {(roles ?? []).map((role) => {
+              const details = getRoleSummaryLines(role);
+              return (
+                <div
+                  key={role.id}
+                  className="px-4 py-3 sm:px-5 hover:bg-slate-50/80 transition-colors"
                 >
-                  {deleteRoleId === role.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                  Delete
-                </Button>
-              </div>
+                  <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 flex-col gap-2 xl:flex-row xl:items-center xl:gap-3">
+                        <div className="min-w-0 flex items-center gap-2">
+                          <h3 className="truncate text-sm font-semibold text-slate-900">{role.title}</h3>
+                          <StatusBadge status={role.status} />
+                        </div>
 
-              <div className="pt-4 border-t border-slate-100 flex items-center justify-between mt-auto">
-                <div className="flex items-center gap-2 text-slate-600 font-medium text-sm">
-                  <Users className="w-4 h-4" />
-                  {role.candidateCount} Candidates
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 xl:flex-nowrap xl:overflow-hidden">
+                          {role.location ? (
+                            <span className="inline-flex min-w-0 items-center gap-1 truncate">
+                              <MapPin className="h-3 w-3 shrink-0" />
+                              <span className="truncate">{role.location}</span>
+                            </span>
+                          ) : null}
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">
+                            {details.workModeLabel}
+                          </span>
+                          {details.employmentTypeLabel ? (
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">
+                              {details.employmentTypeLabel}
+                            </span>
+                          ) : null}
+                          <span className="inline-flex items-center gap-1 text-slate-600">
+                            <Users className="h-3.5 w-3.5 shrink-0" />
+                            {role.candidateCount}
+                          </span>
+                        </div>
+                      </div>
+
+                      <p className="mt-1 truncate pr-0 text-xs text-slate-500 xl:pr-6">
+                        {details.descriptionBody || "Waiting for the admin team to finalize and publish the hiring brief."}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 xl:shrink-0">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 rounded-lg px-2.5 text-xs"
+                        onClick={() => openEditDialog(role)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        Edit
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 rounded-lg px-2.5 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
+                        disabled={deleteRoleId === role.id}
+                        onClick={() => handleDeleteRole(role.id)}
+                      >
+                        {deleteRoleId === role.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                        Delete
+                      </Button>
+                      <Link
+                        href={`/client/roles/${role.id}/candidates`}
+                        className="inline-flex h-8 items-center justify-center rounded-lg border border-primary/20 bg-primary px-3 text-xs font-semibold text-white shadow-sm transition-all duration-150 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                      >
+                        View
+                      </Link>
+                    </div>
+                  </div>
                 </div>
-                <Link
-                  href={`/client/roles/${role.id}/candidates`}
-                  className="inline-flex min-h-9 items-center justify-center rounded-lg border border-primary/20 bg-primary px-3.5 text-xs font-semibold text-white shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-md active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                >
-                  View
-                </Link>
-              </div>
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+        )}
       </div>
     </DashboardLayout>
   );
