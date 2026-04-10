@@ -405,7 +405,7 @@ export default function ClientCandidateDetail() {
     : candidate.parseStatus === "parsed" && !candidate.parseReviewRequired
       ? { label: "Final profile", className: "bg-emerald-100 text-emerald-700" }
       : candidate.parseStatus === "partial" || candidate.parseReviewRequired
-        ? { label: "Candidate brief", className: "bg-sky-100 text-sky-700" }
+        ? { label: "Profile review", className: "bg-slate-100 text-slate-700" }
         : { label: "Profile captured", className: "bg-slate-100 text-slate-700" };
 
   const submitStatusUpdate = (statusValue: (typeof STATUSES)[number], reason?: string) => {
@@ -535,9 +535,11 @@ export default function ClientCandidateDetail() {
                       {candidate.firstName} {candidate.lastName}
                     </h1>
                     <StatusBadge status={candidate.status} />
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${audienceParseBadge.className}`}>
-                      {audienceParseBadge.label}
-                    </span>
+                    {isAdminRoute ? (
+                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${audienceParseBadge.className}`}>
+                        {audienceParseBadge.label}
+                      </span>
+                    ) : null}
                   </div>
                   <p className="mt-2 text-slate-500">{candidate.email}</p>
                   <div className="mt-3 flex flex-wrap gap-3 text-sm text-slate-500">
