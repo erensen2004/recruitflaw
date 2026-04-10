@@ -27,7 +27,6 @@ import {
   formatTurkishLira,
   getStatusReasonDescription,
   getStatusReasonTitle,
-  parseCandidateTags,
   requiresStatusReason,
 } from "@/lib/candidate-display";
 import { getRoleSummaryLines } from "@/lib/role-display";
@@ -36,16 +35,6 @@ import { createInterviewRequest } from "@/lib/interviews";
 
 const CANDIDATE_STATUSES = ["submitted", "screening", "interview", "offer", "hired", "rejected"] as const;
 type CandidateStatusValue = (typeof CANDIDATE_STATUSES)[number];
-
-function getParseBadge(parseStatus: string, reviewRequired: boolean) {
-  if (parseStatus === "parsed" && !reviewRequired) {
-    return { label: "Parsed", className: "bg-emerald-100 text-emerald-700" };
-  }
-  if (parseStatus === "partial" || reviewRequired) {
-    return { label: "Review", className: "bg-amber-100 text-amber-700" };
-  }
-  return { label: "Manual", className: "bg-slate-100 text-slate-700" };
-}
 
 export default function ClientRoleCandidates() {
   const [, clientParams] = useRoute("/client/roles/:id/candidates");
@@ -169,14 +158,14 @@ export default function ClientRoleCandidates() {
         </div>
 
         {role ? (
-          <div className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
-            <div className="flex flex-col gap-2.5 xl:flex-row xl:items-start xl:justify-between">
-              <div className="min-w-0 space-y-1.5">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-base font-bold text-slate-900">{role.title}</h2>
+                  <h2 className="text-lg font-semibold text-slate-900">{role.title}</h2>
                   <StatusBadge status={role.status} />
                 </div>
-                <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
                   {role.companyName ? <span>{role.companyName}</span> : null}
                   {role.location ? (
                     <span className="inline-flex items-center gap-1">
@@ -188,37 +177,37 @@ export default function ClientRoleCandidates() {
                   {roleDetails?.employmentTypeLabel ? <span>{roleDetails.employmentTypeLabel}</span> : null}
                 </div>
               </div>
-              <div className="rounded-xl bg-slate-50 px-3 py-2 text-right">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Pipeline state</div>
-                <div className="mt-1 text-[11px] font-semibold leading-4 text-slate-800">
-                  {role.status === "published" ? "Open for approved candidates" : role.status === "on_hold" ? "Temporarily paused" : role.status === "closed" ? "Closed role" : "Still under admin review"}
-                </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                {role.status === "published"
+                  ? "Open for approved candidates"
+                  : role.status === "on_hold"
+                    ? "Temporarily paused"
+                    : role.status === "closed"
+                      ? "Closed role"
+                      : "Still under admin review"}
               </div>
             </div>
 
-            <div className="mt-2.5 grid gap-2 xl:grid-cols-[1.7fr,1.1fr]">
-              <div className="rounded-xl bg-slate-50 px-3 py-2.5">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Role brief</div>
-                <div className="mt-1 line-clamp-2 text-[11px] leading-4.5 text-slate-700">
-                  {roleDetails?.descriptionBody || "The admin team has not added a detailed hiring brief yet."}
-                </div>
+            <div className="mt-3 grid gap-2 xl:grid-cols-[1.7fr,1.1fr]">
+              <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                <span className="font-semibold text-slate-700">Role brief:</span>{" "}
+                {roleDetails?.descriptionBody || "The admin team has not added a detailed hiring brief yet."}
               </div>
-              <div className="rounded-xl bg-slate-50 px-3 py-2.5">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Required skills</div>
-                <div className="mt-1 line-clamp-2 text-[11px] leading-4.5 text-slate-700">{role.skills || "No skills specified"}</div>
+              <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                <span className="font-semibold text-slate-700">Required skills:</span>{" "}
+                {role.skills || "No skills specified"}
               </div>
             </div>
           </div>
         ) : null}
 
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="hidden border-b border-slate-200 bg-slate-50/70 px-4 py-2.5 xl:grid xl:grid-cols-[minmax(0,2.4fr)_minmax(140px,1fr)_minmax(120px,0.8fr)_minmax(88px,0.7fr)_minmax(110px,0.8fr)_minmax(110px,0.85fr)_minmax(220px,1.3fr)] xl:gap-3">
+          <div className="hidden border-b border-slate-200 bg-slate-50/70 px-4 py-2.5 xl:grid xl:grid-cols-[minmax(0,2.3fr)_minmax(140px,1fr)_minmax(110px,0.8fr)_minmax(110px,0.9fr)_minmax(88px,0.7fr)_minmax(240px,1.45fr)] xl:gap-3">
             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Candidate</div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Submitted by</div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Salary</div>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">CV</div>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Submitted</div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Status</div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">CV</div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Actions</div>
           </div>
 
@@ -235,14 +224,12 @@ export default function ClientRoleCandidates() {
           ) : (
             <div className="divide-y divide-slate-100">
               {(candidates ?? []).map((candidate) => {
-                const parseBadge = getParseBadge(candidate.parseStatus, candidate.parseReviewRequired);
-                const { englishLevel } = parseCandidateTags(candidate.tags);
                 return (
                   <div
                     key={candidate.id}
-                    className="px-4 py-2.5 transition-colors hover:bg-slate-50/70"
+                    className="px-4 py-2 transition-colors hover:bg-slate-50/70"
                   >
-                    <div className="flex flex-col gap-2.5 xl:grid xl:grid-cols-[minmax(0,2.4fr)_minmax(140px,1fr)_minmax(120px,0.8fr)_minmax(88px,0.7fr)_minmax(110px,0.8fr)_minmax(110px,0.85fr)_minmax(220px,1.3fr)] xl:items-center xl:gap-3">
+                    <div className="flex flex-col gap-2 xl:grid xl:grid-cols-[minmax(0,2.3fr)_minmax(140px,1fr)_minmax(110px,0.8fr)_minmax(110px,0.9fr)_minmax(88px,0.7fr)_minmax(240px,1.45fr)] xl:items-center xl:gap-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2.5">
                           <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
@@ -254,17 +241,6 @@ export default function ClientRoleCandidates() {
                             </div>
                             <div className="truncate text-[11px] text-slate-500">
                               {candidate.email}
-                              {candidate.phone ? ` • ${candidate.phone}` : ""}
-                            </div>
-                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${parseBadge.className}`}>
-                                {parseBadge.label}
-                              </span>
-                              {englishLevel ? (
-                                <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
-                                  English {englishLevel}
-                                </span>
-                              ) : null}
                             </div>
                           </div>
                         </div>
@@ -276,6 +252,10 @@ export default function ClientRoleCandidates() {
 
                       <div className="text-[11px] text-slate-600 xl:text-xs">
                         {formatTurkishLira(candidate.expectedSalary)}
+                      </div>
+
+                      <div className="xl:min-w-0">
+                        <StatusBadge status={candidate.status} />
                       </div>
 
                       <div className="text-[11px] xl:text-xs">
@@ -291,21 +271,13 @@ export default function ClientRoleCandidates() {
                         )}
                       </div>
 
-                      <div className="text-[11px] text-slate-600 xl:text-xs">
-                        {format(new Date(candidate.submittedAt), "MMM d, yyyy")}
-                      </div>
-
-                      <div className="xl:min-w-0">
-                        <StatusBadge status={candidate.status} />
-                      </div>
-
                       <div className="flex items-center gap-2 xl:justify-end">
                         {!isAdminRoute ? (
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="h-8 rounded-lg border-sky-200 bg-white px-2.5 text-[11px] text-sky-700 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-900"
+                            className="h-8 rounded-lg border-slate-200 bg-white px-2.5 text-[11px] text-slate-700 hover:border-primary hover:text-primary"
                             onClick={() => openInterviewDialog(candidate.id)}
                           >
                             <CalendarClock className="h-3.5 w-3.5" />

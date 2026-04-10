@@ -4,20 +4,36 @@ import { useLogin, getGetMeQueryKey } from "@workspace/api-client-react";
 import { Briefcase, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
+
+function getFriendlyLoginError(error: unknown) {
+  if (error && typeof error === "object" && "status" in error && (error as { status?: number }).status === 401) {
+    return "Invalid email or password";
+  }
+
+  if (error instanceof Error) {
+    if (/invalid email or password/i.test(error.message)) {
+      return "Invalid email or password";
+    }
+
+    return error.message.replace(/^HTTP\s+\d+\s+[A-Z ]+:\s*/i, "").trim() || "Could not sign you in";
+  }
+
+  return "Could not sign you in";
+}
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [, setLocation] = useLocation();
-  const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const { mutate: login, isPending } = useLogin({
     mutation: {
       onSuccess: (data) => {
+        setErrorMessage(null);
         localStorage.setItem("ats_token", data.token);
         queryClient.setQueryData(getGetMeQueryKey(), {
           id: data.user.id,
@@ -29,19 +45,22 @@ export default function Login() {
         });
         setLocation(`/${data.user.role}`);
       },
-      onError: (error: Error) => {
-        toast({
-          title: "Login failed",
-          description: error.message || "Please check your credentials and try again.",
-          variant: "destructive",
-        });
+      onError: (error: unknown) => {
+        setErrorMessage(getFriendlyLoginError(error));
       }
     }
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isPending) return;
+    setErrorMessage(null);
     login({ data: { email: email.trim().toLowerCase(), password } });
+  };
+
+  const handleEnterSubmit = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Enter" || isPending) return;
+    event.currentTarget.form?.requestSubmit();
   };
 
   return (
@@ -74,6 +93,7 @@ export default function Login() {
               required 
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={handleEnterSubmit}
               placeholder="name@company.com"
               autoComplete="email"
               autoCapitalize="none"
@@ -91,12 +111,19 @@ export default function Login() {
               required 
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={handleEnterSubmit}
               placeholder="••••••••"
               autoComplete="current-password"
               disabled={isPending}
               className="h-12 rounded-xl bg-slate-50 border-slate-200 focus:bg-white transition-colors"
             />
           </div>
+
+          {errorMessage ? (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+              {errorMessage}
+            </div>
+          ) : null}
 
           <Button 
             type="submit" 

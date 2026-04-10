@@ -402,7 +402,7 @@ export async function cancelInterviewMeeting(meetingId: number, cancelReason?: s
     await requestJson(`/api/meetings/${meetingId}/cancel`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cancelReason: cancelReason ?? null }),
+      body: JSON.stringify({ reason: cancelReason ?? null }),
     }),
   );
 }

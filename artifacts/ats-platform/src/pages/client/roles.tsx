@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { ConfirmActionDialog } from "@/components/confirm-action-dialog";
 import {
   Dialog,
   DialogContent,
@@ -94,6 +95,7 @@ export default function ClientRoles() {
   const [activeFilter, setActiveFilter] = useState<ClientRoleFilter>("all");
   const [editingRoleId, setEditingRoleId] = useState<number | null>(null);
   const [deleteRoleId, setDeleteRoleId] = useState<number | null>(null);
+  const [confirmDeleteRoleId, setConfirmDeleteRoleId] = useState<number | null>(null);
   const [pendingStatusRoleId, setPendingStatusRoleId] = useState<number | null>(null);
   const [formData, setFormData] = useState(emptyForm);
   const { toast } = useToast();
@@ -266,9 +268,6 @@ export default function ClientRoles() {
   };
 
   const handleDeleteRole = async (roleId: number) => {
-    const confirmed = window.confirm("Delete this role? Roles with submitted candidates cannot be deleted.");
-    if (!confirmed) return;
-
     setDeleteRoleId(roleId);
     try {
       const token = localStorage.getItem("ats_token");
@@ -292,6 +291,7 @@ export default function ClientRoles() {
       });
     } finally {
       setDeleteRoleId(null);
+      setConfirmDeleteRoleId(null);
     }
   };
 
@@ -492,6 +492,21 @@ export default function ClientRoles() {
         </DialogContent>
       </Dialog>
 
+      <ConfirmActionDialog
+        open={confirmDeleteRoleId != null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmDeleteRoleId(null);
+        }}
+        title="Delete role?"
+        description="This role will be removed if it has no submitted candidates. Roles that already have pipeline activity cannot be deleted."
+        confirmLabel="Delete role"
+        isLoading={deleteRoleId != null}
+        onConfirm={() => {
+          if (confirmDeleteRoleId == null) return;
+          void handleDeleteRole(confirmDeleteRoleId);
+        }}
+      />
+
       <div className="mb-4 flex flex-wrap gap-2">
         {CLIENT_ROLE_FILTERS.map((filter) => (
           <Button
@@ -610,7 +625,7 @@ export default function ClientRoles() {
                         size="sm"
                         className="h-8 rounded-lg px-2.5 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
                         disabled={deleteRoleId === role.id}
-                        onClick={() => handleDeleteRole(role.id)}
+                        onClick={() => setConfirmDeleteRoleId(role.id)}
                       >
                         {deleteRoleId === role.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                         Delete

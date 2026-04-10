@@ -7,6 +7,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { ConfirmActionDialog } from "@/components/confirm-action-dialog";
 import { ReviewThreadPanel } from "@/components/review-thread-panel";
 import { Loader2, ArrowLeft, FileText, Upload, Save, Undo2, Clock3, AlertTriangle, MessageSquare, Tag } from "lucide-react";
 import { validateResumeFile } from "@/lib/utils";
@@ -48,6 +49,7 @@ export default function VendorCandidateDetail() {
   const [parseProgress, setParseProgress] = useState("");
   const [saving, setSaving] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
+  const [withdrawDialogOpen, setWithdrawDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!candidate) return;
@@ -252,9 +254,6 @@ export default function VendorCandidateDetail() {
       return;
     }
 
-    const confirmed = window.confirm("Withdraw this candidate submission? The client will no longer see it.");
-    if (!confirmed) return;
-
     setWithdrawing(true);
     try {
       const token = localStorage.getItem("ats_token");
@@ -281,6 +280,7 @@ export default function VendorCandidateDetail() {
       });
     } finally {
       setWithdrawing(false);
+      setWithdrawDialogOpen(false);
     }
   };
 
@@ -489,7 +489,7 @@ export default function VendorCandidateDetail() {
                   variant="outline"
                   className="rounded-xl gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
                   disabled={!canEdit || saving || withdrawing}
-                  onClick={handleWithdraw}
+                  onClick={() => setWithdrawDialogOpen(true)}
                 >
                   {withdrawing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />}
                   Withdraw Candidate
@@ -578,6 +578,18 @@ export default function VendorCandidateDetail() {
             />
           </div>
         </div>
+
+        <ConfirmActionDialog
+          open={withdrawDialogOpen}
+          onOpenChange={setWithdrawDialogOpen}
+          title="Withdraw candidate?"
+          description="This submission will be removed from the client-facing pipeline and the hiring team will no longer see it."
+          confirmLabel="Withdraw candidate"
+          isLoading={withdrawing}
+          onConfirm={() => {
+            void handleWithdraw();
+          }}
+        />
       </div>
     </DashboardLayout>
   );

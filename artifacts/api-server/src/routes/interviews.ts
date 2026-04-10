@@ -728,6 +728,10 @@ router.get("/interviews", requireAuth, async (req, res) => {
     const roleIdFilter = parsePositiveInt(getQueryString(req.query.roleId));
 
     const conditions = [];
+    if ((req.user!.role === "client" || req.user!.role === "vendor") && req.user!.companyId == null) {
+      Errors.forbidden(res);
+      return;
+    }
     if (req.user!.role === "client" && req.user!.companyId) {
       conditions.push(eq(interviewProcessesTable.clientCompanyId, req.user!.companyId));
     } else if (req.user!.role === "vendor" && req.user!.companyId) {

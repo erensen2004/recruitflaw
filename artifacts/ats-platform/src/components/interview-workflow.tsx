@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useGetMe } from "@workspace/api-client-react";
+import { ConfirmActionDialog } from "@/components/confirm-action-dialog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -298,6 +299,8 @@ export function InterviewWorkflowPanel({
   vendorCompanyName,
   clientCompanyName,
   compact = false,
+  summaryOnly = false,
+  inboxHref,
 }: {
   candidateId: number;
   candidateName: string;
@@ -307,6 +310,8 @@ export function InterviewWorkflowPanel({
   vendorCompanyName?: string | null;
   clientCompanyName?: string | null;
   compact?: boolean;
+  summaryOnly?: boolean;
+  inboxHref?: string;
 }) {
   const { data: me } = useGetMe();
   const { toast } = useToast();
@@ -319,6 +324,7 @@ export function InterviewWorkflowPanel({
   const [dialogDescription, setDialogDescription] = useState("Create a structured interview request for this candidate.");
   const [dialogSubmitLabel, setDialogSubmitLabel] = useState("Send request");
   const [dialogHandler, setDialogHandler] = useState<((payload: InterviewProposalInput) => Promise<void>) | null>(null);
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
 
   const currentRole = (me?.role ?? null) as InterviewRole | null;
   const isVendor = currentRole === "vendor";
@@ -413,7 +419,7 @@ export function InterviewWorkflowPanel({
   const cancelMeeting = async () => {
     if (!activeMeeting) return;
     try {
-      const reason = window.prompt("Optional cancellation reason", "")?.trim() || null;
+      const reason = "Cancelled from the interview workflow";
       await cancelInterviewMeeting(activeMeeting.id, reason);
       await refresh();
       toast({ title: "Meeting cancelled" });
@@ -438,9 +444,13 @@ export function InterviewWorkflowPanel({
           timezone: bundleProcess?.nextScheduledTimezone ?? activeMeeting?.timezone ?? null,
         })
       : null;
+  const shellClassName = compact
+    ? "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+    : "rounded-2xl border border-slate-100 bg-white p-6 shadow-lg shadow-black/5";
 
   return (
-    <div className={compact ? "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" : "rounded-2xl border border-slate-100 bg-white p-6 shadow-lg shadow-black/5"}>
+    <>
+    <div className={shellClassName}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -465,6 +475,20 @@ export function InterviewWorkflowPanel({
           {latestSlotLabel ? <span className="text-right text-xs text-slate-500">{latestSlotLabel}</span> : null}
         </div>
       </div>
+
+      {summaryOnly && inboxHref ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3">
+          <p className="text-sm text-slate-600">
+            Keep the full negotiation thread in one place while surfacing the next action directly on the profile.
+          </p>
+          <Link
+            href={inboxHref}
+            className="inline-flex min-h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-primary hover:text-primary"
+          >
+            Open Interview Requests
+          </Link>
+        </div>
+      ) : null}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <div className="rounded-xl bg-slate-50 px-3 py-2.5">
@@ -505,6 +529,50 @@ export function InterviewWorkflowPanel({
             ) : null}
           </div>
         </div>
+      ) : summaryOnly ? (
+        <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Active meeting</p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">
+                {activeMeeting ? `Meeting #${activeMeeting.meetingIndex}` : "No active meeting"}
+              </p>
+            </div>
+            {activeMeeting ? <StatusBadge status={activeMeeting.status} /> : null}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {canInitiate ? (
+              <Button type="button" className="rounded-xl gap-2" onClick={() => openRequestDialog("request")}>
+                <CalendarClock className="h-4 w-4" />
+                Request Interview
+              </Button>
+            ) : null}
+            {canCounter ? (
+              <Button type="button" variant="outline" className="rounded-xl gap-2" onClick={() => openRequestDialog("counter")}>
+                <ArrowRight className="h-4 w-4" />
+                Propose New Time
+              </Button>
+            ) : null}
+            {canActOnProposal ? (
+              <Button type="button" variant="outline" className="rounded-xl gap-2" onClick={() => void acceptProposal(pendingProposal!.id)}>
+                <CheckCircle2 className="h-4 w-4" />
+                Accept Proposal
+              </Button>
+            ) : null}
+            {activeMeeting?.status === "scheduled" && (isClient || isAdmin) ? (
+              <Button type="button" variant="outline" className="rounded-xl gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800" onClick={() => void completeMeeting()}>
+                <PartyPopper className="h-4 w-4" />
+                Mark Completed
+              </Button>
+            ) : null}
+            {activeMeeting && (isClient || isAdmin) ? (
+              <Button type="button" variant="outline" className="rounded-xl gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" onClick={() => setCancelDialogOpen(true)}>
+                <AlertTriangle className="h-4 w-4" />
+                Cancel
+              </Button>
+            ) : null}
+          </div>
+        </div>
       ) : (
         <div className="mt-4 space-y-3">
           <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
@@ -512,7 +580,7 @@ export function InterviewWorkflowPanel({
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Active meeting</p>
                 <p className="mt-1 text-sm font-semibold text-slate-900">
-                  {activeMeeting ? `Meeting #${activeMeeting.meetingIndex + 1}` : "No active meeting"}
+                  {activeMeeting ? `Meeting #${activeMeeting.meetingIndex}` : "No active meeting"}
                 </p>
               </div>
               {activeMeeting ? <StatusBadge status={activeMeeting.status} /> : null}
@@ -581,7 +649,7 @@ export function InterviewWorkflowPanel({
                       <div key={meeting.id} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
                         <div className="flex items-center justify-between gap-3">
                           <div>
-                            <p className="text-sm font-semibold text-slate-800">Meeting #{meeting.meetingIndex + 1}</p>
+                            <p className="text-sm font-semibold text-slate-800">Meeting #{meeting.meetingIndex}</p>
                             <p className="mt-0.5 text-xs text-slate-500">
                               {formatInterviewSlot({
                                 scheduledDate: meeting.scheduledDate,
@@ -669,7 +737,7 @@ export function InterviewWorkflowPanel({
                     </Button>
                   ) : null}
                   {activeMeeting && (isClient || isAdmin) ? (
-                    <Button type="button" variant="outline" className="rounded-xl gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" onClick={() => void cancelMeeting()}>
+                    <Button type="button" variant="outline" className="rounded-xl gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" onClick={() => setCancelDialogOpen(true)}>
                       <AlertTriangle className="h-4 w-4" />
                       Cancel
                     </Button>
@@ -697,6 +765,17 @@ export function InterviewWorkflowPanel({
         }}
       />
     </div>
+      <ConfirmActionDialog
+        open={cancelDialogOpen}
+        onOpenChange={setCancelDialogOpen}
+        title="Cancel interview?"
+        description="The active interview slot will be cancelled and the thread will remain available for rescheduling."
+        confirmLabel="Cancel interview"
+        onConfirm={() => {
+          void cancelMeeting();
+        }}
+      />
+    </>
   );
 }
 
