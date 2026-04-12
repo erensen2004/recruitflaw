@@ -3,7 +3,9 @@ export type InterviewRole = "admin" | "client" | "vendor";
 export type InterviewProcessStatus = "open" | "closed";
 export type InterviewMeetingStatus = "negotiating" | "scheduled" | "completed" | "cancelled";
 export type InterviewProposalType = "exact_slot" | "flexible_window";
-export type InterviewProposalResponseStatus = "pending" | "accepted" | "superseded" | "withdrawn";
+export type InterviewProposalResponseStatus = "pending" | "accepted" | "superseded" | "withdrawn" | "rejected";
+export type InterviewRequestStatus = "admin_review" | "sent_to_vendor" | "vendor_replied" | "scheduled" | "cancelled" | "closed";
+export type InterviewRequestCandidateStatus = "pending_admin" | "sent_to_vendor" | "vendor_replied" | "scheduled" | "cancelled" | "closed";
 export type InterviewActivityEventType =
   | "process_opened"
   | "meeting_added"
@@ -132,6 +134,73 @@ export type InterviewInboxItem = {
 };
 
 export type InterviewInboxView = "needs_action" | "scheduled" | "history" | "all";
+export type InterviewRequestInboxView = "needs_action" | "admin_review" | "awaiting_vendor" | "scheduled" | "history" | "all";
+
+export type InterviewRequestCandidate = {
+  id: number;
+  requestId: number;
+  candidateId: number;
+  candidateName: string;
+  candidateEmail: string | null;
+  candidateStatus: string | null;
+  vendorCompanyId: number;
+  vendorCompanyName: string | null;
+  status: InterviewRequestCandidateStatus;
+  interviewProcessId: number | null;
+  interviewMeetingId: number | null;
+  adminNote: string | null;
+  vendorNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InterviewRequestActivity = {
+  id: number;
+  requestId: number;
+  requestCandidateId: number | null;
+  actorUserId: number | null;
+  actorRole: InterviewRole;
+  eventType: string;
+  payload: Record<string, unknown> | null;
+  createdAt: string;
+};
+
+export type InterviewRequestItem = {
+  id: number;
+  roleId: number;
+  roleTitle: string;
+  clientCompanyId: number;
+  clientCompanyName: string | null;
+  requestedByUserId: number;
+  status: InterviewRequestStatus;
+  requestText: string;
+  preferredDate: string | null;
+  preferredWindow: string | null;
+  timezone: string | null;
+  durationMinutes: number | null;
+  adminNote: string | null;
+  needsAction: boolean;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+  candidates: InterviewRequestCandidate[];
+  activity: InterviewRequestActivity[];
+};
+
+export type InterviewRequestInput = {
+  roleId: number;
+  candidateIds: number[];
+  requestText: string;
+  preferredDate?: string | null;
+  preferredWindow?: string | null;
+  timezone?: string | null;
+  durationMinutes?: number | null;
+};
+
+export type InterviewRequestDispatchInput = InterviewProposalInput & {
+  requestCandidateId: number;
+  adminNote?: string | null;
+};
 
 function getAuthHeaders(extraHeaders?: HeadersInit) {
   const token = typeof localStorage !== "undefined" ? localStorage.getItem("ats_token") : null;
@@ -339,12 +408,112 @@ function normalizeInboxPayload(payload: any): InterviewInboxItem[] {
     .filter(Boolean);
 }
 
+function normalizeInterviewRequestCandidate(raw: any): InterviewRequestCandidate {
+  return {
+    id: Number(raw.id),
+    requestId: Number(raw.requestId ?? raw.request_id ?? 0),
+    candidateId: Number(raw.candidateId ?? raw.candidate_id ?? 0),
+    candidateName: raw.candidateName ?? raw.candidate_name ?? "Candidate",
+    candidateEmail: raw.candidateEmail ?? raw.candidate_email ?? null,
+    candidateStatus: raw.candidateStatus ?? raw.candidate_status ?? null,
+    vendorCompanyId: Number(raw.vendorCompanyId ?? raw.vendor_company_id ?? 0),
+    vendorCompanyName: raw.vendorCompanyName ?? raw.vendor_company_name ?? null,
+    status: raw.status ?? "pending_admin",
+    interviewProcessId:
+      raw.interviewProcessId != null || raw.interview_process_id != null
+        ? Number(raw.interviewProcessId ?? raw.interview_process_id)
+        : null,
+    interviewMeetingId:
+      raw.interviewMeetingId != null || raw.interview_meeting_id != null
+        ? Number(raw.interviewMeetingId ?? raw.interview_meeting_id)
+        : null,
+    adminNote: raw.adminNote ?? raw.admin_note ?? null,
+    vendorNote: raw.vendorNote ?? raw.vendor_note ?? null,
+    createdAt: raw.createdAt ?? raw.created_at ?? new Date().toISOString(),
+    updatedAt: raw.updatedAt ?? raw.updated_at ?? new Date().toISOString(),
+  };
+}
+
+function normalizeInterviewRequestActivity(raw: any): InterviewRequestActivity {
+  return {
+    id: Number(raw.id),
+    requestId: Number(raw.requestId ?? raw.request_id ?? 0),
+    requestCandidateId: raw.requestCandidateId ?? raw.request_candidate_id ?? null,
+    actorUserId: raw.actorUserId ?? raw.actor_user_id ?? null,
+    actorRole: raw.actorRole ?? raw.actor_role ?? "admin",
+    eventType: raw.eventType ?? raw.event_type ?? "activity",
+    payload: raw.payload ?? null,
+    createdAt: raw.createdAt ?? raw.created_at ?? new Date().toISOString(),
+  };
+}
+
+function normalizeInterviewRequest(raw: any): InterviewRequestItem {
+  return {
+    id: Number(raw.id),
+    roleId: Number(raw.roleId ?? raw.role_id ?? 0),
+    roleTitle: raw.roleTitle ?? raw.role_title ?? "Role",
+    clientCompanyId: Number(raw.clientCompanyId ?? raw.client_company_id ?? 0),
+    clientCompanyName: raw.clientCompanyName ?? raw.client_company_name ?? null,
+    requestedByUserId: Number(raw.requestedByUserId ?? raw.requested_by_user_id ?? 0),
+    status: raw.status ?? "admin_review",
+    requestText: raw.requestText ?? raw.request_text ?? "",
+    preferredDate: raw.preferredDate ?? raw.preferred_date ?? null,
+    preferredWindow: raw.preferredWindow ?? raw.preferred_window ?? null,
+    timezone: raw.timezone ?? null,
+    durationMinutes: raw.durationMinutes != null || raw.duration_minutes != null ? Number(raw.durationMinutes ?? raw.duration_minutes) : null,
+    adminNote: raw.adminNote ?? raw.admin_note ?? null,
+    needsAction: Boolean(raw.needsAction ?? raw.needs_action ?? false),
+    createdAt: raw.createdAt ?? raw.created_at ?? new Date().toISOString(),
+    updatedAt: raw.updatedAt ?? raw.updated_at ?? new Date().toISOString(),
+    resolvedAt: raw.resolvedAt ?? raw.resolved_at ?? null,
+    candidates: Array.isArray(raw.candidates) ? raw.candidates.map(normalizeInterviewRequestCandidate) : [],
+    activity: Array.isArray(raw.activity) ? raw.activity.map(normalizeInterviewRequestActivity) : [],
+  };
+}
+
+function normalizeInterviewRequestPayload(payload: any): InterviewRequestItem[] {
+  const items = payload?.items ?? payload?.requests ?? payload?.data ?? payload ?? [];
+  if (!Array.isArray(items)) return [];
+  return items.map(normalizeInterviewRequest);
+}
+
 export async function fetchCandidateInterviewBundle(candidateId: number) {
   return normalizeBundlePayload(await requestJson(`/api/candidates/${candidateId}/interviews`));
 }
 
 export async function fetchInterviewInbox(view: InterviewInboxView = "needs_action") {
   return normalizeInboxPayload(await requestJson(`/api/interviews?view=${encodeURIComponent(view)}`));
+}
+
+export async function fetchInterviewRequestInbox(view: InterviewRequestInboxView = "needs_action") {
+  return normalizeInterviewRequestPayload(await requestJson(`/api/interview-requests?view=${encodeURIComponent(view)}`));
+}
+
+export async function createInterviewRequestBatch(data: InterviewRequestInput) {
+  const payload = await requestJson<{ request: unknown }>(`/api/interview-requests`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return payload.request ? normalizeInterviewRequest(payload.request) : null;
+}
+
+export async function dispatchInterviewRequest(requestId: number, items: InterviewRequestDispatchInput[]) {
+  const payload = await requestJson<{ request: unknown }>(`/api/interview-requests/${requestId}/dispatch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ items }),
+  });
+  return payload.request ? normalizeInterviewRequest(payload.request) : null;
+}
+
+export async function cancelInterviewRequest(requestId: number, reason?: string | null) {
+  const payload = await requestJson<{ request: unknown }>(`/api/interview-requests/${requestId}/cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason: reason ?? null }),
+  });
+  return payload.request ? normalizeInterviewRequest(payload.request) : null;
 }
 
 export async function createInterviewRequest(candidateId: number, data: InterviewProposalInput) {
@@ -383,6 +552,16 @@ export async function acceptInterviewProposal(proposalId: number) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
+    }),
+  );
+}
+
+export async function declineInterviewProposal(proposalId: number, note?: string | null) {
+  return normalizeBundlePayload(
+    await requestJson(`/api/proposals/${proposalId}/decline`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note: note ?? null }),
     }),
   );
 }

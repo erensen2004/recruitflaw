@@ -92,6 +92,14 @@ pnpm run typecheck
 pnpm run build:vercel
 ```
 
+For a repeatable browser-level smoke pass with artifacts:
+
+```bash
+SMOKE_BASE_URL=https://recruitflaw.vercel.app pnpm run smoke:browser
+```
+
+This writes screenshots and reports to `output/playwright/<run-label>/`.
+
 For local API smoke tests you can still use the standalone server:
 
 ```bash

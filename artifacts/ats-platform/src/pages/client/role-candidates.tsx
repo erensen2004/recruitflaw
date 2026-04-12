@@ -4,6 +4,7 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -16,22 +17,19 @@ import {
 import { UserCircle, Loader2, ArrowLeft, FileText, MapPin, Eye } from "lucide-react";
 import { CalendarClock } from "lucide-react";
 import { useRoute, Link } from "wouter";
-import { format } from "date-fns";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { invalidateCandidateQueries, syncCandidateAcrossCaches } from "@/lib/candidate-query";
 import { ReviewThreadPanel } from "@/components/review-thread-panel";
-import { InterviewRequestDialog } from "@/components/interview-workflow";
+import { InterviewIntakeRequestDialog } from "@/components/interview-workflow";
 import {
   formatTurkishLira,
-  getStatusReasonDescription,
   getStatusReasonTitle,
   requiresStatusReason,
 } from "@/lib/candidate-display";
 import { getRoleSummaryLines } from "@/lib/role-display";
 import { PrivateObjectLink } from "@/components/private-object-link";
-import { createInterviewRequest } from "@/lib/interviews";
 
 const CANDIDATE_STATUSES = ["submitted", "screening", "interview", "offer", "hired", "rejected"] as const;
 type CandidateStatusValue = (typeof CANDIDATE_STATUSES)[number];
@@ -52,7 +50,7 @@ export default function ClientRoleCandidates() {
   const [statusReasonText, setStatusReasonText] = useState("");
   const [statusReasonError, setStatusReasonError] = useState("");
   const [interviewDialogOpen, setInterviewDialogOpen] = useState(false);
-  const [interviewCandidateId, setInterviewCandidateId] = useState<number | null>(null);
+  const [selectedInterviewCandidateIds, setSelectedInterviewCandidateIds] = useState<number[]>([]);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -116,22 +114,16 @@ export default function ClientRoleCandidates() {
     submitStatusUpdate(statusReasonCandidateId, statusReasonTarget, reason);
   };
 
-  const openInterviewDialog = (candidateId: number) => {
-    setInterviewCandidateId(candidateId);
+  const openInterviewDialog = (candidateId?: number) => {
+    if (candidateId != null) setSelectedInterviewCandidateIds([candidateId]);
     setInterviewDialogOpen(true);
   };
 
-  const submitInterviewRequest = async (payload: Parameters<typeof createInterviewRequest>[1]) => {
-    if (interviewCandidateId == null) {
-      throw new Error("No candidate selected for the interview request.");
-    }
-
-    const result = await createInterviewRequest(interviewCandidateId, payload);
-    await invalidateCandidateQueries(queryClient, interviewCandidateId);
-    if (result.process?.candidateId) {
-      await invalidateCandidateQueries(queryClient, result.process.candidateId);
-    }
-    toast({ title: "Interview request sent" });
+  const toggleInterviewCandidate = (candidateId: number, checked: boolean) => {
+    setSelectedInterviewCandidateIds((current) => {
+      if (checked) return Array.from(new Set([...current, candidateId]));
+      return current.filter((id) => id !== candidateId);
+    });
   };
 
   const backHref = isAdminRoute ? "/admin/roles" : "/client/roles";
@@ -139,7 +131,14 @@ export default function ClientRoleCandidates() {
   const roleCandidatesHref = isAdminRoute ? `/admin/roles/${roleId}/candidates` : `/client/roles/${roleId}/candidates`;
   const roleDetails = role ? getRoleSummaryLines(role) : null;
   const selectedInterviewCandidate =
-    interviewCandidateId != null ? candidates?.find((candidate) => candidate.id === interviewCandidateId) ?? null : null;
+    selectedInterviewCandidateIds.length === 1 ? candidates?.find((candidate) => candidate.id === selectedInterviewCandidateIds[0]) ?? null : null;
+  const selectedInterviewCandidates = (candidates ?? [])
+    .filter((candidate) => selectedInterviewCandidateIds.includes(candidate.id))
+    .map((candidate) => ({
+      id: candidate.id,
+      name: `${candidate.firstName} ${candidate.lastName}`.trim(),
+      email: candidate.email ?? null,
+    }));
 
   return (
     <DashboardLayout allowedRoles={["client", "admin"]}>
@@ -152,14 +151,12 @@ export default function ClientRoleCandidates() {
             <ArrowLeft className="w-4 h-4 mr-1" /> Back to Roles
           </Link>
           <h1 className="text-3xl font-bold text-slate-900">{role?.title || "Role"} — Candidates</h1>
-          <p className="text-slate-500 mt-1">
-            Review the approved hiring brief, then move candidates through the shared admin-controlled workflow.
-          </p>
+          <p className="text-slate-500 mt-1">Review candidates and keep the shortlist moving.</p>
         </div>
 
         {role ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-lg font-semibold text-slate-900">{role.title}</h2>
@@ -177,32 +174,34 @@ export default function ClientRoleCandidates() {
                   {roleDetails?.employmentTypeLabel ? <span>{roleDetails.employmentTypeLabel}</span> : null}
                 </div>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                {role.status === "published"
-                  ? "Open for approved candidates"
-                  : role.status === "on_hold"
-                    ? "Temporarily paused"
-                    : role.status === "closed"
-                      ? "Closed role"
-                      : "Still under admin review"}
-              </div>
             </div>
 
-            <div className="mt-3 grid gap-2 xl:grid-cols-[1.7fr,1.1fr]">
-              <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                <span className="font-semibold text-slate-700">Role brief:</span>{" "}
-                {roleDetails?.descriptionBody || "The admin team has not added a detailed hiring brief yet."}
-              </div>
-              <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                <span className="font-semibold text-slate-700">Required skills:</span>{" "}
-                {role.skills || "No skills specified"}
-              </div>
+            <div className="mt-3 rounded-xl bg-slate-50/80 px-3 py-2 text-xs text-slate-600">
+              <span className="font-semibold text-slate-700">Brief:</span>{" "}
+              {roleDetails?.descriptionBody || "No brief yet."}
+              <span className="mx-2 text-slate-300">|</span>
+              <span className="font-semibold text-slate-700">Skills:</span>{" "}
+              {role.skills || "None listed"}
             </div>
           </div>
         ) : null}
 
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">{selectedInterviewCandidateIds.length} selected</p>
+            <p className="text-xs text-slate-500">Select multiple candidates for one admin-managed interview request.</p>
+          </div>
+          {!isAdminRoute ? (
+            <Button type="button" className="rounded-xl gap-2" disabled={!selectedInterviewCandidateIds.length} onClick={() => openInterviewDialog()}>
+              <CalendarClock className="h-4 w-4" />
+              Request interviews
+            </Button>
+          ) : null}
+        </div>
+
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="hidden border-b border-slate-200 bg-slate-50/70 px-4 py-2.5 xl:grid xl:grid-cols-[minmax(0,2.3fr)_minmax(140px,1fr)_minmax(110px,0.8fr)_minmax(110px,0.9fr)_minmax(88px,0.7fr)_minmax(240px,1.45fr)] xl:gap-3">
+          <div className="hidden border-b border-slate-200 bg-slate-50/70 px-4 py-2.5 xl:grid xl:grid-cols-[36px_minmax(0,2.3fr)_minmax(140px,1fr)_minmax(110px,0.8fr)_minmax(110px,0.9fr)_minmax(88px,0.7fr)_minmax(240px,1.45fr)] xl:gap-3">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500"></div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Candidate</div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Submitted by</div>
             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Salary</div>
@@ -227,12 +226,21 @@ export default function ClientRoleCandidates() {
                 return (
                   <div
                     key={candidate.id}
-                    className="px-4 py-2 transition-colors hover:bg-slate-50/70"
+                    className="px-4 py-1.5 transition-colors hover:bg-slate-50/70"
                   >
-                    <div className="flex flex-col gap-2 xl:grid xl:grid-cols-[minmax(0,2.3fr)_minmax(140px,1fr)_minmax(110px,0.8fr)_minmax(110px,0.9fr)_minmax(88px,0.7fr)_minmax(240px,1.45fr)] xl:items-center xl:gap-3">
+                    <div className="flex flex-col gap-2 xl:grid xl:grid-cols-[36px_minmax(0,2.15fr)_minmax(130px,0.95fr)_minmax(98px,0.75fr)_minmax(98px,0.8fr)_minmax(84px,0.65fr)_minmax(220px,1.35fr)] xl:items-center xl:gap-2.5">
+                      <div className="hidden xl:flex">
+                        {!isAdminRoute ? (
+                          <Checkbox
+                            checked={selectedInterviewCandidateIds.includes(candidate.id)}
+                            onCheckedChange={(checked) => toggleInterviewCandidate(candidate.id, checked === true)}
+                            aria-label={`Select ${candidate.firstName} ${candidate.lastName}`}
+                          />
+                        ) : null}
+                      </div>
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2.5">
-                          <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+                        <div className="flex items-center gap-2">
+                          <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
                             <UserCircle className="h-4.5 w-4.5" />
                           </div>
                           <div className="min-w-0">
@@ -277,7 +285,7 @@ export default function ClientRoleCandidates() {
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="h-8 rounded-lg border-slate-200 bg-white px-2.5 text-[11px] text-slate-700 hover:border-primary hover:text-primary"
+                            className="h-[30px] rounded-lg border-slate-200 bg-white px-2.5 text-[11px] text-slate-700 hover:border-primary hover:text-primary"
                             onClick={() => openInterviewDialog(candidate.id)}
                           >
                             <CalendarClock className="h-3.5 w-3.5" />
@@ -286,7 +294,7 @@ export default function ClientRoleCandidates() {
                         ) : null}
                         <Link
                           href={`${detailHrefBase}/${candidate.id}?back=${encodeURIComponent(roleCandidatesHref)}`}
-                          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[11px] font-medium text-slate-700 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-primary hover:bg-primary/5 hover:text-primary hover:shadow-md active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                          className="inline-flex h-[30px] items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[11px] font-medium text-slate-700 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-primary hover:bg-primary/5 hover:text-primary hover:shadow-md active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                         >
                           <Eye className="h-3.5 w-3.5" />
                           Details
@@ -298,7 +306,7 @@ export default function ClientRoleCandidates() {
                         >
                           <SelectTrigger
                             className={cn(
-                              "h-8 min-w-[132px] rounded-lg text-[11px] transition-all",
+                              "h-[30px] min-w-[132px] rounded-lg text-[11px] transition-all",
                               updatingStatus && pendingCandidateId === candidate.id && "border-primary/50 bg-primary/5 text-primary",
                             )}
                           >
@@ -326,15 +334,15 @@ export default function ClientRoleCandidates() {
           scopeType="role"
           scopeId={roleId}
           actorRole={isAdminRoute ? "admin" : "client"}
-          title="Role review thread"
-          description="Use this scoped thread for role clarifications, shortlist alignment, and decision feedback tied to this hiring brief."
+          title="Role notes"
+          description="Use this thread for shortlist notes."
         />
 
         <Dialog open={statusReasonOpen} onOpenChange={(open) => (open ? setStatusReasonOpen(true) : closeStatusReasonDialog())}>
           <DialogContent className="sm:max-w-lg rounded-2xl">
             <DialogHeader>
               <DialogTitle>{getStatusReasonTitle(statusReasonTarget)}</DialogTitle>
-              <DialogDescription>{getStatusReasonDescription(statusReasonTarget)}</DialogDescription>
+              <DialogDescription>Keep it to one short reason.</DialogDescription>
             </DialogHeader>
             <div className="space-y-2">
               <Textarea
@@ -345,11 +353,7 @@ export default function ClientRoleCandidates() {
                 }}
                 rows={5}
                 className="resize-none rounded-xl"
-                placeholder={
-                  statusReasonTarget === "rejected"
-                    ? "Example: Missing required seniority for this role."
-                    : "Example: Candidate is ready for a structured interview with the client team."
-                }
+                placeholder={statusReasonTarget === "rejected" ? "Short rejection reason." : "Short reason for the status change."}
               />
               {statusReasonError ? <p className="text-sm text-rose-600">{statusReasonError}</p> : null}
             </div>
@@ -364,17 +368,19 @@ export default function ClientRoleCandidates() {
           </DialogContent>
         </Dialog>
 
-        <InterviewRequestDialog
+        <InterviewIntakeRequestDialog
           open={interviewDialogOpen}
           onOpenChange={(open) => {
             setInterviewDialogOpen(open);
-            if (!open) setInterviewCandidateId(null);
+            if (!open) setSelectedInterviewCandidateIds([]);
           }}
-          candidateName={selectedInterviewCandidate ? `${selectedInterviewCandidate.firstName} ${selectedInterviewCandidate.lastName}` : "Candidate"}
+          roleId={roleId}
           roleTitle={role?.title || "Role"}
-          onSubmit={submitInterviewRequest}
-          submitLabel="Send request"
-          description="Create a structured interview thread from this role candidate row."
+          candidates={selectedInterviewCandidates.length ? selectedInterviewCandidates : selectedInterviewCandidate ? [{
+            id: selectedInterviewCandidate.id,
+            name: `${selectedInterviewCandidate.firstName} ${selectedInterviewCandidate.lastName}`.trim(),
+            email: selectedInterviewCandidate.email ?? null,
+          }] : []}
         />
       </div>
     </DashboardLayout>

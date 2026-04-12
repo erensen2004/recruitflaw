@@ -3,20 +3,28 @@ import {
   db,
   candidateStatusHistoryTable,
   candidatesTable,
+  companiesTable,
+  jobRolesTable,
+} from "@workspace/db";
+import {
   interviewActivityTable,
   interviewMeetingsTable,
   interviewProcessesTable,
   interviewProposalsTable,
-} from "@workspace/db";
-import { and, desc, eq, inArray } from "drizzle-orm";
+  interviewRequestActivityTable,
+  interviewRequestCandidatesTable,
+  interviewRequestsTable,
+} from "../../../../lib/db/src/schema/interviews.js";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
-import { requireRole, resolveCandidateAccess } from "../lib/authz.js";
+import { requireRole, resolveCandidateAccess, resolveRoleAccess } from "../lib/authz.js";
 import { Errors } from "../lib/errors.js";
 import {
   candidateStatusShouldCloseInterviewProcess,
   closeOpenInterviewProcessesForCandidate,
   listCandidateInterviewProcesses,
   actorNeedsInterviewAction,
+  ensureInterviewProcessForCandidate,
   resolveInterviewActor,
   resolveInterviewMeetingAccess,
   resolveInterviewProcessAccess,
@@ -27,9 +35,12 @@ import {
   AcceptInterviewProposalSchema,
   CancelInterviewMeetingSchema,
   CompleteInterviewMeetingSchema,
+  CreateInterviewRequestBatchSchema,
   CreateInterviewMeetingSchema,
   CreateInterviewProposalSchema,
   CreateInterviewRequestSchema,
+  DeclineInterviewProposalSchema,
+  DispatchInterviewRequestSchema,
 } from "../lib/schemas.js";
 
 const router = Router();
@@ -81,6 +92,247 @@ function getSelectedMeeting(process: Awaited<ReturnType<typeof listCandidateInte
   );
 }
 
+async function refreshInterviewRequestStatus(requestId: number) {
+  const rows = await db
+    .select({ status: interviewRequestCandidatesTable.status })
+    .from(interviewRequestCandidatesTable)
+    .where(eq(interviewRequestCandidatesTable.requestId, requestId));
+
+  if (!rows.length) return;
+
+  const statuses: string[] = rows.map((row) => row.status);
+  const finalCandidateStatuses = new Set(["scheduled", "cancelled", "closed"]);
+  const nextStatus = statuses.every((status) => finalCandidateStatuses.has(status))
+    ? statuses.some((status) => status === "scheduled")
+      ? "scheduled"
+      : "cancelled"
+    : statuses.some((status) => status === "vendor_replied")
+      ? "vendor_replied"
+      : statuses.some((status) => status === "sent_to_vendor")
+        ? "sent_to_vendor"
+        : "admin_review";
+
+  await db
+    .update(interviewRequestsTable)
+    .set({
+      status: nextStatus,
+      resolvedAt: nextStatus === "scheduled" || nextStatus === "cancelled" ? new Date() : null,
+      updatedAt: new Date(),
+    })
+    .where(eq(interviewRequestsTable.id, requestId));
+}
+
+async function markRequestCandidateForMeeting(input: {
+  meetingId: number;
+  status: "sent_to_vendor" | "vendor_replied" | "scheduled" | "cancelled" | "closed";
+  adminNote?: string | null;
+  vendorNote?: string | null;
+}) {
+  const [row] = await db
+    .select({
+      id: interviewRequestCandidatesTable.id,
+      requestId: interviewRequestCandidatesTable.requestId,
+    })
+    .from(interviewRequestCandidatesTable)
+    .where(eq(interviewRequestCandidatesTable.interviewMeetingId, input.meetingId))
+    .limit(1);
+
+  if (!row) return;
+
+  await db
+    .update(interviewRequestCandidatesTable)
+    .set({
+      status: input.status,
+      adminNote: input.adminNote ?? undefined,
+      vendorNote: input.vendorNote ?? undefined,
+      updatedAt: new Date(),
+    })
+    .where(eq(interviewRequestCandidatesTable.id, row.id));
+
+  await refreshInterviewRequestStatus(row.requestId);
+}
+
+async function listInterviewRequestItems(input: {
+  actorRole: "admin" | "client" | "vendor";
+  companyId: number | null;
+  view: string;
+  roleIdFilter?: number | null;
+}) {
+  if ((input.actorRole === "client" || input.actorRole === "vendor") && input.companyId == null) {
+    return [];
+  }
+
+  let allowedRequestIds: number[] | null = null;
+  if (input.actorRole === "vendor") {
+    const vendorRows = await db
+      .select({
+        requestId: interviewRequestCandidatesTable.requestId,
+        status: interviewRequestCandidatesTable.status,
+      })
+      .from(interviewRequestCandidatesTable)
+      .where(eq(interviewRequestCandidatesTable.vendorCompanyId, input.companyId!));
+    allowedRequestIds = Array.from(
+      new Set(
+        vendorRows
+          .filter((row) => row.status !== "pending_admin")
+          .map((row) => row.requestId),
+      ),
+    );
+    if (!allowedRequestIds.length) return [];
+  }
+
+  const conditions = [];
+  if (input.actorRole === "client") {
+    conditions.push(eq(interviewRequestsTable.clientCompanyId, input.companyId!));
+  } else if (allowedRequestIds) {
+    conditions.push(inArray(interviewRequestsTable.id, allowedRequestIds));
+  }
+  if (input.roleIdFilter) conditions.push(eq(interviewRequestsTable.roleId, input.roleIdFilter));
+
+  const requestQuery = db
+    .select({
+      id: interviewRequestsTable.id,
+      roleId: interviewRequestsTable.roleId,
+      roleTitle: jobRolesTable.title,
+      clientCompanyId: interviewRequestsTable.clientCompanyId,
+      clientCompanyName: companiesTable.name,
+      requestedByUserId: interviewRequestsTable.requestedByUserId,
+      status: interviewRequestsTable.status,
+      requestText: interviewRequestsTable.requestText,
+      preferredDate: interviewRequestsTable.preferredDate,
+      preferredWindow: interviewRequestsTable.preferredWindow,
+      timezone: interviewRequestsTable.timezone,
+      durationMinutes: interviewRequestsTable.durationMinutes,
+      adminNote: interviewRequestsTable.adminNote,
+      createdAt: interviewRequestsTable.createdAt,
+      updatedAt: interviewRequestsTable.updatedAt,
+      resolvedAt: interviewRequestsTable.resolvedAt,
+    })
+    .from(interviewRequestsTable)
+    .leftJoin(jobRolesTable, eq(interviewRequestsTable.roleId, jobRolesTable.id))
+    .leftJoin(companiesTable, eq(interviewRequestsTable.clientCompanyId, companiesTable.id));
+
+  const requests = await (conditions.length ? requestQuery.where(and(...conditions)) : requestQuery)
+    .orderBy(desc(interviewRequestsTable.updatedAt))
+    .limit(100);
+
+  if (!requests.length) return [];
+
+  const requestIds = requests.map((request) => request.id);
+  const candidateRows = await db
+    .select({
+      id: interviewRequestCandidatesTable.id,
+      requestId: interviewRequestCandidatesTable.requestId,
+      candidateId: interviewRequestCandidatesTable.candidateId,
+      candidateFirstName: candidatesTable.firstName,
+      candidateLastName: candidatesTable.lastName,
+      candidateEmail: candidatesTable.email,
+      candidateStatus: candidatesTable.status,
+      vendorCompanyId: interviewRequestCandidatesTable.vendorCompanyId,
+      vendorCompanyName: companiesTable.name,
+      status: interviewRequestCandidatesTable.status,
+      interviewProcessId: interviewRequestCandidatesTable.interviewProcessId,
+      interviewMeetingId: interviewRequestCandidatesTable.interviewMeetingId,
+      adminNote: interviewRequestCandidatesTable.adminNote,
+      vendorNote: interviewRequestCandidatesTable.vendorNote,
+      createdAt: interviewRequestCandidatesTable.createdAt,
+      updatedAt: interviewRequestCandidatesTable.updatedAt,
+    })
+    .from(interviewRequestCandidatesTable)
+    .leftJoin(candidatesTable, eq(interviewRequestCandidatesTable.candidateId, candidatesTable.id))
+    .leftJoin(companiesTable, eq(interviewRequestCandidatesTable.vendorCompanyId, companiesTable.id))
+    .where(inArray(interviewRequestCandidatesTable.requestId, requestIds))
+    .orderBy(asc(interviewRequestCandidatesTable.id));
+
+  const activityRows = await db
+    .select()
+    .from(interviewRequestActivityTable)
+    .where(inArray(interviewRequestActivityTable.requestId, requestIds))
+    .orderBy(asc(interviewRequestActivityTable.createdAt));
+
+  const candidatesByRequest = new Map<number, typeof candidateRows>();
+  for (const row of candidateRows) {
+    if (input.actorRole === "vendor" && row.vendorCompanyId !== input.companyId) continue;
+    const current = candidatesByRequest.get(row.requestId) ?? [];
+    current.push(row);
+    candidatesByRequest.set(row.requestId, current);
+  }
+
+  const activityByRequest = new Map<number, typeof activityRows>();
+  for (const row of activityRows) {
+    const current = activityByRequest.get(row.requestId) ?? [];
+    current.push(row);
+    activityByRequest.set(row.requestId, current);
+  }
+
+  return requests
+    .map((request) => {
+      const candidates = candidatesByRequest.get(request.id) ?? [];
+      const needsAction =
+        input.actorRole === "admin"
+          ? request.status === "admin_review" || request.status === "vendor_replied" || candidates.some((candidate) => candidate.status === "pending_admin" || candidate.status === "vendor_replied")
+          : input.actorRole === "vendor"
+            ? candidates.some((candidate) => candidate.status === "sent_to_vendor")
+            : ["admin_review", "sent_to_vendor", "vendor_replied"].includes(request.status);
+
+      return {
+        id: request.id,
+        roleId: request.roleId,
+        roleTitle: request.roleTitle ?? "Role",
+        clientCompanyId: request.clientCompanyId,
+        clientCompanyName: request.clientCompanyName ?? null,
+        requestedByUserId: request.requestedByUserId,
+        status: request.status,
+        requestText: request.requestText,
+        preferredDate: request.preferredDate ?? null,
+        preferredWindow: request.preferredWindow ?? null,
+        timezone: request.timezone ?? null,
+        durationMinutes: request.durationMinutes ?? null,
+        adminNote: request.adminNote ?? null,
+        needsAction,
+        createdAt: request.createdAt.toISOString(),
+        updatedAt: request.updatedAt.toISOString(),
+        resolvedAt: request.resolvedAt ? request.resolvedAt.toISOString() : null,
+        candidates: candidates.map((candidate) => ({
+          id: candidate.id,
+          requestId: candidate.requestId,
+          candidateId: candidate.candidateId,
+          candidateName: `${candidate.candidateFirstName ?? ""} ${candidate.candidateLastName ?? ""}`.trim(),
+          candidateEmail: candidate.candidateEmail ?? null,
+          candidateStatus: candidate.candidateStatus ?? null,
+          vendorCompanyId: candidate.vendorCompanyId,
+          vendorCompanyName: candidate.vendorCompanyName ?? null,
+          status: candidate.status,
+          interviewProcessId: candidate.interviewProcessId ?? null,
+          interviewMeetingId: candidate.interviewMeetingId ?? null,
+          adminNote: candidate.adminNote ?? null,
+          vendorNote: candidate.vendorNote ?? null,
+          createdAt: candidate.createdAt.toISOString(),
+          updatedAt: candidate.updatedAt.toISOString(),
+        })),
+        activity: (activityByRequest.get(request.id) ?? []).map((activity) => ({
+          id: activity.id,
+          requestId: activity.requestId,
+          requestCandidateId: activity.requestCandidateId ?? null,
+          actorUserId: activity.actorUserId ?? null,
+          actorRole: activity.actorRole,
+          eventType: activity.eventType,
+          payload: activity.payload ?? null,
+          createdAt: activity.createdAt.toISOString(),
+        })),
+      };
+    })
+    .filter((item) => {
+      if (input.view === "all") return true;
+      if (input.view === "needs_action") return item.needsAction;
+      if (input.view === "admin_review") return item.status === "admin_review";
+      if (input.view === "awaiting_vendor") return item.status === "sent_to_vendor";
+      if (input.view === "scheduled") return item.status === "scheduled";
+      if (input.view === "history") return ["scheduled", "cancelled", "closed"].includes(item.status);
+      return true;
+    });
+}
+
 router.get("/candidates/:id/interviews", requireAuth, async (req, res) => {
   try {
     const candidateId = parsePositiveInt(req.params.id);
@@ -100,10 +352,481 @@ router.get("/candidates/:id/interviews", requireAuth, async (req, res) => {
   }
 });
 
+router.get("/interview-requests", requireAuth, async (req, res) => {
+  try {
+    const view = getQueryString(req.query.view) ?? "needs_action";
+    const countOnly = getQueryString(req.query.countOnly) === "true";
+    const roleIdFilter = parsePositiveInt(getQueryString(req.query.roleId));
+
+    const items = await listInterviewRequestItems({
+      actorRole: req.user!.role as "admin" | "client" | "vendor",
+      companyId: req.user!.companyId ?? null,
+      view,
+      roleIdFilter,
+    });
+
+    if (countOnly) {
+      res.json({ count: items.length });
+      return;
+    }
+
+    res.json({ items });
+  } catch (error) {
+    console.error(error);
+    Errors.internal(res);
+  }
+});
+
+router.post(
+  "/interview-requests",
+  requireAuth,
+  requireRole("client", "admin"),
+  validate(CreateInterviewRequestBatchSchema),
+  async (req, res) => {
+    try {
+      const roleAccess = await resolveRoleAccess(req, res, req.body.roleId);
+      if (!roleAccess) return;
+
+      const candidateIds = Array.from(new Set(req.body.candidateIds as number[]));
+      const candidates = await db
+        .select({
+          id: candidatesTable.id,
+          status: candidatesTable.status,
+          roleId: candidatesTable.roleId,
+          vendorCompanyId: candidatesTable.vendorCompanyId,
+          roleCompanyId: jobRolesTable.companyId,
+        })
+        .from(candidatesTable)
+        .leftJoin(jobRolesTable, eq(candidatesTable.roleId, jobRolesTable.id))
+        .where(inArray(candidatesTable.id, candidateIds));
+
+      if (candidates.length !== candidateIds.length) {
+        Errors.badRequest(res, "One or more selected candidates could not be found");
+        return;
+      }
+
+      const invalidCandidate = candidates.find((candidate) => (
+        candidate.roleId !== req.body.roleId ||
+        candidate.roleCompanyId !== roleAccess.companyId ||
+        candidate.status === "pending_approval" ||
+        candidate.status === "withdrawn"
+      ));
+      if (invalidCandidate) {
+        Errors.forbidden(res, "Interview requests can only include approved candidates from the selected role");
+        return;
+      }
+
+      const actor = await resolveInterviewActor(req.user!.userId);
+      if (!actor) {
+        Errors.forbidden(res);
+        return;
+      }
+
+      const requestText = req.body.requestText.trim();
+      const now = new Date();
+      const [request] = await db.transaction(async (tx) => {
+        const [createdRequest] = await tx
+          .insert(interviewRequestsTable)
+          .values({
+            roleId: req.body.roleId,
+            clientCompanyId: roleAccess.companyId,
+            requestedByUserId: req.user!.userId,
+            status: "admin_review",
+            requestText,
+            preferredDate: normalizeOptionalText(req.body.preferredDate),
+            preferredWindow: normalizeOptionalText(req.body.preferredWindow),
+            timezone: normalizeOptionalText(req.body.timezone) ?? "Europe/Istanbul",
+            durationMinutes: req.body.durationMinutes ?? null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning();
+
+        const createdCandidates = await tx
+          .insert(interviewRequestCandidatesTable)
+          .values(candidates.map((candidate) => ({
+            requestId: createdRequest.id,
+            candidateId: candidate.id,
+            vendorCompanyId: candidate.vendorCompanyId,
+            status: "pending_admin" as const,
+            createdAt: now,
+            updatedAt: now,
+          })))
+          .returning();
+
+        await tx.insert(interviewRequestActivityTable).values([
+          {
+            requestId: createdRequest.id,
+            actorUserId: actor.userId,
+            actorRole: actor.role,
+            eventType: "request_created",
+            payload: {
+              roleId: req.body.roleId,
+              candidateIds,
+            },
+          },
+          ...createdCandidates.map((candidate) => ({
+            requestId: createdRequest.id,
+            requestCandidateId: candidate.id,
+            actorUserId: actor.userId,
+            actorRole: actor.role,
+            eventType: "candidate_added",
+            payload: {
+              candidateId: candidate.candidateId,
+            },
+          })),
+        ]);
+
+        return [createdRequest];
+      });
+
+      const items = await listInterviewRequestItems({
+        actorRole: req.user!.role as "admin" | "client" | "vendor",
+        companyId: req.user!.companyId ?? null,
+        view: "all",
+        roleIdFilter: req.body.roleId,
+      });
+
+      res.status(201).json({ request: items.find((item) => item.id === request.id) ?? null });
+    } catch (error) {
+      console.error(error);
+      Errors.internal(res);
+    }
+  },
+);
+
+router.post(
+  "/interview-requests/:id/dispatch",
+  requireAuth,
+  requireRole("admin"),
+  validate(DispatchInterviewRequestSchema),
+  async (req, res) => {
+    try {
+      const requestId = parsePositiveInt(req.params.id);
+      if (!requestId) {
+        Errors.badRequest(res, "Interview request id must be a positive integer");
+        return;
+      }
+
+      const [request] = await db
+        .select()
+        .from(interviewRequestsTable)
+        .where(eq(interviewRequestsTable.id, requestId))
+        .limit(1);
+
+      if (!request) {
+        Errors.notFound(res, "Interview request not found");
+        return;
+      }
+
+      const actor = await resolveInterviewActor(req.user!.userId);
+      if (!actor) {
+        Errors.forbidden(res);
+        return;
+      }
+
+      const requestCandidateIds = req.body.items.map((item: { requestCandidateId: number }) => item.requestCandidateId);
+      const requestCandidates = await db
+        .select()
+        .from(interviewRequestCandidatesTable)
+        .where(inArray(interviewRequestCandidatesTable.id, requestCandidateIds));
+
+      if (requestCandidates.length !== requestCandidateIds.length || requestCandidates.some((item) => item.requestId !== requestId)) {
+        Errors.badRequest(res, "One or more request candidates are not part of this request");
+        return;
+      }
+
+      const itemByRequestCandidateId = new Map<number, (typeof req.body.items)[number]>(
+        req.body.items.map((item: (typeof req.body.items)[number]) => [item.requestCandidateId, item]),
+      );
+
+      for (const requestCandidate of requestCandidates) {
+        if (["scheduled", "cancelled", "closed"].includes(requestCandidate.status)) {
+          Errors.conflict(res, "One or more selected candidates already have a final scheduling state");
+          return;
+        }
+
+        const candidateAccess = await resolveCandidateAccess(req, res, requestCandidate.candidateId);
+        if (!candidateAccess) return;
+        if (candidateAccess.roleId !== request.roleId || candidateAccess.roleCompanyId !== request.clientCompanyId) {
+          Errors.forbidden(res);
+          return;
+        }
+
+        const process = await ensureInterviewProcessForCandidate({
+          candidate: candidateAccess,
+          actorUserId: actor.userId,
+          actorRole: actor.role,
+        });
+
+        const existingMeetings = await db
+          .select()
+          .from(interviewMeetingsTable)
+          .where(eq(interviewMeetingsTable.processId, process.id))
+          .orderBy(desc(interviewMeetingsTable.meetingIndex));
+        const activeMeeting = existingMeetings.find((meeting) => meeting.status === "negotiating" || meeting.status === "scheduled");
+        if (activeMeeting && activeMeeting.id !== requestCandidate.interviewMeetingId) {
+          Errors.conflict(res, "A selected candidate already has an active interview meeting");
+          return;
+        }
+        if (activeMeeting?.status === "scheduled") {
+          Errors.conflict(res, "This candidate already has a scheduled interview");
+          return;
+        }
+
+        const item = itemByRequestCandidateId.get(requestCandidate.id);
+        if (!item) continue;
+        const proposalInput = flattenProposalFromBody(item);
+        const now = new Date();
+        const meetingIndex = activeMeeting?.meetingIndex ?? (existingMeetings[0]?.meetingIndex ?? 0) + 1;
+        const title = normalizeOptionalText(item.title);
+        const latestPendingProposal = activeMeeting
+          ? await db
+              .select()
+              .from(interviewProposalsTable)
+              .where(and(eq(interviewProposalsTable.meetingId, activeMeeting.id), eq(interviewProposalsTable.responseStatus, "pending")))
+              .orderBy(desc(interviewProposalsTable.createdAt))
+              .limit(1)
+              .then((rows) => rows[0] ?? null)
+          : null;
+        if (latestPendingProposal?.proposedByRole === "admin") {
+          Errors.conflict(res, "Wait for the vendor to respond before sending another proposal");
+          return;
+        }
+
+        await db.transaction(async (tx) => {
+          const [meeting] = activeMeeting
+            ? [activeMeeting]
+            : await tx
+                .insert(interviewMeetingsTable)
+                .values({
+                  processId: process.id,
+                  meetingIndex,
+                  title,
+                  status: "negotiating",
+                  timezone: proposalInput.timezone,
+                  createdByUserId: actor.userId,
+                  createdAt: now,
+                  updatedAt: now,
+                })
+                .returning();
+
+          if (latestPendingProposal) {
+            await tx
+              .update(interviewProposalsTable)
+              .set({ responseStatus: "superseded" })
+              .where(eq(interviewProposalsTable.id, latestPendingProposal.id));
+          }
+
+          const [proposal] = await tx
+            .insert(interviewProposalsTable)
+            .values({
+              meetingId: meeting.id,
+              proposedByRole: "admin",
+              proposedByUserId: actor.userId,
+              proposalType: proposalInput.proposalType,
+              proposedDate: proposalInput.proposedDate,
+              startTime: proposalInput.startTime,
+              endTime: proposalInput.endTime,
+              windowLabel: proposalInput.windowLabel,
+              timezone: proposalInput.timezone,
+              durationMinutes: proposalInput.durationMinutes,
+              note: proposalInput.note,
+              responseStatus: "pending",
+              createdAt: now,
+            })
+            .returning();
+
+          await tx
+            .update(interviewProcessesTable)
+            .set({ updatedAt: now })
+            .where(eq(interviewProcessesTable.id, process.id));
+
+          await tx
+            .update(interviewMeetingsTable)
+            .set({ updatedAt: now, timezone: proposalInput.timezone })
+            .where(eq(interviewMeetingsTable.id, meeting.id));
+
+          if (candidateAccess.status !== "interview") {
+            await tx
+              .update(candidatesTable)
+              .set({ status: "interview", updatedAt: now })
+              .where(eq(candidatesTable.id, candidateAccess.id));
+
+            await tx.insert(candidateStatusHistoryTable).values({
+              candidateId: candidateAccess.id,
+              previousStatus: candidateAccess.status,
+              nextStatus: "interview",
+              reason: "Interview request dispatched by admin",
+              changedByUserId: actor.userId,
+              changedByName: actor.label,
+            });
+          }
+
+          await tx
+            .update(interviewRequestCandidatesTable)
+            .set({
+              status: "sent_to_vendor",
+              interviewProcessId: process.id,
+              interviewMeetingId: meeting.id,
+              adminNote: normalizeOptionalText(item.adminNote),
+              updatedAt: now,
+            })
+            .where(eq(interviewRequestCandidatesTable.id, requestCandidate.id));
+
+          await tx.insert(interviewActivityTable).values([
+            ...(!activeMeeting ? [{
+              processId: process.id,
+              meetingId: meeting.id,
+              actorUserId: actor.userId,
+              actorRole: actor.role,
+              eventType: "meeting_opened",
+              payload: {
+                meetingId: meeting.id,
+                meetingIndex,
+                sourceRequestId: requestId,
+                requestCandidateId: requestCandidate.id,
+              },
+            }] : []),
+            {
+              processId: process.id,
+              meetingId: meeting.id,
+              actorUserId: actor.userId,
+              actorRole: actor.role,
+              eventType: "proposal_created",
+              payload: {
+                proposalId: proposal.id,
+                proposalType: proposal.proposalType,
+                sourceRequestId: requestId,
+                requestCandidateId: requestCandidate.id,
+              },
+            },
+          ]);
+
+          await tx.insert(interviewRequestActivityTable).values({
+            requestId,
+            requestCandidateId: requestCandidate.id,
+            actorUserId: actor.userId,
+            actorRole: actor.role,
+            eventType: activeMeeting ? "admin_counter_sent" : "candidate_dispatched",
+            payload: {
+              candidateId: requestCandidate.candidateId,
+              processId: process.id,
+              meetingId: meeting.id,
+              proposalId: proposal.id,
+              supersededProposalId: latestPendingProposal?.id ?? null,
+            },
+          });
+        });
+      }
+
+      await refreshInterviewRequestStatus(requestId);
+      const items = await listInterviewRequestItems({
+        actorRole: "admin",
+        companyId: req.user!.companyId ?? null,
+        view: "all",
+        roleIdFilter: request.roleId,
+      });
+
+      res.json({ request: items.find((item) => item.id === requestId) ?? null });
+    } catch (error) {
+      console.error(error);
+      Errors.internal(res);
+    }
+  },
+);
+
+router.post(
+  "/interview-requests/:id/cancel",
+  requireAuth,
+  requireRole("client", "admin"),
+  validate(CancelInterviewMeetingSchema),
+  async (req, res) => {
+    try {
+      const requestId = parsePositiveInt(req.params.id);
+      if (!requestId) {
+        Errors.badRequest(res, "Interview request id must be a positive integer");
+        return;
+      }
+
+      const [request] = await db
+        .select()
+        .from(interviewRequestsTable)
+        .where(eq(interviewRequestsTable.id, requestId))
+        .limit(1);
+
+      if (!request) {
+        Errors.notFound(res, "Interview request not found");
+        return;
+      }
+
+      if (req.user!.role === "client" && request.clientCompanyId !== req.user!.companyId) {
+        Errors.forbidden(res);
+        return;
+      }
+
+      if (["scheduled", "cancelled", "closed"].includes(request.status)) {
+        Errors.badRequest(res, "This interview request is already closed");
+        return;
+      }
+
+      const actor = await resolveInterviewActor(req.user!.userId);
+      if (!actor) {
+        Errors.forbidden(res);
+        return;
+      }
+
+      const reason = normalizeOptionalText(req.body.reason) ?? "Interview request cancelled";
+      const now = new Date();
+
+      await db.transaction(async (tx) => {
+        await tx
+          .update(interviewRequestsTable)
+          .set({
+            status: "cancelled",
+            adminNote: actor.role === "admin" ? reason : request.adminNote,
+            updatedAt: now,
+            resolvedAt: now,
+          })
+          .where(eq(interviewRequestsTable.id, requestId));
+
+        await tx
+          .update(interviewRequestCandidatesTable)
+          .set({
+            status: "cancelled",
+            adminNote: actor.role === "admin" ? reason : undefined,
+            updatedAt: now,
+          })
+          .where(eq(interviewRequestCandidatesTable.requestId, requestId));
+
+        await tx.insert(interviewRequestActivityTable).values({
+          requestId,
+          actorUserId: actor.userId,
+          actorRole: actor.role,
+          eventType: "request_cancelled",
+          payload: { reason },
+        });
+      });
+
+      const items = await listInterviewRequestItems({
+        actorRole: req.user!.role as "admin" | "client" | "vendor",
+        companyId: req.user!.companyId ?? null,
+        view: "all",
+        roleIdFilter: request.roleId,
+      });
+
+      res.json({ request: items.find((item) => item.id === requestId) ?? null });
+    } catch (error) {
+      console.error(error);
+      Errors.internal(res);
+    }
+  },
+);
+
 router.post(
   "/candidates/:id/interviews",
   requireAuth,
-  requireRole("client"),
+  requireRole("admin"),
   validate(CreateInterviewRequestSchema),
   async (req, res) => {
     try {
@@ -122,12 +845,7 @@ router.post(
       }
 
       const actor = await resolveInterviewActor(req.user!.userId);
-      if (!actor || actor.companyId == null) {
-        Errors.forbidden(res);
-        return;
-      }
-
-      if (access.roleCompanyId == null || access.roleCompanyId !== actor.companyId) {
+      if (!actor) {
         Errors.forbidden(res);
         return;
       }
@@ -256,7 +974,7 @@ router.post(
 router.post(
   "/interviews/:processId/meetings",
   requireAuth,
-  requireRole("client", "admin"),
+  requireRole("admin"),
   validate(CreateInterviewMeetingSchema),
   async (req, res) => {
     try {
@@ -374,7 +1092,7 @@ router.post(
 router.post(
   "/meetings/:meetingId/proposals",
   requireAuth,
-  requireRole("client", "vendor", "admin"),
+  requireRole("vendor", "admin"),
   validate(CreateInterviewProposalSchema),
   async (req, res) => {
     try {
@@ -392,10 +1110,6 @@ router.post(
       }
 
       if (req.user!.role === "vendor" && access.vendorCompanyId !== req.user!.companyId) {
-        Errors.forbidden(res);
-        return;
-      }
-      if (req.user!.role === "client" && access.clientCompanyId !== req.user!.companyId) {
         Errors.forbidden(res);
         return;
       }
@@ -475,6 +1189,12 @@ router.post(
       });
 
       const items = await listCandidateInterviewProcesses(access.candidateId);
+      await markRequestCandidateForMeeting({
+        meetingId,
+        status: actor.role === "vendor" ? "vendor_replied" : "sent_to_vendor",
+        vendorNote: actor.role === "vendor" ? proposalInput.note : null,
+        adminNote: actor.role === "admin" ? proposalInput.note : null,
+      });
       res.status(201).json({
         proposalId: proposal.id,
         process: items.find((item) => item.id === access.processId) ?? null,
@@ -489,7 +1209,7 @@ router.post(
 router.post(
   "/proposals/:proposalId/accept",
   requireAuth,
-  requireRole("client", "vendor", "admin"),
+  requireRole("vendor", "admin"),
   validate(AcceptInterviewProposalSchema),
   async (req, res) => {
     try {
@@ -514,7 +1234,7 @@ router.post(
         Errors.badRequest(res, "Only exact slot proposals can be confirmed");
         return;
       }
-      if (req.user!.role !== "admin" && req.user!.role === access.proposedByRole) {
+      if (req.user!.role === access.proposedByRole) {
         Errors.forbidden(res, "You cannot accept your own proposal");
         return;
       }
@@ -574,6 +1294,95 @@ router.post(
             timezone: access.timezone,
           },
         });
+      });
+
+      const items = await listCandidateInterviewProcesses(access.candidateId);
+      await markRequestCandidateForMeeting({
+        meetingId: access.meetingId,
+        status: "scheduled",
+        adminNote: actor.role === "admin" ? acceptanceNote : null,
+        vendorNote: actor.role === "vendor" ? acceptanceNote : null,
+      });
+      res.json({ process: items.find((item) => item.id === access.processId) ?? null });
+    } catch (error) {
+      console.error(error);
+      Errors.internal(res);
+    }
+  },
+);
+
+router.post(
+  "/proposals/:proposalId/decline",
+  requireAuth,
+  requireRole("vendor", "admin"),
+  validate(DeclineInterviewProposalSchema),
+  async (req, res) => {
+    try {
+      const proposalId = parsePositiveInt(req.params.proposalId);
+      if (!proposalId) {
+        Errors.badRequest(res, "Interview proposal id must be a positive integer");
+        return;
+      }
+
+      const access = await resolveInterviewProposalAccess(req, res, proposalId);
+      if (!access) return;
+
+      if (access.processStatus !== "open" || access.meetingStatus !== "negotiating") {
+        Errors.badRequest(res, "Only proposals in negotiating meetings can be declined");
+        return;
+      }
+      if (access.responseStatus !== "pending") {
+        Errors.badRequest(res, "This proposal is no longer pending");
+        return;
+      }
+      if (req.user!.role === access.proposedByRole) {
+        Errors.forbidden(res, "You cannot decline your own proposal");
+        return;
+      }
+
+      const actor = await resolveInterviewActor(req.user!.userId);
+      if (!actor) {
+        Errors.forbidden(res);
+        return;
+      }
+
+      const note = normalizeOptionalText(req.body.note);
+      const now = new Date();
+
+      await db.transaction(async (tx) => {
+        await tx
+          .update(interviewProposalsTable)
+          .set({ responseStatus: "rejected" })
+          .where(eq(interviewProposalsTable.id, proposalId));
+
+        await tx
+          .update(interviewMeetingsTable)
+          .set({ updatedAt: now })
+          .where(eq(interviewMeetingsTable.id, access.meetingId));
+
+        await tx
+          .update(interviewProcessesTable)
+          .set({ updatedAt: now })
+          .where(eq(interviewProcessesTable.id, access.processId));
+
+        await tx.insert(interviewActivityTable).values({
+          processId: access.processId,
+          meetingId: access.meetingId,
+          actorUserId: actor.userId,
+          actorRole: actor.role,
+          eventType: "proposal_declined",
+          payload: {
+            proposalId,
+            note,
+          },
+        });
+      });
+
+      await markRequestCandidateForMeeting({
+        meetingId: access.meetingId,
+        status: "vendor_replied",
+        vendorNote: actor.role === "vendor" ? note : null,
+        adminNote: actor.role === "admin" ? note : null,
       });
 
       const items = await listCandidateInterviewProcesses(access.candidateId);
@@ -712,6 +1521,11 @@ router.post(
       });
 
       const items = await listCandidateInterviewProcesses(access.candidateId);
+      await markRequestCandidateForMeeting({
+        meetingId,
+        status: "cancelled",
+        adminNote: actor.role === "admin" ? reason : null,
+      });
       res.json({ process: items.find((item) => item.id === access.processId) ?? null });
     } catch (error) {
       console.error(error);

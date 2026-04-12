@@ -127,25 +127,17 @@ async function buildStandardizedCandidatePdf(candidate: Candidate) {
   doc.setTextColor(255, 255, 255);
   doc.setFont("LiberationSans", "bold");
   doc.setFontSize(11);
-  doc.text("RecruitFlow Executive Candidate Brief", 58, 58);
+  doc.text("RecruitFlow Candidate Brief", 58, 58);
   doc.setFontSize(22);
   doc.text(`${candidate.firstName} ${candidate.lastName}`, 58, 88);
   doc.setFont("LiberationSans", "normal");
   doc.setFontSize(10.5);
   doc.setTextColor(226, 232, 240);
-  doc.text(brief.headline || candidate.currentTitle || candidate.roleTitle || "Candidate summary", 58, 108, { maxWidth: 320 });
+  doc.text(brief.headline || candidate.currentTitle || candidate.roleTitle || "Candidate profile", 58, 108, { maxWidth: 440 });
   doc.setFontSize(9.5);
-  doc.text(candidate.roleTitle ? `Prepared for the ${candidate.roleTitle} role` : "Prepared from the structured candidate profile", 58, 126, {
-    maxWidth: 320,
+  doc.text(candidate.roleTitle ? `Prepared for ${candidate.roleTitle}` : "Prepared from the structured candidate profile", 58, 126, {
+    maxWidth: 440,
   });
-  doc.setFillColor(30, 41, 59);
-  doc.roundedRect(422, 52, 116, 72, 14, 14, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFont("LiberationSans", "bold");
-  doc.setFontSize(20);
-  doc.text(`${brief.fitScore}`, 438, 79);
-  doc.setFontSize(9.5);
-  doc.text(brief.fitLabel, 438, 95, { maxWidth: 84 });
 
   doc.setTextColor(15, 23, 42);
   y = 174;
@@ -165,15 +157,15 @@ async function buildStandardizedCandidatePdf(candidate: Candidate) {
   }
 
   const reviewLine = dedupe([
-    candidate.parseConfidence != null ? `Parse confidence ${candidate.parseConfidence}%` : null,
-    brief.fitSummary,
     candidate.expectedSalary != null ? `Expected compensation ${formatTurkishLira(candidate.expectedSalary)}` : null,
+    brief.workModel ? `Work model ${brief.workModel}` : null,
+    brief.locationFlexibility ? `Location ${brief.locationFlexibility}` : null,
   ], 3);
 
   if (reviewLine.length) {
     doc.setFillColor(239, 246, 255);
     doc.roundedRect(48, y - 12, 515, 38, 12, 12, "F");
-    doc.setTextColor(30, 64, 175);
+    doc.setTextColor(51, 65, 85);
     doc.setFont("LiberationSans", "bold");
     doc.setFontSize(10);
     doc.text(doc.splitTextToSize(reviewLine.join("  •  "), 490), 60, y + 4);

@@ -38,7 +38,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { invalidateCandidateQueries, syncCandidateAcrossCaches } from "@/lib/candidate-query";
 import { PrivateObjectLink } from "@/components/private-object-link";
 import { ReviewThreadPanel } from "@/components/review-thread-panel";
-import { InterviewWorkflowPanel } from "@/components/interview-workflow";
+import { InterviewIntakeRequestDialog, InterviewWorkflowPanel } from "@/components/interview-workflow";
 import {
   formatTurkishLira,
   getCandidateCompleteness,
@@ -131,23 +131,43 @@ function getParseBadge(parseStatus: string, confidence?: number | null, reviewRe
   };
 }
 
-function buildNormalizedProfileCards(candidate: Candidate) {
+function buildNormalizedProfileCards(candidate: Candidate, isAdminRoute: boolean) {
   const meaningfulExperience = getMeaningfulExperience(candidate);
   const meaningfulEducation = getMeaningfulEducation(candidate);
-  const profileCards = [
-    { label: "Headline", value: candidate.currentTitle || `${candidate.firstName} ${candidate.lastName}` },
+  const primaryCards = [
+    { label: "Current title", value: candidate.currentTitle || "Not provided" },
     {
       label: "Contact",
       value: [candidate.email, candidate.phone].filter(Boolean).join("  •  ") || "Awaiting verified contact details",
     },
-    { label: "Location", value: candidate.location || "Location pending admin normalization" },
+    { label: "Location", value: candidate.location || "To be confirmed" },
     {
       label: "Experience",
       value:
         candidate.yearsExperience != null
           ? `${candidate.yearsExperience} years`
-          : cleanSnapshotText(meaningfulExperience[0]?.title) || candidate.currentTitle || "Experience depth needs review",
+          : cleanSnapshotText(meaningfulExperience[0]?.title) || candidate.currentTitle || "Not provided",
     },
+    {
+      label: "Compensation",
+      value: formatTurkishLira(candidate.expectedSalary),
+    },
+    {
+      label: "Languages",
+      value: cleanSnapshotText(candidate.languages) || "To be confirmed",
+    },
+    {
+      label: "Submitted",
+      value: new Date(candidate.submittedAt).toLocaleDateString(),
+    },
+  ];
+
+  if (!isAdminRoute) {
+    return primaryCards.filter((item) => item.value);
+  }
+
+  const adminCards = [
+    ...primaryCards,
     {
       label: "Skills",
       value:
@@ -163,16 +183,12 @@ function buildNormalizedProfileCards(candidate: Candidate) {
         "Education not finalized",
     },
     {
-      label: "Languages",
-      value: cleanSnapshotText(candidate.languages) || "Language coverage pending review",
-    },
-    {
       label: "Submitted By",
       value: candidate.vendorCompanyName || "Vendor company not linked",
     },
   ];
 
-  return profileCards.filter((item) => item.value);
+  return adminCards.filter((item) => item.value);
 }
 
 function buildAdminReviewSignals(candidate: Candidate) {
@@ -274,6 +290,7 @@ export default function ClientCandidateDetail() {
   const [loadingNotes, setLoadingNotes] = useState(true);
   const [noteText, setNoteText] = useState("");
   const [addingNote, setAddingNote] = useState(false);
+  const [interviewRequestOpen, setInterviewRequestOpen] = useState(false);
 
   const parseBadge = useMemo(
     () => getParseBadge(candidate?.parseStatus ?? "failed", candidate?.parseConfidence, candidate?.parseReviewRequired),
@@ -396,7 +413,7 @@ export default function ClientCandidateDetail() {
         : "/client/candidates";
   const backLabel = isRoleCandidatesBack ? "Back to Role" : "Back to Candidates";
   const interviewInboxHref = isAdminRoute || me?.role === "admin" ? "/admin/interviews" : "/client/interviews";
-  const normalizedProfileCards = buildNormalizedProfileCards(candidate);
+  const normalizedProfileCards = buildNormalizedProfileCards(candidate, isAdminRoute);
   const adminReviewSignals = buildAdminReviewSignals(candidate);
   const completenessScore = getCandidateCompleteness(candidate);
   const decisionGuidance = getCandidateDecisionGuidance(candidate);
@@ -777,6 +794,7 @@ export default function ClientCandidateDetail() {
                 compact
                 summaryOnly
                 inboxHref={interviewInboxHref}
+                onRequestInterview={() => setInterviewRequestOpen(true)}
               />
             ) : null}
 
@@ -786,12 +804,12 @@ export default function ClientCandidateDetail() {
                   <div>
                     <div className="flex items-center gap-2">
                       <Sparkles className="h-5 w-5 text-emerald-600" />
-                      <h2 className="text-lg font-bold text-slate-900">{isAdminRoute ? "Admin review console" : "Profile summary"}</h2>
+                      <h2 className="text-lg font-bold text-slate-900">{isAdminRoute ? "Admin review console" : "Candidate brief"}</h2>
                     </div>
                     <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
                       {isAdminRoute
                         ? "This is the normalized candidate brief the client sees after the admin team verifies the profile, polishes the summary, and approves the final pipeline record."
-                        : "This section keeps the client-facing profile concise, practical, and decision-ready."}
+                        : "A concise recruiter-facing profile built for fast review."}
                     </p>
                   </div>
                   {isAdminRoute ? (
@@ -839,7 +857,7 @@ export default function ClientCandidateDetail() {
                     <p className="mt-3 text-sm leading-7 text-slate-800">
                       {cleanProfessionalSnapshot ||
                         cleanSummary ||
-                        (isAdminRoute && candidate.parseReviewRequired ? "Awaiting admin approval for the final summary." : "Summary not available yet.")}
+                        (isAdminRoute && candidate.parseReviewRequired ? "Awaiting admin approval for the final summary." : "A concise professional snapshot is not available yet.")}
                     </p>
                     {isAdminRoute ? (
                       <div className="mt-4 rounded-2xl border border-white/70 bg-white/80 p-4 text-sm text-slate-600">
@@ -858,7 +876,7 @@ export default function ClientCandidateDetail() {
                   </div>
 
                   <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-5">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isAdminRoute ? "Admin-normalized profile" : "Profile essentials"}</p>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isAdminRoute ? "Admin-normalized profile" : "Key details"}</p>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       {normalizedProfileCards.map((item) => (
                         <div key={item.label} className="rounded-2xl border border-white/80 bg-white p-4 shadow-sm shadow-slate-200/40">
@@ -900,7 +918,7 @@ export default function ClientCandidateDetail() {
                             {cleanSnapshotText(item.title) || candidate.currentTitle || "Experience highlight"}
                           </p>
                           <p className="text-sm text-slate-500">
-                            {cleanSnapshotText(item.company) || (isAdminRoute ? "Company details pending normalization" : "Company details were not included in the final brief")}
+                            {cleanSnapshotText(item.company) || (isAdminRoute ? "Company details pending normalization" : "Company name not provided in the current profile")}
                           </p>
                           {(item.startDate || item.endDate) && (
                             <p className="mt-1 text-xs text-slate-400">
@@ -932,10 +950,10 @@ export default function ClientCandidateDetail() {
                       {candidate.yearsExperience != null
                         ? isAdminRoute
                           ? `${candidate.yearsExperience} years of experience captured. Detailed role history still needs admin normalization.`
-                          : `${candidate.yearsExperience} years of experience were captured for the final brief.`
+                          : `${candidate.yearsExperience} years of experience are visible in the current profile.`
                         : isAdminRoute && candidate.parseReviewRequired
                           ? "Experience details still need a quick admin review."
-                          : "Detailed role history was not included in the final brief."}
+                          : "Detailed role history is not available in the current profile."}
                     </div>
                   )}
                 </div>
@@ -952,7 +970,7 @@ export default function ClientCandidateDetail() {
                           <p className="text-sm text-slate-600">
                             {cleanSnapshotText([item.fieldOfStudy, item.institution].filter(Boolean).join(" • ")) ||
                               cleanSnapshotText(candidate.education) ||
-                              (isAdminRoute ? "Education details pending normalization" : "Education details were not included in the final brief")}
+                              (isAdminRoute ? "Education details pending normalization" : "Education details are not available in the current profile")}
                           </p>
                           {(item.startDate || item.endDate) ? (
                             <p className="mt-1 text-xs text-slate-400">
@@ -967,7 +985,7 @@ export default function ClientCandidateDetail() {
                       {cleanSnapshotText(candidate.education) ||
                         (isAdminRoute && candidate.parseReviewRequired
                           ? "Education details need a quick admin review."
-                          : "Education details were not included in the final brief.")}
+                          : "Education details are not available in the current profile.")}
                     </div>
                   )}
                   <div className="mt-3 rounded-xl bg-slate-50 p-3">
@@ -978,7 +996,7 @@ export default function ClientCandidateDetail() {
                             .map((item) => [item.name, item.level].filter(Boolean).join(" "))
                             .filter(Boolean)
                             .join(", ")
-                        : cleanLanguages || englishLevel || (isAdminRoute && candidate.parseReviewRequired ? "Language details pending admin review" : "Language details were not included in the final brief")}
+                        : cleanLanguages || englishLevel || (isAdminRoute && candidate.parseReviewRequired ? "Language details pending admin review" : "Language details are not available in the current profile")}
                     </p>
                   </div>
                 </div>
@@ -1001,6 +1019,7 @@ export default function ClientCandidateDetail() {
           </div>
 
           <div className="space-y-6">
+            {isAdminRoute ? (
             <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-lg shadow-black/5">
               <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-slate-900">
                 <ShieldCheck className="h-5 w-5 text-primary" /> {isAdminRoute ? "Admin-approved status workflow" : "Candidate status workflow"}
@@ -1057,6 +1076,7 @@ export default function ClientCandidateDetail() {
                 )}
               </div>
             </div>
+            ) : null}
 
             <div className="rounded-2xl border border-slate-100 bg-white p-6 shadow-lg shadow-black/5">
               <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-slate-900">
@@ -1119,6 +1139,23 @@ export default function ClientCandidateDetail() {
             />
           </div>
         </div>
+
+        {!isAdminRoute ? (
+          <InterviewIntakeRequestDialog
+            open={interviewRequestOpen}
+            onOpenChange={setInterviewRequestOpen}
+            roleId={candidate.roleId}
+            roleTitle={candidate.roleTitle ?? "Role"}
+            candidates={[{
+              id: candidate.id,
+              name: `${candidate.firstName} ${candidate.lastName}`.trim(),
+              email: candidate.email ?? null,
+            }]}
+            onSubmitted={async () => {
+              await invalidateCandidateQueries(queryClient, candidate.id);
+            }}
+          />
+        ) : null}
 
         <Dialog open={statusReasonOpen} onOpenChange={(open) => (open ? setStatusReasonOpen(true) : closeStatusReasonDialog())}>
           <DialogContent className="sm:max-w-lg rounded-2xl">

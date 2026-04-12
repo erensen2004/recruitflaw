@@ -139,7 +139,7 @@ export function getAwaitingResponseFromProposal(proposal: {
   proposedByRole: string;
 } | null | undefined) {
   if (!proposal || proposal.responseStatus !== "pending") return null;
-  if (proposal.proposedByRole === "vendor") return "client";
+  if (proposal.proposedByRole === "vendor") return "admin";
   if (proposal.proposedByRole === "client" || proposal.proposedByRole === "admin") return "vendor";
   return null;
 }
@@ -150,7 +150,6 @@ export function actorNeedsInterviewAction(
 ) {
   const awaiting = getAwaitingResponseFromProposal(proposal);
   if (!awaiting) return false;
-  if (actorRole === "admin") return true;
   return awaiting === actorRole;
 }
 

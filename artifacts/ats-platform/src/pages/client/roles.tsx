@@ -154,7 +154,7 @@ export default function ClientRoles() {
                 : nextStatus === "closed"
                   ? "Role closed"
                   : "Role status updated",
-          description: "The role list has been refreshed.",
+          description: "The list has been refreshed.",
         });
       },
       onError: (error: Error) => {
@@ -200,7 +200,7 @@ export default function ClientRoles() {
       resetForm();
       toast({
         title: "Role saved as draft",
-        description: "The admin team will review and publish this role after the final checks.",
+        description: "Admin will review and publish it.",
       });
     } catch (error) {
       toast({
@@ -241,7 +241,7 @@ export default function ClientRoles() {
       resetForm();
       toast({
         title: "Role updated",
-        description: "Changes were saved and routed back to the admin review queue.",
+        description: "Changes were saved.",
       });
     } catch (error) {
       toast({
@@ -307,7 +307,7 @@ export default function ClientRoles() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">My Job Roles</h1>
-          <p className="text-slate-500 mt-1">Create draft roles for admin approval and manage the positions already in review.</p>
+          <p className="text-slate-500 mt-1">Create roles and keep the live ones moving.</p>
         </div>
 
         <Dialog
@@ -320,34 +320,34 @@ export default function ClientRoles() {
           <DialogTrigger asChild>
             <Button className="rounded-xl shadow-md h-11 px-6">
               <Plus className="w-4 h-4 mr-2" />
-              Open New Position
+              New Role
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-2xl rounded-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Open New Position</DialogTitle>
+              <DialogTitle>New role</DialogTitle>
               <DialogDescription>
-                Draft the role request first. The admin team will review, adjust if needed, and publish the final version.
+                Draft the role and send it for review.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4 mt-4">
               <div className="space-y-2">
-                <label className="text-sm font-semibold">Job Title *</label>
+                <label className="text-sm font-semibold">Title *</label>
                 <Input required value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} placeholder="Senior Backend Engineer" className="h-11 rounded-xl" />
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-semibold">Job Description</label>
+                <label className="text-sm font-semibold">Description</label>
                 <Textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} rows={4} className="rounded-xl resize-none" />
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-semibold">Required Skills <span className="font-normal text-slate-400">(comma separated)</span></label>
+                <label className="text-sm font-semibold">Skills <span className="font-normal text-slate-400">(comma separated)</span></label>
                 <Input value={formData.skills} onChange={(e) => setFormData({ ...formData, skills: e.target.value })} placeholder="Java, Spring Boot, PostgreSQL" className="h-11 rounded-xl" />
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-semibold">Work Mode *</label>
+                <label className="text-sm font-semibold">Work mode *</label>
                 <select
                   required
                   value={formData.workMode}
@@ -367,7 +367,7 @@ export default function ClientRoles() {
                   <Input value={formData.location} onChange={(e) => setFormData({ ...formData, location: e.target.value })} placeholder="Istanbul, Turkey" className="h-11 rounded-xl" />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-semibold">Employment Type *</label>
+                  <label className="text-sm font-semibold">Type *</label>
                   <select
                     required
                     value={formData.employmentType}
@@ -388,20 +388,20 @@ export default function ClientRoles() {
 
               {formData.employmentType === "other" ? (
                 <div className="space-y-2">
-                  <label className="text-sm font-semibold">Employment Type Description *</label>
+                  <label className="text-sm font-semibold">Type details *</label>
                   <Textarea
                     required
                     value={formData.employmentTypeDescription}
                     onChange={(e) => setFormData({ ...formData, employmentTypeDescription: e.target.value })}
                     rows={3}
-                    placeholder="Describe the arrangement the admin team should review and publish."
+                    placeholder="Short description of the type."
                     className="rounded-xl resize-none"
                   />
                 </div>
               ) : null}
 
               <Button disabled={isCreating} type="submit" className="w-full h-11 rounded-xl mt-2">
-                {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save Draft"}
+                {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save draft"}
               </Button>
             </form>
           </DialogContent>
@@ -417,26 +417,26 @@ export default function ClientRoles() {
       >
         <DialogContent className="sm:max-w-2xl rounded-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit Position</DialogTitle>
+            <DialogTitle>Edit role</DialogTitle>
             <DialogDescription>
-              Updating a role sends it back into draft so the admin team can publish the revised version.
+              Saving edits returns the role to draft.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleEditSubmit} className="space-y-4 mt-4">
             <div className="space-y-2">
-              <label className="text-sm font-semibold">Job Title *</label>
+              <label className="text-sm font-semibold">Title *</label>
               <Input required value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} className="h-11 rounded-xl" />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-semibold">Job Description</label>
+              <label className="text-sm font-semibold">Description</label>
               <Textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} rows={4} className="rounded-xl resize-none" />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-semibold">Required Skills</label>
+              <label className="text-sm font-semibold">Skills</label>
               <Input value={formData.skills} onChange={(e) => setFormData({ ...formData, skills: e.target.value })} className="h-11 rounded-xl" />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-semibold">Work Mode *</label>
+              <label className="text-sm font-semibold">Work mode *</label>
               <select
                 required
                 value={formData.workMode}
@@ -455,7 +455,7 @@ export default function ClientRoles() {
                 <Input value={formData.location} onChange={(e) => setFormData({ ...formData, location: e.target.value })} className="h-11 rounded-xl" />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-semibold">Employment Type *</label>
+                <label className="text-sm font-semibold">Type *</label>
                 <select
                   required
                   value={formData.employmentType}
@@ -475,7 +475,7 @@ export default function ClientRoles() {
             </div>
             {formData.employmentType === "other" ? (
               <div className="space-y-2">
-                <label className="text-sm font-semibold">Employment Type Description *</label>
+                <label className="text-sm font-semibold">Type details *</label>
                 <Textarea
                   required
                   value={formData.employmentTypeDescription}
@@ -486,7 +486,7 @@ export default function ClientRoles() {
               </div>
             ) : null}
             <Button disabled={isUpdating || !selectedRole} type="submit" className="w-full h-11 rounded-xl mt-2">
-              {isUpdating ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save Draft Changes"}
+              {isUpdating ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save changes"}
             </Button>
           </form>
         </DialogContent>
@@ -498,7 +498,7 @@ export default function ClientRoles() {
           if (!open) setConfirmDeleteRoleId(null);
         }}
         title="Delete role?"
-        description="This role will be removed if it has no submitted candidates. Roles that already have pipeline activity cannot be deleted."
+        description="Delete only works when there is no candidate activity."
         confirmLabel="Delete role"
         isLoading={deleteRoleId != null}
         onConfirm={() => {
@@ -531,7 +531,7 @@ export default function ClientRoles() {
           <div className="text-center p-12 text-slate-500">
             {roles?.length
               ? "No roles match this filter."
-              : "You haven&apos;t opened any positions yet."}
+              : "No roles yet."}
           </div>
         ) : (
           <div className="divide-y divide-slate-200">
@@ -540,11 +540,11 @@ export default function ClientRoles() {
               return (
                 <div
                   key={role.id}
-                  className="px-4 py-3 sm:px-5 hover:bg-slate-50/80 transition-colors"
+                  className="px-4 py-2.5 sm:px-5 hover:bg-slate-50/80 transition-colors"
                 >
-                  <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:gap-4">
+                  <div className="flex flex-col gap-2.5 xl:flex-row xl:items-center xl:gap-4">
                     <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 flex-col gap-2 xl:flex-row xl:items-center xl:gap-3">
+                      <div className="flex min-w-0 flex-col gap-1.5 xl:flex-row xl:items-center xl:gap-3">
                         <div className="min-w-0 flex items-center gap-2">
                           <h3 className="truncate text-sm font-semibold text-slate-900">{role.title}</h3>
                           <StatusBadge status={role.status} />
@@ -573,7 +573,7 @@ export default function ClientRoles() {
                       </div>
 
                       <p className="mt-1 truncate pr-0 text-xs text-slate-500 xl:pr-6">
-                        {details.descriptionBody || "Waiting for the admin team to finalize and publish the hiring brief."}
+                        {details.descriptionBody || "No brief yet."}
                       </p>
                     </div>
 

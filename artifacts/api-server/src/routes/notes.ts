@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, candidateNotesTable, usersTable, companiesTable } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole, resolveCandidateAccess } from "../lib/authz.js";
 import { validate } from "../middlewares/validate.js";
@@ -85,6 +85,36 @@ router.post(
         content: note.content,
         createdAt: note.createdAt.toISOString(),
       });
+    } catch (err) {
+      console.error(err);
+      Errors.internal(res);
+    }
+  }
+);
+
+router.delete(
+  "/:noteId",
+  requireAuth,
+  requireRole("admin", "client"),
+  async (req, res) => {
+    try {
+      const candidateId = Number(req.params.id);
+      const noteId = Number(req.params.noteId);
+
+      const access = await resolveCandidateAccess(req, res, candidateId);
+      if (!access) return;
+
+      const [deletedNote] = await db
+        .delete(candidateNotesTable)
+        .where(and(eq(candidateNotesTable.id, noteId), eq(candidateNotesTable.candidateId, candidateId)))
+        .returning({ id: candidateNotesTable.id });
+
+      if (!deletedNote) {
+        Errors.notFound(res, "Note");
+        return;
+      }
+
+      res.status(204).end();
     } catch (err) {
       console.error(err);
       Errors.internal(res);

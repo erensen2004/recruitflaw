@@ -59,14 +59,14 @@ export default function ChangePasswordPage() {
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
             <LockKeyhole className="h-6 w-6" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900">Change password</h1>
-          <p className="mt-1 text-sm text-slate-500">Update your password before going fully live.</p>
+          <h1 className="text-2xl font-semibold text-slate-900">Change password</h1>
+          <p className="mt-1 text-sm text-slate-500">Keep your account secure with a fresh password.</p>
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Current password</label>
+              <label className="text-sm font-medium text-slate-700">Current password</label>
               <Input
                 type="password"
                 value={currentPassword}
@@ -76,7 +76,7 @@ export default function ChangePasswordPage() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">New password</label>
+              <label className="text-sm font-medium text-slate-700">New password</label>
               <Input
                 type="password"
                 value={newPassword}
@@ -87,7 +87,7 @@ export default function ChangePasswordPage() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Confirm new password</label>
+              <label className="text-sm font-medium text-slate-700">Confirm new password</label>
               <Input
                 type="password"
                 value={confirmPassword}

@@ -246,6 +246,54 @@ async function ensureSupportTables() {
       `);
 
       await pool.query(`
+        CREATE TABLE IF NOT EXISTS public.interview_requests (
+          id serial PRIMARY KEY,
+          role_id integer NOT NULL REFERENCES public.job_roles(id) ON DELETE CASCADE,
+          client_company_id integer NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+          requested_by_user_id integer NOT NULL REFERENCES public.users(id),
+          status text NOT NULL DEFAULT 'admin_review',
+          request_text text NOT NULL,
+          preferred_date text,
+          preferred_window text,
+          timezone text,
+          duration_minutes integer,
+          admin_note text,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now(),
+          resolved_at timestamptz
+        )
+      `);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS public.interview_request_candidates (
+          id serial PRIMARY KEY,
+          request_id integer NOT NULL REFERENCES public.interview_requests(id) ON DELETE CASCADE,
+          candidate_id integer NOT NULL REFERENCES public.candidates(id) ON DELETE CASCADE,
+          vendor_company_id integer NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+          status text NOT NULL DEFAULT 'pending_admin',
+          interview_process_id integer REFERENCES public.interview_processes(id) ON DELETE SET NULL,
+          interview_meeting_id integer REFERENCES public.interview_meetings(id) ON DELETE SET NULL,
+          admin_note text,
+          vendor_note text,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        )
+      `);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS public.interview_request_activity (
+          id serial PRIMARY KEY,
+          request_id integer NOT NULL REFERENCES public.interview_requests(id) ON DELETE CASCADE,
+          request_candidate_id integer REFERENCES public.interview_request_candidates(id) ON DELETE CASCADE,
+          actor_user_id integer REFERENCES public.users(id),
+          actor_role text NOT NULL,
+          event_type text NOT NULL,
+          payload jsonb,
+          created_at timestamptz NOT NULL DEFAULT now()
+        )
+      `);
+
+      await pool.query(`
         ALTER TABLE public.interview_meetings
         ADD COLUMN IF NOT EXISTS title text
       `);
@@ -283,6 +331,36 @@ async function ensureSupportTables() {
       await pool.query(`
         CREATE INDEX IF NOT EXISTS interview_activity_process_idx
         ON public.interview_activity (process_id, created_at ASC)
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS interview_requests_status_idx
+        ON public.interview_requests (status, updated_at DESC)
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS interview_requests_client_idx
+        ON public.interview_requests (client_company_id, updated_at DESC)
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS interview_request_candidates_request_idx
+        ON public.interview_request_candidates (request_id, status, updated_at DESC)
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS interview_request_candidates_vendor_idx
+        ON public.interview_request_candidates (vendor_company_id, status, updated_at DESC)
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS interview_request_candidates_meeting_idx
+        ON public.interview_request_candidates (interview_meeting_id)
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS interview_request_activity_request_idx
+        ON public.interview_request_activity (request_id, created_at ASC)
       `);
 
     } catch (error) {

@@ -105,19 +105,19 @@ export default function ResetPasswordPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
-      <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-xl shadow-slate-900/5">
+      <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-white shadow-lg shadow-primary/25">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
             <Briefcase className="h-7 w-7" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900">Reset your password</h1>
-          <p className="mt-2 text-sm text-slate-500">Use the reset link from your email, then choose a new password.</p>
+          <h1 className="text-2xl font-semibold text-slate-900">Set a new password</h1>
+          <p className="mt-2 text-sm text-slate-500">Use the link from your email or paste the token below.</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {!queryToken ? (
             <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Reset token</label>
+              <label className="text-sm font-medium text-slate-700">Reset token</label>
               <Input
                 value={tokenInput}
                 onChange={(event) => setTokenInput(event.target.value)}
@@ -131,7 +131,7 @@ export default function ResetPasswordPage() {
             {isLoadingMeta ? (
               <div className="flex items-center gap-2 text-slate-500">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Validating reset link...
+                Checking link...
               </div>
             ) : meta ? (
               <>
@@ -139,12 +139,12 @@ export default function ResetPasswordPage() {
                 <p>{meta.email}</p>
               </>
             ) : (
-              <p>Paste a valid reset token to continue.</p>
+              <p>Paste a valid token to continue.</p>
             )}
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-slate-700">New password</label>
+            <label className="text-sm font-medium text-slate-700">New password</label>
             <Input
               type="password"
               value={password}
@@ -156,7 +156,7 @@ export default function ResetPasswordPage() {
             />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-slate-700">Confirm password</label>
+            <label className="text-sm font-medium text-slate-700">Confirm password</label>
             <Input
               type="password"
               value={confirmPassword}

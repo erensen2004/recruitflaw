@@ -271,18 +271,6 @@ type CandidateExecutiveBrief = {
   }>;
 };
 
-function normalizeKeywordSet(value?: string | null) {
-  return new Set(
-    (value || "")
-      .toLowerCase()
-      .replace(/[^a-z0-9çğıöşü\s]+/gi, " ")
-      .split(/\s+/)
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .filter((part) => part.length > 2 && !["senior", "junior", "lead", "staff", "principal", "associate", "intern", "full", "part", "time", "remote", "hybrid", "draft"].includes(part)),
-  );
-}
-
 function splitSentences(value?: string | null) {
   return (value || "")
     .replace(/\s+/g, " ")
@@ -290,23 +278,6 @@ function splitSentences(value?: string | null) {
     .map((sentence) => sentence.trim())
     .filter(Boolean)
     .map((sentence) => /[.!?]$/.test(sentence) ? sentence : `${sentence}.`);
-}
-
-function mergeUniqueSentences(values: Array<string | null | undefined>, maxSentences = 5) {
-  const seen = new Set<string>();
-  const merged: string[] = [];
-
-  for (const value of values) {
-    for (const sentence of splitSentences(value)) {
-      const key = sentence.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      merged.push(sentence);
-      if (merged.length >= maxSentences) return merged.join(" ");
-    }
-  }
-
-  return merged.join(" ");
 }
 
 function firstMeaningful(items: Array<string | null | undefined>) {
@@ -414,14 +385,11 @@ export function getCandidateExecutiveBrief(input: CandidateIntelligenceInput): C
 
   const strengths = uniqueStrings([
     ...(input.candidateStrengths ?? []),
-    input.currentTitle ? `${input.currentTitle} positioning is clearly established` : null,
-    input.yearsExperience != null ? `${input.yearsExperience} years of relevant experience are visible` : null,
-    input.location ? `${input.location}-based` : null,
-    input.parsedSkills?.length ? `Core technical areas: ${input.parsedSkills.slice(0, 4).join(", ")}` : null,
+    input.currentTitle ? input.currentTitle : null,
+    input.yearsExperience != null ? `${input.yearsExperience} years of experience` : null,
+    input.parsedSkills?.length ? input.parsedSkills.slice(0, 4).join(", ") : null,
+    englishLevel ? `English: ${englishLevel}` : null,
     snapshot.compensationReady ? snapshot.salaryLabel : null,
-    englishLevel ? `English level: ${englishLevel}` : null,
-    input.parsedExperience?.length ? "The experience timeline is clearly visible" : null,
-    input.parsedEducation?.length ? "Education history is visible" : null,
   ]);
 
   const riskFlags = uniqueStrings([
@@ -448,32 +416,10 @@ export function getCandidateExecutiveBrief(input: CandidateIntelligenceInput): C
     input.parseReviewRequired ? "A short internal review would improve brief quality." : null,
   ]);
 
-  const roleKeywords = normalizeKeywordSet(input.roleTitle);
-  const titleKeywords = normalizeKeywordSet(input.currentTitle);
-  const skillKeywords = normalizeKeywordSet(input.parsedSkills?.join(" "));
-  const overlap = [...roleKeywords].filter((keyword) => titleKeywords.has(keyword) || skillKeywords.has(keyword));
   const safeSummary = looksTurkishDominantNarrative(input.summary) ? null : input.summary;
   const safeSnapshot = looksTurkishDominantNarrative(input.professionalSnapshot) ? null : input.professionalSnapshot;
-  const overlapSummary = firstMeaningful([
-    safeSnapshot,
-    overlap.length ? `Role alignment looks strongest around ${overlap.slice(0, 3).join(", ")}.` : null,
-    input.currentTitle && input.roleTitle
-      ? `${input.currentTitle} experience shows meaningful alignment with the target ${input.roleTitle} role.`
-      : null,
-    input.currentTitle ? `${input.currentTitle} experience gives the profile a clear professional direction.` : null,
-    input.parsedSkills?.length ? `The structured skills make the profile easier to review quickly.` : null,
-    "The profile is clear enough for stakeholder review, with a few details that can still be tightened.",
-  ])!;
-  const summary = firstMeaningful([
-    safeSummary,
-    overlapSummary,
-  ]);
-  const professionalSnapshot = firstMeaningful([
-    safeSnapshot,
-    mergeUniqueSentences([summary?.trim(), overlapSummary]),
-    summary,
-    input.standardizedProfile,
-  ]) ?? "The candidate brief is still being normalized.";
+  const summary = firstMeaningful([safeSummary]);
+  const professionalSnapshot = firstMeaningful([safeSnapshot, summary]) ?? "A recruiter-ready snapshot is not available yet.";
   const experienceHighlights = uniqueStrings([
     ...buildExperienceHighlights(input),
     ...(input.notableAchievements ?? []),

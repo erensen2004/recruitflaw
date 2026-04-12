@@ -2,7 +2,13 @@ import { useEffect, useState } from "react";
 import { useRoute } from "wouter";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { InterviewInboxPage } from "@/components/interview-workflow";
-import { fetchInterviewInbox, type InterviewInboxItem, type InterviewInboxView } from "@/lib/interviews";
+import {
+  fetchInterviewInbox,
+  fetchInterviewRequestInbox,
+  type InterviewInboxItem,
+  type InterviewRequestInboxView,
+  type InterviewRequestItem,
+} from "@/lib/interviews";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, CalendarClock } from "lucide-react";
 
@@ -27,18 +33,25 @@ export default function InterviewsPage() {
   const allowedRoles = active.roles as unknown as Array<"admin" | "client" | "vendor">;
 
   const [items, setItems] = useState<InterviewInboxItem[]>([]);
+  const [requestItems, setRequestItems] = useState<InterviewRequestItem[]>([]);
   const [loading, setLoading] = useState(true);
   const readViewFromUrl = () => {
-    if (typeof window === "undefined") return "needs_action" as InterviewInboxView;
+    if (typeof window === "undefined") return "needs_action" as InterviewRequestInboxView;
     const raw = new URLSearchParams(window.location.search).get("view") ?? "needs_action";
-    return (["needs_action", "scheduled", "history", "all"].includes(raw) ? raw : "needs_action") as InterviewInboxView;
+    return (["needs_action", "admin_review", "awaiting_vendor", "scheduled", "history", "all"].includes(raw) ? raw : "needs_action") as InterviewRequestInboxView;
   };
-  const [view, setView] = useState<InterviewInboxView>(readViewFromUrl);
+  const [view, setView] = useState<InterviewRequestInboxView>(readViewFromUrl);
 
   const load = async () => {
     setLoading(true);
     try {
-      setItems(await fetchInterviewInbox(view));
+      const processView = (["needs_action", "scheduled", "history", "all"].includes(view) ? view : "all") as "needs_action" | "scheduled" | "history" | "all";
+      const [nextItems, nextRequestItems] = await Promise.all([
+        fetchInterviewInbox(processView),
+        fetchInterviewRequestInbox(view),
+      ]);
+      setItems(nextItems);
+      setRequestItems(nextRequestItems);
     } catch (error) {
       toast({
         title: "Interview inbox unavailable",
@@ -63,7 +76,7 @@ export default function InterviewsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleViewChange = (nextView: InterviewInboxView) => {
+  const handleViewChange = (nextView: InterviewRequestInboxView) => {
     if (typeof window !== "undefined") {
       window.history.pushState({}, "", `${roleBase}/interviews?view=${nextView}`);
     }
@@ -86,7 +99,7 @@ export default function InterviewsPage() {
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Actionable threads</p>
-            <p className="mt-1 text-2xl font-bold text-slate-900">{items.length}</p>
+            <p className="mt-1 text-2xl font-bold text-slate-900">{items.length + requestItems.length}</p>
           </div>
         </div>
 
@@ -98,6 +111,7 @@ export default function InterviewsPage() {
           <InterviewInboxPage
             view={view}
             items={items}
+            requestItems={requestItems}
             loading={loading}
             onRefresh={load}
             roleBase={roleBase}

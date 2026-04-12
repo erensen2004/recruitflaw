@@ -142,78 +142,87 @@ export default function CandidateCompare() {
           <ArrowLeft className="mr-1 h-4 w-4" /> Back to candidates
         </Link>
 
-        <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-sky-900 p-6 text-white shadow-2xl shadow-slate-900/10 md:p-8">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="max-w-3xl">
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-white/80">
-                <Sparkles className="h-3.5 w-3.5" /> {roleLabel} candidate compare
+        {isAdminCompare ? (
+          <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-sky-900 p-6 text-white shadow-2xl shadow-slate-900/10 md:p-8">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="max-w-3xl">
+                <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-white/80">
+                  <Sparkles className="h-3.5 w-3.5" /> {roleLabel} candidate compare
+                </div>
+                <h1 className="mt-4 text-3xl font-bold tracking-tight md:text-4xl">
+                  Side-by-side candidate brief for faster final decisions.
+                </h1>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-200">
+                  Compare 2-3 candidates using the same executive signals: completeness, role-fit summary, risk flags, compensation readiness, and normalized profile quality.
+                </p>
               </div>
-              <h1 className="mt-4 text-3xl font-bold tracking-tight md:text-4xl">
-                Side-by-side candidate brief for faster final decisions.
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-200">
-                {isAdminCompare
-                  ? "Compare 2-3 candidates using the same executive signals: completeness, role-fit summary, risk flags, compensation readiness, and normalized profile quality."
-                  : "Compare 2-3 finalists side by side using role fit, completeness, compensation, and language coverage."}
-              </p>
-            </div>
 
-            <div className={`grid gap-3 ${isAdminCompare ? "sm:grid-cols-3 lg:min-w-[420px]" : "sm:grid-cols-2 lg:min-w-[280px]"}`}>
-              <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">Selected</p>
-                <p className="mt-2 text-2xl font-bold">{selectedCandidates.length}</p>
-              </div>
-              <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">Avg completeness</p>
-                <p className="mt-2 text-2xl font-bold">{compareStats.avgCompleteness}%</p>
-              </div>
-              <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">Avg fit score</p>
-                <p className="mt-2 text-2xl font-bold">{compareStats.avgFitScore}</p>
-              </div>
-              {isAdminCompare ? (
+              <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[420px]">
+                <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">Selected</p>
+                  <p className="mt-2 text-2xl font-bold">{selectedCandidates.length}</p>
+                </div>
+                <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">Avg completeness</p>
+                  <p className="mt-2 text-2xl font-bold">{compareStats.avgCompleteness}%</p>
+                </div>
+                <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">Avg fit score</p>
+                  <p className="mt-2 text-2xl font-bold">{compareStats.avgFitScore}</p>
+                </div>
                 <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">Admin-ready</p>
                   <p className="mt-2 text-2xl font-bold">{compareStats.adminReadyCount}</p>
                 </div>
-              ) : null}
-              <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">Salary captured</p>
-                <p className="mt-2 text-2xl font-bold">{compareStats.salaryCapturedCount}</p>
-              </div>
-              <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">Language captured</p>
-                <p className="mt-2 text-2xl font-bold">{compareStats.languageCapturedCount}</p>
-              </div>
-              {isAdminCompare ? (
+                <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">Salary captured</p>
+                  <p className="mt-2 text-2xl font-bold">{compareStats.salaryCapturedCount}</p>
+                </div>
                 <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/70">High risk</p>
                   <p className="mt-2 text-2xl font-bold">{compareStats.highRiskCount}</p>
                 </div>
-              ) : null}
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button type="button" variant="outline" className="rounded-full border-white/20 bg-white/5 text-white hover:bg-white/10" onClick={clearCompare}>
+                Clear selection
+              </Button>
+              <Button type="button" variant="outline" className="rounded-full border-white/20 bg-white/5 text-white hover:bg-white/10" onClick={() => setLocation(backHref)}>
+                Review more candidates
+              </Button>
+            </div>
+
+            {selectedCandidates.length ? (
+              <div className="mt-5 rounded-2xl border border-white/15 bg-white/10 p-4 text-sm leading-6 text-white/85">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/60">Quick decision read</p>
+                <p className="mt-2">
+                  Strongest fit: <span className="font-semibold text-white">{compareStats.strongestFitLabel}</span>. Most complete:
+                  <span className="font-semibold text-white"> {compareStats.mostCompleteLabel}</span>. Lowest risk:
+                  <span className="font-semibold text-white"> {compareStats.lowestRiskLabel}</span>.
+                </p>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h1 className="text-2xl font-bold text-slate-900">Compare candidates</h1>
+                <p className="mt-1 text-sm text-slate-500">Review 2-3 shortlisted candidates side by side with only the signals that matter.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" className="rounded-xl" onClick={clearCompare}>
+                  Clear selection
+                </Button>
+                <Button type="button" variant="outline" className="rounded-xl" onClick={() => setLocation(backHref)}>
+                  Review more candidates
+                </Button>
+              </div>
             </div>
           </div>
-
-          <div className="mt-5 flex flex-wrap gap-2">
-            <Button type="button" variant="outline" className="rounded-full border-white/20 bg-white/5 text-white hover:bg-white/10" onClick={clearCompare}>
-              Clear selection
-            </Button>
-            <Button type="button" variant="outline" className="rounded-full border-white/20 bg-white/5 text-white hover:bg-white/10" onClick={() => setLocation(backHref)}>
-              Review more candidates
-            </Button>
-          </div>
-
-          {selectedCandidates.length ? (
-            <div className="mt-5 rounded-2xl border border-white/15 bg-white/10 p-4 text-sm leading-6 text-white/85">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/60">Quick decision read</p>
-              <p className="mt-2">
-                Strongest fit: <span className="font-semibold text-white">{compareStats.strongestFitLabel}</span>. Most complete:
-                <span className="font-semibold text-white"> {compareStats.mostCompleteLabel}</span>. Lowest risk:
-                <span className="font-semibold text-white"> {compareStats.lowestRiskLabel}</span>.
-              </p>
-            </div>
-          ) : null}
-        </div>
+        )}
 
         {isLoading ? (
           <div className="flex justify-center p-12">
@@ -252,6 +261,7 @@ export default function CandidateCompare() {
                         <StatusBadge status={candidate.status} />
                       </div>
 
+                      {isAdminCompare ? (
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div className="rounded-2xl bg-slate-50 p-4">
                           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Role alignment</p>
@@ -268,7 +278,20 @@ export default function CandidateCompare() {
                           </p>
                         </div>
                       </div>
+                      ) : (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-2xl bg-slate-50 p-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Compensation</p>
+                            <p className="mt-2 text-sm font-semibold text-slate-900">{readiness.salaryLabel}</p>
+                          </div>
+                          <div className="rounded-2xl bg-slate-50 p-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Language</p>
+                            <p className="mt-2 text-sm font-semibold text-slate-900">{readiness.languageLabel}</p>
+                          </div>
+                        </div>
+                      )}
 
+                      {isAdminCompare ? (
                       <div className="grid grid-cols-2 gap-3">
                         <ComparisonMetric label="Fit score" value={`${brief.fitScore}/100`} tone={brief.adminReady ? "emerald" : "sky"} />
                         <ComparisonMetric label="Completeness" value={`${getCandidateCompleteness(candidate)}%`} tone={getCandidateCompleteness(candidate) >= 85 ? "emerald" : "amber"} />
@@ -277,10 +300,11 @@ export default function CandidateCompare() {
                         <ComparisonMetric label="Risk" value={readiness.riskLevel === "low" ? "Low risk" : readiness.riskLevel === "medium" ? "Moderate risk" : "High risk"} tone={readiness.riskLevel === "low" ? "emerald" : readiness.riskLevel === "medium" ? "amber" : "slate"} />
                         <ComparisonMetric label="Decision" value={readiness.readinessLabel} tone={readiness.readinessTone} />
                       </div>
+                      ) : null}
 
                       <div className="rounded-2xl bg-slate-50 p-4">
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Role fit summary</p>
-                        <p className="mt-2 text-sm leading-6 text-slate-700">{brief.fitSummary}</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">{isAdminCompare ? "Role fit summary" : "Professional snapshot"}</p>
+                        <p className="mt-2 text-sm leading-6 text-slate-700">{brief.professionalSnapshot}</p>
                       </div>
 
                       {isAdminCompare ? (
@@ -296,7 +320,7 @@ export default function CandidateCompare() {
                         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Top strengths</p>
                         <div className="flex flex-wrap gap-2">
                           {brief.strengths.slice(0, 4).map((strength) => (
-                            <span key={strength} className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                            <span key={strength} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
                               {strength}
                             </span>
                           ))}
@@ -375,6 +399,7 @@ export default function CandidateCompare() {
               })}
             </div>
 
+            {isAdminCompare ? (
             <Card className="border-slate-200 bg-white shadow-sm">
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
@@ -432,6 +457,7 @@ export default function CandidateCompare() {
                 </div>
               </CardContent>
             </Card>
+            ) : null}
           </>
         )}
       </div>

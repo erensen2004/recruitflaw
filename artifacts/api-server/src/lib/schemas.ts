@@ -9,6 +9,14 @@ const NonEmptyOptionalStringSchema = z.string().trim().min(1);
 const CandidateStatusValueSchema = z.enum(["submitted", "screening", "interview", "offer", "hired", "rejected"]);
 const InterviewProposalTypeSchema = z.enum(["exact_slot", "flexible_window"]);
 const InterviewListViewSchema = z.enum(["needs_action", "scheduled", "history", "all"]);
+const InterviewRequestListViewSchema = z.enum([
+  "needs_action",
+  "admin_review",
+  "awaiting_vendor",
+  "scheduled",
+  "history",
+  "all",
+]);
 const RoleWorkModeSchema = z.enum(["full-office", "hybrid", "full-remote"]);
 const RoleEmploymentTypeSchema = z.enum(["full-time", "part-time", "other"]);
 const LegacyRoleEmploymentTypeSchema = z.enum(["contract", "freelance"]);
@@ -181,17 +189,12 @@ export const WithdrawCandidateSchema = z.object({
   reason: z.string().max(1000).nullable().optional(),
 });
 
-const InterviewScheduleInputSchema = z.object({
-  title: z.string().trim().max(200).nullable().optional(),
-  proposalType: InterviewProposalTypeSchema.default("exact_slot"),
-  proposedDate: z.string().trim().min(1).max(50),
-  startTime: z.string().trim().max(20).nullable().optional(),
-  endTime: z.string().trim().max(20).nullable().optional(),
-  windowLabel: z.string().trim().max(200).nullable().optional(),
-  timezone: z.string().trim().min(1).max(100),
-  durationMinutes: z.number().int().min(5).max(1440),
-  note: z.string().trim().max(2000).nullable().optional(),
-}).superRefine((data, ctx) => {
+function refineInterviewScheduleInput(data: {
+  proposalType: "exact_slot" | "flexible_window";
+  startTime?: string | null;
+  windowLabel?: string | null;
+  note?: string | null;
+}, ctx: z.RefinementCtx) {
   if (data.proposalType === "exact_slot" && !data.startTime?.trim()) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -207,13 +210,48 @@ const InterviewScheduleInputSchema = z.object({
       message: "Flexible window proposals need a short label or note",
     });
   }
+}
+
+const InterviewScheduleInputBaseSchema = z.object({
+  title: z.string().trim().max(200).nullable().optional(),
+  proposalType: InterviewProposalTypeSchema.default("exact_slot"),
+  proposedDate: z.string().trim().min(1).max(50),
+  startTime: z.string().trim().max(20).nullable().optional(),
+  endTime: z.string().trim().max(20).nullable().optional(),
+  windowLabel: z.string().trim().max(200).nullable().optional(),
+  timezone: z.string().trim().min(1).max(100),
+  durationMinutes: z.number().int().min(5).max(1440),
+  note: z.string().trim().max(2000).nullable().optional(),
 });
+
+const InterviewScheduleInputSchema = InterviewScheduleInputBaseSchema.superRefine(refineInterviewScheduleInput);
 
 export const CreateInterviewRequestSchema = InterviewScheduleInputSchema;
 export const CreateInterviewMeetingSchema = InterviewScheduleInputSchema;
 export const CreateInterviewProposalSchema = InterviewScheduleInputSchema;
 
+export const CreateInterviewRequestBatchSchema = z.object({
+  roleId: z.number().int().positive(),
+  candidateIds: z.array(z.number().int().positive()).min(1).max(20),
+  requestText: z.string().trim().min(1).max(5000),
+  preferredDate: z.string().trim().max(50).nullable().optional(),
+  preferredWindow: z.string().trim().max(300).nullable().optional(),
+  timezone: z.string().trim().max(100).nullable().optional(),
+  durationMinutes: z.number().int().min(5).max(1440).nullable().optional(),
+});
+
+export const DispatchInterviewRequestSchema = z.object({
+  items: z.array(InterviewScheduleInputBaseSchema.extend({
+    requestCandidateId: z.number().int().positive(),
+    adminNote: z.string().trim().max(2000).nullable().optional(),
+  }).superRefine(refineInterviewScheduleInput)).min(1).max(20),
+});
+
 export const AcceptInterviewProposalSchema = z.object({
+  note: z.string().trim().max(2000).nullable().optional(),
+});
+
+export const DeclineInterviewProposalSchema = z.object({
   note: z.string().trim().max(2000).nullable().optional(),
 });
 
@@ -229,6 +267,12 @@ export const InterviewListQuerySchema = z.object({
   view: InterviewListViewSchema.default("needs_action"),
   countOnly: z.boolean().default(false),
   candidateId: z.number().int().positive().nullable().optional(),
+  roleId: z.number().int().positive().nullable().optional(),
+});
+
+export const InterviewRequestListQuerySchema = z.object({
+  view: InterviewRequestListViewSchema.default("needs_action"),
+  countOnly: z.boolean().default(false),
   roleId: z.number().int().positive().nullable().optional(),
 });
 

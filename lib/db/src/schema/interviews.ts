@@ -9,12 +9,30 @@ import { usersTable } from "./users";
 export const interviewProcessStatuses = ["open", "closed"] as const;
 export const interviewMeetingStatuses = ["negotiating", "scheduled", "completed", "cancelled"] as const;
 export const interviewProposalTypes = ["exact_slot", "flexible_window"] as const;
-export const interviewProposalResponseStatuses = ["pending", "accepted", "superseded", "withdrawn"] as const;
+export const interviewProposalResponseStatuses = ["pending", "accepted", "superseded", "withdrawn", "rejected"] as const;
+export const interviewRequestStatuses = [
+  "admin_review",
+  "sent_to_vendor",
+  "vendor_replied",
+  "scheduled",
+  "cancelled",
+  "closed",
+] as const;
+export const interviewRequestCandidateStatuses = [
+  "pending_admin",
+  "sent_to_vendor",
+  "vendor_replied",
+  "scheduled",
+  "cancelled",
+  "closed",
+] as const;
 
 export type InterviewProcessStatus = (typeof interviewProcessStatuses)[number];
 export type InterviewMeetingStatus = (typeof interviewMeetingStatuses)[number];
 export type InterviewProposalType = (typeof interviewProposalTypes)[number];
 export type InterviewProposalResponseStatus = (typeof interviewProposalResponseStatuses)[number];
+export type InterviewRequestStatus = (typeof interviewRequestStatuses)[number];
+export type InterviewRequestCandidateStatus = (typeof interviewRequestCandidateStatuses)[number];
 
 export const interviewProcessesTable = pgTable("interview_processes", {
   id: serial("id").primaryKey(),
@@ -78,6 +96,48 @@ export const interviewActivityTable = pgTable("interview_activity", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const interviewRequestsTable = pgTable("interview_requests", {
+  id: serial("id").primaryKey(),
+  roleId: integer("role_id").notNull().references(() => jobRolesTable.id),
+  clientCompanyId: integer("client_company_id").notNull().references(() => companiesTable.id),
+  requestedByUserId: integer("requested_by_user_id").notNull().references(() => usersTable.id),
+  status: text("status", { enum: interviewRequestStatuses }).notNull().default("admin_review"),
+  requestText: text("request_text").notNull(),
+  preferredDate: text("preferred_date"),
+  preferredWindow: text("preferred_window"),
+  timezone: text("timezone"),
+  durationMinutes: integer("duration_minutes"),
+  adminNote: text("admin_note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+});
+
+export const interviewRequestCandidatesTable = pgTable("interview_request_candidates", {
+  id: serial("id").primaryKey(),
+  requestId: integer("request_id").notNull().references(() => interviewRequestsTable.id),
+  candidateId: integer("candidate_id").notNull().references(() => candidatesTable.id),
+  vendorCompanyId: integer("vendor_company_id").notNull().references(() => companiesTable.id),
+  status: text("status", { enum: interviewRequestCandidateStatuses }).notNull().default("pending_admin"),
+  interviewProcessId: integer("interview_process_id").references(() => interviewProcessesTable.id),
+  interviewMeetingId: integer("interview_meeting_id").references(() => interviewMeetingsTable.id),
+  adminNote: text("admin_note"),
+  vendorNote: text("vendor_note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const interviewRequestActivityTable = pgTable("interview_request_activity", {
+  id: serial("id").primaryKey(),
+  requestId: integer("request_id").notNull().references(() => interviewRequestsTable.id),
+  requestCandidateId: integer("request_candidate_id").references(() => interviewRequestCandidatesTable.id),
+  actorUserId: integer("actor_user_id").references(() => usersTable.id),
+  actorRole: text("actor_role").notNull(),
+  eventType: text("event_type").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown> | null>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const insertInterviewProcessSchema = createInsertSchema(interviewProcessesTable).omit({
   id: true,
   openedAt: true,
@@ -100,12 +160,35 @@ export const insertInterviewActivitySchema = createInsertSchema(interviewActivit
   createdAt: true,
 });
 
+export const insertInterviewRequestSchema = createInsertSchema(interviewRequestsTable).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertInterviewRequestCandidateSchema = createInsertSchema(interviewRequestCandidatesTable).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertInterviewRequestActivitySchema = createInsertSchema(interviewRequestActivityTable).omit({
+  id: true,
+  createdAt: true,
+});
+
 export type InsertInterviewProcess = z.infer<typeof insertInterviewProcessSchema>;
 export type InsertInterviewMeeting = z.infer<typeof insertInterviewMeetingSchema>;
 export type InsertInterviewProposal = z.infer<typeof insertInterviewProposalSchema>;
 export type InsertInterviewActivity = z.infer<typeof insertInterviewActivitySchema>;
+export type InsertInterviewRequest = z.infer<typeof insertInterviewRequestSchema>;
+export type InsertInterviewRequestCandidate = z.infer<typeof insertInterviewRequestCandidateSchema>;
+export type InsertInterviewRequestActivity = z.infer<typeof insertInterviewRequestActivitySchema>;
 
 export type InterviewProcess = typeof interviewProcessesTable.$inferSelect;
 export type InterviewMeeting = typeof interviewMeetingsTable.$inferSelect;
 export type InterviewProposal = typeof interviewProposalsTable.$inferSelect;
 export type InterviewActivity = typeof interviewActivityTable.$inferSelect;
+export type InterviewRequest = typeof interviewRequestsTable.$inferSelect;
+export type InterviewRequestCandidate = typeof interviewRequestCandidatesTable.$inferSelect;
+export type InterviewRequestActivity = typeof interviewRequestActivityTable.$inferSelect;

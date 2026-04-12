@@ -1207,12 +1207,16 @@ function buildProfessionalSummary(candidate: ParsedCandidate): string | null {
   const sentences: string[] = [];
 
   if (title) {
-    const intro = [title, years ? `with ${years} of experience` : null, location ? `${location}-based` : null]
+    const intro = [
+      title,
+      years ? `with ${years} of experience` : null,
+      location ? `based in ${location}` : null,
+    ]
       .filter(Boolean)
       .join(" ");
     sentences.push(`${intro}.`);
   } else if (years && location) {
-    sentences.push(`${location}-based candidate with ${years} of experience.`);
+    sentences.push(`Candidate based in ${location} with ${years} of experience.`);
   } else if (years) {
     sentences.push(`Candidate with ${years} of relevant experience.`);
   } else if (location) {
@@ -1221,20 +1225,20 @@ function buildProfessionalSummary(candidate: ParsedCandidate): string | null {
 
   const focusSignals = dedupeList([...domainFocus, ...skills]).slice(0, 4);
   if (focusSignals.length) {
-    sentences.push(`Core strengths are concentrated around ${formatNaturalList(focusSignals, "and")}.`);
+    sentences.push(`Primary focus areas include ${formatNaturalList(focusSignals, "and")}.`);
   } else if (experienceSignals.length) {
-    sentences.push(`The strongest experience signal comes from ${formatNaturalList(experienceSignals, "and")}.`);
+    sentences.push(`Recent experience includes ${formatNaturalList(experienceSignals, "and")}.`);
   }
 
   const proofSignals = dedupeList([...achievements, ...highlights, ...experienceSignals]).slice(0, 2);
   if (proofSignals.length) {
-    sentences.push(`The strongest evidence comes from ${formatNaturalList(proofSignals, "and")}.`);
+    sentences.push(`Visible evidence includes ${formatNaturalList(proofSignals, "and")}.`);
   }
 
   if (decisionContext.length) {
-    sentences.push(`Decision context: ${decisionContext.join("; ")}.`);
+    sentences.push(`Relevant decision details: ${decisionContext.join("; ")}.`);
   } else if (languages.length) {
-    sentences.push(`Language coverage is visible in ${formatNaturalList(languages, "and")}.`);
+    sentences.push(`Language coverage includes ${formatNaturalList(languages, "and")}.`);
   }
 
   if (!sentences.length) {
@@ -1615,7 +1619,7 @@ function buildProfessionalSnapshot(candidate: ParsedCandidate): string | null {
     const intro = [
       title,
       years ? `with ${years} of experience` : null,
-      candidate.location ? `${candidate.location}-based` : null,
+      candidate.location ? `based in ${candidate.location}` : null,
     ]
       .filter(Boolean)
       .join(" ");
@@ -1623,21 +1627,21 @@ function buildProfessionalSnapshot(candidate: ParsedCandidate): string | null {
   }
 
   if (focus.length) {
-    sentences.push(`The profile is strongest around ${formatNaturalList(focus.slice(0, 4), "and")}.`);
+    sentences.push(`This profile aligns best with ${formatNaturalList(focus.slice(0, 4), "and")}.`);
   }
 
   if (strongestStack.length) {
-    sentences.push(`The clearest technical delivery signals come from ${formatNaturalList(strongestStack, "and")}.`);
+    sentences.push(`Visible technical depth includes ${formatNaturalList(strongestStack, "and")}.`);
   }
 
   if (achievements.length) {
-    sentences.push(`Recent execution is best evidenced by ${formatNaturalList(achievements.slice(0, 2), "and")}.`);
+    sentences.push(`Recent delivery evidence includes ${formatNaturalList(achievements.slice(0, 2), "and")}.`);
   } else if (employers.length) {
-    sentences.push(`Recent company experience is concentrated around ${formatNaturalList(employers, "and")}.`);
+    sentences.push(`Recent company experience includes ${formatNaturalList(employers, "and")}.`);
   }
 
   if (decisionContext.length) {
-    sentences.push(`Decision context includes ${decisionContext.join("; ")}.`);
+    sentences.push(`Relevant decision details: ${decisionContext.join("; ")}.`);
   } else if (languages.length) {
     sentences.push(`Language coverage includes ${formatNaturalList(languages, "and")}.`);
   }
@@ -2765,6 +2769,7 @@ function buildEnrichmentPrompt(
     "Return exactly one JSON object and nothing else.",
     "Write in polished, concise, recruiter-facing English. Keep technical terms accurate and natural.",
     "Be concrete, grounded, and professional. Do not repeat the same sentence or sentence pattern.",
+    "Avoid stock phrasing such as 'the profile is strongest around', 'the clearest technical delivery signals come from', 'decision context includes', or 'core strengths are concentrated around'.",
     "If a field is weak or unsupported, return null or an empty array.",
     "summary should be a fast 3-4 sentence recruiter summary.",
     "summary order: who the candidate is, what they specialize in, what the strongest proof is, and what decision context matters.",
