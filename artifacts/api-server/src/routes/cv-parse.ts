@@ -1040,7 +1040,7 @@ function sanitizeRecruiterNarrativeText(value: string | null): string | null {
   return normalized
     .replace(/\s+/g, " ")
     .replace(/\s+([,.;:!?])/g, "$1")
-    .replace(/([,.;:!?])(?=\S)/g, "$1 ")
+    .replace(/([,;:!?])(?=\S)/g, "$1 ")
     .replace(/\b(?:summary|professional snapshot|executive headline|headline|decision context|strengths|open points)\s*:\s*/gi, "")
     .replace(/[“”]/g, "\"")
     .replace(/[‘’]/g, "'")
@@ -1064,16 +1064,77 @@ function hasMalformedRecruiterText(value: string | null | undefined): boolean {
   return veryShortWordRatio > 0.2;
 }
 
-function looksEnglishDominantNarrative(value: string | null | undefined): boolean {
-  return false;
+function looksTurkishDominantNarrative(value: string | null | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return false;
+
+  const turkishHits =
+    (normalized.match(
+      /\b(ve|ile|için|deneyim|aday|profil|lokasyon|dil|ücret|çalışma|bazlı|güçlü|karar|bağlamı|tarafında|öne|seviyesi|yazılım|mühendis|mühendisi|eğitim|bitirme|tez|işletme|mesleki)\b/g,
+    ) ?? []).length;
+  const turkishPhraseHits =
+    (normalized.match(
+      /\b(yaklaşık|yildir|yıldır|alanda|çeşitli|projelerde|görev|görevlerini|üstlendim|farklı|tecrübeler|edindim|gelişim|sağlayabileceğim|fırsatları|değerlendiriyorum|manuel|otomasyon|bankacılık|ödeme|sistemleri|veri|görüntü|yapay|zeka|yaptığım|çalışmalarımı|sayfamdan|inceleyebilirsiniz|arkadaşımla|beraber|tamamladım|destekli|mesleki|eğitmimi)\b/g,
+    ) ?? []).length;
+  const englishHits =
+    (normalized.match(
+      /\b(with|experience|candidate|profile|location|language|salary|work|decision|strong|focused|based|review|client|engineer|developer|specialist|summary)\b/g,
+    ) ?? []).length;
+
+  const turkishCharCount = (normalized.match(/[çğıöşü]/g) ?? []).length;
+  return (
+    (turkishHits + turkishPhraseHits >= 2 && turkishHits + turkishPhraseHits >= englishHits) ||
+    (turkishCharCount >= 2 && englishHits < 3)
+  );
+}
+
+function looksMixedLanguageTemplateArtifact(value: string | null | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return false;
+
+  return (
+    /\b(yazılım|mühendis|mühendisi|eğitim|işletme|bitirme|tez)\b/.test(normalized) &&
+    /\b(with|experience|based|focused|profile|candidate)\b/.test(normalized)
+  );
+}
+
+function isEnglishRecruiterBriefSentence(value: string | null | undefined): boolean {
+  const normalized = normalizeString(value);
+  if (!normalized) return false;
+  if (looksTurkishDominantNarrative(normalized)) return false;
+  if (looksMixedLanguageTemplateArtifact(normalized)) return false;
+  return true;
 }
 
 function getPrimaryTitle(candidate: ParsedCandidate): string | null {
-  return (
+  const title =
     normalizeString(candidate.currentTitle) ??
     candidate.parsedExperience.map((item) => normalizeString(item.title)).find(Boolean) ??
-    null
-  );
+    null;
+  return normalizeRecruiterTitle(title);
+}
+
+function normalizeRecruiterTitle(value: string | null): string | null {
+  if (!value) return null;
+  const comparable = normalizeComparableText(value);
+  const translations: Array<[RegExp, string]> = [
+    [/\byazilim test uzmani\b/, "Software Test Specialist"],
+    [/\byazilim test muhendisi\b/, "Software Test Engineer"],
+    [/\byazilim muhendisi\b/, "Software Engineer"],
+    [/\bbilgisayar muhendisi\b/, "Computer Engineer"],
+    [/\bis analisti\b/, "Business Analyst"],
+    [/\bkalite guvence\b/, "Quality Assurance"],
+  ];
+
+  for (const [pattern, replacement] of translations) {
+    if (pattern.test(comparable)) return replacement;
+  }
+
+  return value;
+}
+
+function normalizeRecruiterBriefItem(value: string): string {
+  return normalizeRecruiterTitle(value) ?? value;
 }
 
 function getSummarySkills(candidate: ParsedCandidate): string[] {
@@ -1162,16 +1223,25 @@ function dedupeRecruiterSentences(sentences: string[]): string[] {
 
 function sanitizeRecruiterSummary(candidate: ParsedCandidate, fallback: string | null): string | null {
   const candidateSummary = sanitizeRecruiterNarrativeText(candidate.summary);
-  const sentences = dedupeRecruiterSentences([
-    ...splitRecruiterSentences(candidateSummary),
-    ...splitRecruiterSentences(sanitizeRecruiterNarrativeText(fallback)),
-  ]);
+  const candidateSentences = splitRecruiterSentences(candidateSummary).filter(isEnglishRecruiterBriefSentence);
+  const candidateHasDecisionContext = candidateSentences.some((sentence) =>
+    /istanbul|ankara|izmir|remote|hybrid|onsite|salary|compensation|language|english|location|work model/i.test(
+      normalizeComparableText(sentence),
+    ),
+  );
+  const fallbackSentences =
+    candidateSentences.length >= 3 && candidateHasDecisionContext
+      ? []
+      : splitRecruiterSentences(sanitizeRecruiterNarrativeText(fallback));
+  const sentences = dedupeRecruiterSentences([...candidateSentences, ...fallbackSentences]).filter(isEnglishRecruiterBriefSentence);
 
   if (!sentences.length) return null;
 
   const decisionContext = buildDecisionContext(candidate);
   const hasDecisionContext = sentences.some((sentence) =>
-    /istanbul|ankara|izmir|remote|hybrid|onsite|salary|compensation|language|english|location|work model/i.test(sentence),
+    /istanbul|ankara|izmir|remote|hybrid|onsite|salary|compensation|language|english|location|work model/i.test(
+      normalizeComparableText(sentence),
+    ),
   );
 
   if (!hasDecisionContext && decisionContext.length) {
@@ -1183,13 +1253,20 @@ function sanitizeRecruiterSummary(candidate: ParsedCandidate, fallback: string |
 
 function sanitizeProfessionalSnapshot(candidate: ParsedCandidate, fallback: string | null): string | null {
   const summarySentences = new Set(splitRecruiterSentences(candidate.summary).map((sentence) => normalizeComparableText(sentence)));
+  const candidateSnapshotSentences = splitRecruiterSentences(candidate.professionalSnapshot).filter(isEnglishRecruiterBriefSentence);
+  const fallbackSentences =
+    candidateSnapshotSentences.length >= 3
+      ? []
+      : splitRecruiterSentences(sanitizeRecruiterNarrativeText(fallback));
   const snapshotSentences = dedupeRecruiterSentences([
-    ...splitRecruiterSentences(candidate.professionalSnapshot),
-    ...splitRecruiterSentences(sanitizeRecruiterNarrativeText(fallback)),
-  ]).filter((sentence) => !summarySentences.has(normalizeComparableText(sentence)));
+    ...candidateSnapshotSentences,
+    ...fallbackSentences,
+  ])
+    .filter(isEnglishRecruiterBriefSentence)
+    .filter((sentence) => !summarySentences.has(normalizeComparableText(sentence)));
 
   if (!snapshotSentences.length) {
-    const rebuilt = splitRecruiterSentences(buildProfessionalSnapshot(candidate));
+    const rebuilt = splitRecruiterSentences(buildProfessionalSnapshot(candidate)).filter(isEnglishRecruiterBriefSentence);
     return dedupeRecruiterSentences(rebuilt).slice(0, 5).join(" ");
   }
 
@@ -1663,6 +1740,34 @@ function mergeEvidenceBackedLists(primary: string[], fallback: string[], limit =
   return dedupeList([...primary, ...fallback]).slice(0, limit);
 }
 
+function normalizeOpenPointKey(value: string): string {
+  const normalized = normalizeComparableText(value);
+  if (/compensation|salary|ucret/.test(normalized)) return "compensation";
+  if (/language|english|dil/.test(normalized)) return "language";
+  if (/phone|contact/.test(normalized)) return "contact";
+  if (/education|school|degree|university|egitim/.test(normalized)) return "education";
+  if (/experience|timeline|role history/.test(normalized)) return "experience";
+  if (/confidence|review|confirmation|confirm|cleanup/.test(normalized)) return "review";
+  return normalized;
+}
+
+function dedupeOpenPoints(values: string[], limit = 5): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const value of values) {
+    const normalized = normalizeString(value);
+    if (!normalized) continue;
+    const key = normalizeOpenPointKey(normalized);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(normalized);
+    if (result.length >= limit) break;
+  }
+
+  return result;
+}
+
 function buildDeterministicEnrichment(candidate: ParsedCandidate): ParsedCandidate {
   const enrichedExperience = enrichExperienceItems(candidate);
   const enrichedEducation = enrichEducationItems(candidate);
@@ -1677,7 +1782,7 @@ function buildDeterministicEnrichment(candidate: ParsedCandidate): ParsedCandida
   );
   const fieldConfidence = buildFieldConfidence({ ...candidate, parsedExperience: enrichedExperience, parsedEducation: enrichedEducation, languageItems } as ParsedCandidate);
   const candidateStrengths = mergeEvidenceBackedLists(
-    candidate.candidateStrengths,
+    candidate.candidateStrengths.map(normalizeRecruiterBriefItem),
     [
       getPrimaryTitle(candidate),
       candidate.yearsExperience != null ? `${candidate.yearsExperience} years of experience` : null,
@@ -1694,9 +1799,9 @@ function buildDeterministicEnrichment(candidate: ParsedCandidate): ParsedCandida
     ].filter((value): value is string => Boolean(value)),
   );
 
-  const candidateRisks = mergeEvidenceBackedLists(
-    candidate.candidateRisks,
-    [
+  const candidateRisks = dedupeOpenPoints([
+    ...candidate.candidateRisks.map(normalizeRecruiterBriefItem),
+    ...[
       !candidate.phone ? "Phone number is missing" : null,
       candidate.expectedSalary == null ? "Expected compensation is not confirmed" : null,
       !enrichedExperience.length ? "Experience timeline still looks thin" : null,
@@ -1705,7 +1810,7 @@ function buildDeterministicEnrichment(candidate: ParsedCandidate): ParsedCandida
       candidate.parseReviewRequired ? "Some profile details still need confirmation" : null,
       (candidate.parseConfidence ?? 0) < 70 ? `Parse confidence is currently ${candidate.parseConfidence ?? 0}%` : null,
     ].filter((value): value is string => Boolean(value)),
-  );
+  ]);
 
   const evidence = mergeEvidenceBackedLists(
     candidate.evidence,
@@ -2866,11 +2971,15 @@ function getWeakEnrichmentSignals(candidate: ParsedCandidate): string[] {
   if (!candidate.professionalSnapshot || candidate.professionalSnapshot.length < 140) signals.push("snapshot");
   if (hasGenericRecruiterBriefLanguage(candidate.professionalSnapshot)) signals.push("generic-snapshot");
   if (hasMalformedRecruiterText(candidate.professionalSnapshot)) signals.push("broken-snapshot");
-  if (looksEnglishDominantNarrative(candidate.professionalSnapshot)) signals.push("english-snapshot");
+  if (looksTurkishDominantNarrative(candidate.professionalSnapshot) || looksMixedLanguageTemplateArtifact(candidate.professionalSnapshot)) {
+    signals.push("non-english-snapshot");
+  }
   if (!candidate.summary || candidate.summary.length < 160) signals.push("summary");
   if (hasGenericSummaryLanguage(candidate.summary)) signals.push("generic-summary");
   if (hasMalformedRecruiterText(candidate.summary)) signals.push("broken-summary");
-  if (looksEnglishDominantNarrative(candidate.summary)) signals.push("english-summary");
+  if (looksTurkishDominantNarrative(candidate.summary) || looksMixedLanguageTemplateArtifact(candidate.summary)) {
+    signals.push("non-english-summary");
+  }
   if (candidate.candidateStrengths.length < 3) signals.push("strengths");
   if (candidate.notableAchievements.length < 2) signals.push("achievements");
   if (!candidate.parsedExperience.length || candidate.parsedExperience.every((item) => !isRichExperienceItem(item))) {
@@ -2965,7 +3074,7 @@ async function enrichWithGemini(candidate: ParsedCandidate, sourceText?: string)
       ["status", "review", "confidence", "headline", "strengths", "achievements", "experience"].includes(signal),
     );
     const severeCopySignals = weakSignals.filter((signal) =>
-      ["snapshot", "generic-snapshot", "summary", "generic-summary", "english-snapshot", "english-summary"].includes(signal),
+      ["snapshot", "generic-snapshot", "summary", "generic-summary", "non-english-snapshot", "non-english-summary"].includes(signal),
     );
     const shouldEscalate =
       (structuralSignals.length > 0 || severeCopySignals.length >= 3 || hasSummarySnapshotOverlap(primary.summary, primary.professionalSnapshot)) &&
