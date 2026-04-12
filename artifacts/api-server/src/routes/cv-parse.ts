@@ -20,7 +20,7 @@ import { Errors } from "../lib/errors.js";
 const router = Router();
 const MAX_VERCEL_FILE_BYTES = Number(process.env.MAX_CV_PARSE_BYTES || "4000000");
 const MODEL_INPUT_CHAR_LIMIT = Number(process.env.MAX_CV_MODEL_INPUT_CHARS || "22000");
-const ENRICHMENT_SOURCE_CHAR_LIMIT = Number(process.env.MAX_CV_ENRICHMENT_CHARS || "14000");
+const ENRICHMENT_SOURCE_CHAR_LIMIT = Number(process.env.MAX_CV_ENRICHMENT_CHARS || "18000");
 const DIRECT_DOCUMENT_TIMEOUT_MS = Number(process.env.CV_DIRECT_DOCUMENT_TIMEOUT_MS || "18000");
 const MODEL_TIMEOUT_MS = Number(process.env.CV_MODEL_TIMEOUT_MS || "12000");
 const ENRICHMENT_MODEL_TIMEOUT_MS = Number(process.env.CV_ENRICHMENT_TIMEOUT_MS || "9000");
@@ -51,9 +51,19 @@ const DEFAULT_VERTEX_ESCALATION_MODEL =
   process.env.VERTEX_GEMINI_ESCALATION_MODEL || process.env.GEMINI_ESCALATION_MODEL || "gemini-2.5-flash";
 const GOOGLE_SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || null;
 const GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 || null;
+const VERTEX_SOURCE_TEXT_SETTING = process.env.CV_VERTEX_ENRICHMENT_INCLUDE_SOURCE_TEXT?.trim().toLowerCase();
 const VERTEX_INCLUDE_SOURCE_TEXT =
-  process.env.CV_VERTEX_ENRICHMENT_INCLUDE_SOURCE_TEXT === "1" ||
-  process.env.CV_VERTEX_ENRICHMENT_INCLUDE_SOURCE_TEXT === "true";
+  VERTEX_SOURCE_TEXT_SETTING == null ||
+  VERTEX_SOURCE_TEXT_SETTING === "" ||
+  VERTEX_SOURCE_TEXT_SETTING === "1" ||
+  VERTEX_SOURCE_TEXT_SETTING === "true" ||
+  VERTEX_SOURCE_TEXT_SETTING === "auto";
+const VERTEX_ENRICHMENT_SOURCE_CHAR_LIMIT = Number(
+  process.env.CV_VERTEX_ENRICHMENT_CHARS || Math.min(ENRICHMENT_SOURCE_CHAR_LIMIT, 14000),
+);
+const VERTEX_ENRICHMENT_ESCALATION_SOURCE_CHAR_LIMIT = Number(
+  process.env.CV_VERTEX_ENRICHMENT_ESCALATION_CHARS || Math.min(ENRICHMENT_SOURCE_CHAR_LIMIT, 18000),
+);
 const ALLOW_OPENAI_ENRICHMENT_FALLBACK =
   process.env.CV_ALLOW_OPENAI_ENRICHMENT_FALLBACK === "1" ||
   process.env.CV_ALLOW_OPENAI_ENRICHMENT_FALLBACK === "true";
@@ -2924,7 +2934,7 @@ async function enrichWithGemini(candidate: ParsedCandidate, sourceText?: string)
       includeSourceText: options?.includeSourceText ?? (targetClient.kind === "vertex" ? VERTEX_INCLUDE_SOURCE_TEXT : true),
       sourceCharLimit:
         options?.sourceCharLimit ??
-        (targetClient.kind === "vertex" ? Math.min(ENRICHMENT_SOURCE_CHAR_LIMIT, 5000) : ENRICHMENT_SOURCE_CHAR_LIMIT),
+        (targetClient.kind === "vertex" ? VERTEX_ENRICHMENT_SOURCE_CHAR_LIMIT : ENRICHMENT_SOURCE_CHAR_LIMIT),
     });
     const raw = await withTimeout(
       generateGeminiContent(targetClient, {
@@ -2972,7 +2982,7 @@ async function enrichWithGemini(candidate: ParsedCandidate, sourceText?: string)
 
     const escalated = await runEnrichment(createGeminiClientWithModel(gemini, DEFAULT_VERTEX_ESCALATION_MODEL), {
       includeSourceText: Boolean(sourceText),
-      sourceCharLimit: Math.min(ENRICHMENT_SOURCE_CHAR_LIMIT, 8000),
+      sourceCharLimit: VERTEX_ENRICHMENT_ESCALATION_SOURCE_CHAR_LIMIT,
       timeoutMs: ENRICHMENT_ESCALATION_TIMEOUT_MS,
     });
 

@@ -37,13 +37,15 @@ For Google OCR + Vertex Gemini in production, also set:
 - `VERTEX_AI_LOCATION=global`
 - `VERTEX_GEMINI_MODEL=gemini-2.5-flash-lite`
 - `GOOGLE_SERVICE_ACCOUNT_JSON` or `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64`
-- `CV_VERTEX_ENRICHMENT_INCLUDE_SOURCE_TEXT=false`
+- `CV_VERTEX_ENRICHMENT_INCLUDE_SOURCE_TEXT=auto`
+- `CV_VERTEX_ENRICHMENT_CHARS=14000`
+- `CV_VERTEX_ENRICHMENT_ESCALATION_CHARS=18000`
 
 Notes:
 
 - `GOOGLE_VISION_API_KEY` powers OCR fallback and can be added independently of Vertex.
 - Vertex on Vercel cannot use your local `gcloud` login; it needs a service account secret or a future workload identity setup.
-- `gemini-2.5-flash-lite` is the recommended first production model for recruiter-brief enrichment because it is cheaper and less timeout-prone than `gemini-2.5-flash` for this payload shape.
+- `gemini-2.5-flash-lite` remains the recommended first production model for recruiter-brief enrichment. The enrichment prompt includes a capped extracted-source excerpt by default, then escalates weak briefs to `gemini-2.5-flash` with a larger excerpt.
 
 ## Vercel Setup
 
