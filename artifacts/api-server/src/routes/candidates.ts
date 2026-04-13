@@ -367,6 +367,38 @@ function filteredByStatuses<T extends { status: string }>(rows: T[], statusFilte
   return rows.filter((row) => statusFilters.includes(row.status));
 }
 
+async function markSubmittedCandidateAsScreeningOnClientView(input: {
+  candidateId: number;
+  userId: number;
+}) {
+  const now = new Date();
+  const [updated] = await db
+    .update(candidatesTable)
+    .set({ status: "screening", updatedAt: now })
+    .where(and(eq(candidatesTable.id, input.candidateId), eq(candidatesTable.status, "submitted")))
+    .returning({ id: candidatesTable.id, updatedAt: candidatesTable.updatedAt });
+
+  if (!updated) return null;
+
+  try {
+    await db.insert(candidateStatusHistoryTable).values({
+      candidateId: input.candidateId,
+      previousStatus: "submitted",
+      nextStatus: "screening",
+      reason: "Candidate profile opened by client",
+      changedByUserId: input.userId,
+      changedByName: await getActorLabel(input.userId),
+    });
+  } catch (historyError) {
+    if (!isUndefinedRelationError(historyError)) {
+      throw historyError;
+    }
+    console.warn("candidate_status_history table is missing; client-view history entry skipped");
+  }
+
+  return updated;
+}
+
 router.get("/:id/history", requireAuth, async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -413,7 +445,7 @@ router.get("/:id", requireAuth, async (req, res) => {
     const access = await resolveCandidateAccess(req, res, id);
     if (!access) return;
 
-    const [row] = await db
+    let [row] = await db
       .select({
         id: candidatesTable.id,
         firstName: candidatesTable.firstName,
@@ -470,6 +502,16 @@ router.get("/:id", requireAuth, async (req, res) => {
     if (!row) {
       Errors.notFound(res);
       return;
+    }
+
+    if (req.user?.role === "client" && row.status === "submitted") {
+      const updated = await markSubmittedCandidateAsScreeningOnClientView({
+        candidateId: id,
+        userId: req.user.userId,
+      });
+      if (updated) {
+        row = { ...row, status: "screening", updatedAt: updated.updatedAt };
+      }
     }
 
     res.json(formatCandidate(row, row.roleTitle ?? "", row.vendorCompanyName ?? "", row.roleStatus ?? null));

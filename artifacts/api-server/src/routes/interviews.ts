@@ -454,6 +454,25 @@ router.post(
           })))
           .returning();
 
+        const submittedCandidates = candidates.filter((candidate) => candidate.status === "submitted");
+        if (submittedCandidates.length) {
+          await tx
+            .update(candidatesTable)
+            .set({ status: "screening", updatedAt: now })
+            .where(inArray(candidatesTable.id, submittedCandidates.map((candidate) => candidate.id)));
+
+          await tx.insert(candidateStatusHistoryTable).values(
+            submittedCandidates.map((candidate) => ({
+              candidateId: candidate.id,
+              previousStatus: "submitted",
+              nextStatus: "screening",
+              reason: actor.role === "client" ? "Interview request submitted by client" : "Interview request created by admin",
+              changedByUserId: actor.userId,
+              changedByName: actor.label,
+            })),
+          );
+        }
+
         await tx.insert(interviewRequestActivityTable).values([
           {
             requestId: createdRequest.id,

@@ -593,17 +593,20 @@ export function formatInterviewSlot(value: {
   proposedDate?: string | null;
   startTime?: string | null;
   endTime?: string | null;
+  windowLabel?: string | null;
   timezone?: string | null;
 }) {
   const date = value.scheduledDate ?? value.proposedDate;
   const startTime = value.scheduledStartTime ?? value.startTime;
   const endTime = value.scheduledEndTime ?? value.endTime;
+  const windowLabel = value.windowLabel?.trim();
   const timezone = value.timezone?.trim();
 
-  if (!date && !startTime) {
+  if (!date && !startTime && !windowLabel) {
     return "Time pending";
   }
 
-  const base = [date, [startTime, endTime].filter(Boolean).join(" - ")].filter(Boolean).join(" ");
+  const timePart = [startTime, endTime].filter(Boolean).join(" - ") || windowLabel;
+  const base = [date, timePart].filter(Boolean).join(" ");
   return timezone ? `${base} (${timezone})` : base;
 }
