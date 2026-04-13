@@ -16,7 +16,6 @@ const AdminUsers = lazy(() => import("@/pages/admin/users"));
 const AdminRoles = lazy(() => import("@/pages/admin/roles"));
 const AdminCandidates = lazy(() => import("@/pages/admin/candidates"));
 const AdminContracts = lazy(() => import("@/pages/admin/contracts"));
-const AdminTimesheets = lazy(() => import("@/pages/admin/timesheets"));
 const AdminAnalytics = lazy(() => import("@/pages/admin/analytics"));
 const Interviews = lazy(() => import("@/pages/interviews"));
 
@@ -25,14 +24,12 @@ const ClientRoleCandidates = lazy(() => import("./pages/client/role-candidates")
 const ClientCandidates = lazy(() => import("@/pages/client/candidates"));
 const ClientCandidateDetail = lazy(() => import("@/pages/client/candidate-detail"));
 const ClientCandidateCompare = lazy(() => import("@/pages/client/candidate-compare"));
-const ClientTimesheets = lazy(() => import("@/pages/client/timesheets"));
 
 const VendorPositions = lazy(() => import("@/pages/vendor/positions"));
 const VendorSubmitCandidate = lazy(() => import("@/pages/vendor/submit-candidate"));
 const VendorCandidates = lazy(() => import("@/pages/vendor/candidates"));
 const VendorCandidateDetail = lazy(() => import("@/pages/vendor/candidate-detail"));
 const VendorContracts = lazy(() => import("@/pages/vendor/contracts"));
-const VendorTimesheets = lazy(() => import("@/pages/vendor/timesheets"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -62,7 +59,6 @@ function Router() {
       <Route path="/admin/candidates/:id" component={ClientCandidateDetail} />
       <Route path="/admin/compare" component={ClientCandidateCompare} />
       <Route path="/admin/contracts" component={AdminContracts} />
-      <Route path="/admin/timesheets" component={AdminTimesheets} />
       <Route path="/admin/analytics" component={AdminAnalytics} />
       <Route path="/admin/interviews" component={Interviews} />
 
@@ -72,7 +68,6 @@ function Router() {
       <Route path="/client/candidates" component={ClientCandidates} />
       <Route path="/client/candidates/:id" component={ClientCandidateDetail} />
       <Route path="/client/compare" component={ClientCandidateCompare} />
-      <Route path="/client/timesheets" component={ClientTimesheets} />
       <Route path="/client/interviews" component={Interviews} />
 
       <Route path="/vendor" component={() => <Redirect to="/vendor/positions" />} />
@@ -82,7 +77,6 @@ function Router() {
       <Route path="/vendor/candidates" component={VendorCandidates} />
       <Route path="/vendor/candidates/:id" component={VendorCandidateDetail} />
       <Route path="/vendor/contracts" component={VendorContracts} />
-      <Route path="/vendor/timesheets" component={VendorTimesheets} />
       <Route path="/vendor/interviews" component={Interviews} />
 
       <Route path="/" component={() => <Redirect to="/login" />} />

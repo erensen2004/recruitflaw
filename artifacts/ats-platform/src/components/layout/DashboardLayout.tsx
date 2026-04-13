@@ -2,7 +2,7 @@ import { Link, useLocation } from "wouter";
 import { useGetMe } from "@workspace/api-client-react";
 import {
   Building2, Users, Briefcase, UserCircle,
-  FileText, Clock, LogOut, Loader2, LayoutDashboard,
+  FileText, LogOut, Loader2, LayoutDashboard,
   Menu, X, BarChart3, LockKeyhole, CalendarClock
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -18,21 +18,18 @@ const SIDEBAR_NAV = {
     { name: "All Candidates", href: "/admin/candidates", icon: UserCircle },
     { name: "Interview Requests", href: "/admin/interviews", icon: CalendarClock },
     { name: "Contracts", href: "/admin/contracts", icon: FileText },
-    { name: "Timesheets", href: "/admin/timesheets", icon: Clock },
     { name: "Analytics", href: "/admin/analytics", icon: BarChart3 },
   ],
   client: [
     { name: "My Roles", href: "/client/roles", icon: Briefcase },
     { name: "All Candidates", href: "/client/candidates", icon: UserCircle },
     { name: "Interview Requests", href: "/client/interviews", icon: CalendarClock },
-    { name: "Timesheets", href: "/client/timesheets", icon: Clock },
   ],
   vendor: [
     { name: "Open Positions", href: "/vendor/positions", icon: LayoutDashboard },
     { name: "My Candidates", href: "/vendor/candidates", icon: UserCircle },
     { name: "Interview Requests", href: "/vendor/interviews", icon: CalendarClock },
     { name: "Active Contracts", href: "/vendor/contracts", icon: FileText },
-    { name: "Timesheets", href: "/vendor/timesheets", icon: Clock },
   ]
 };
 

@@ -364,15 +364,6 @@ export const CreateContractSchema = z.object({
   dailyRate: z.number().positive(),
 });
 
-// ─── Timesheets ──────────────────────────────────────────────────────────────
-
-export const CreateTimesheetSchema = z.object({
-  contractId: z.number().int().positive(),
-  month: z.number().int().min(1).max(12),
-  year: z.number().int().min(2000).max(2100),
-  totalDays: z.number().int().positive().max(31),
-});
-
 // ─── CV Parse ────────────────────────────────────────────────────────────────
 
 export const CvParseTextSchema = z.object({
