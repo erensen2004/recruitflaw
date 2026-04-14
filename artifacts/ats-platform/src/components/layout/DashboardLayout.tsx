@@ -8,7 +8,7 @@ import {
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getCompanyDisplayName } from "@/lib/candidate-display";
-import { fetchInterviewInbox, fetchInterviewRequestInbox } from "@/lib/interviews";
+import { fetchInterviewActionCounts } from "@/lib/interviews";
 
 const SIDEBAR_NAV = {
   admin: [
@@ -52,11 +52,8 @@ export function DashboardLayout({ children, allowedRoles }: { children: React.Re
     let ignore = false;
     void (async () => {
       try {
-        const [items, requestItems] = await Promise.all([
-          fetchInterviewInbox("needs_action"),
-          fetchInterviewRequestInbox("needs_action"),
-        ]);
-        if (!ignore) setInterviewBadgeCount(items.length + requestItems.length);
+        const counts = await fetchInterviewActionCounts();
+        if (!ignore) setInterviewBadgeCount(counts.total);
       } catch {
         if (!ignore) setInterviewBadgeCount(null);
       }

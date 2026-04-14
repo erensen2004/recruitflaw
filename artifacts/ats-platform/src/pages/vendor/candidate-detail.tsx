@@ -110,7 +110,7 @@ export default function VendorCandidateDetail() {
         summary: parsed.summary || current.summary,
       }));
       toast({
-        title: parsed.parseReviewRequired ? "Resume parsed with review suggested" : "Resume parsed successfully",
+        title: parsed.parseReviewRequired ? "Resume parsed; admin review recommended" : "Resume parsed successfully",
         description:
           parsed.warnings?.[0] ||
           "Candidate fields were updated from the newly uploaded resume.",

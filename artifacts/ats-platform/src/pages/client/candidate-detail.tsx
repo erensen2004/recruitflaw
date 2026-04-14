@@ -746,7 +746,7 @@ export default function ClientCandidateDetail() {
                         </div>
 
                         <div className="rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
-                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-500">Normalization notes</p>
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-500">Profile notes</p>
                           <div className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
                             {executiveBrief.normalizationNotes.length ? (
                               executiveBrief.normalizationNotes.map((note) => (
@@ -756,7 +756,7 @@ export default function ClientCandidateDetail() {
                               ))
                             ) : (
                               <p className="rounded-xl bg-white px-3 py-2 shadow-sm ring-1 ring-slate-200">
-                                Profile is already normalized enough for a quick handoff.
+                                Profile is ready enough for a quick handoff.
                               </p>
                             )}
                           </div>

@@ -192,7 +192,7 @@ export function getCandidateReadinessSnapshot(input: CandidateIntelligenceInput)
       ? "Ready for client review"
       : riskLevel === "medium"
         ? "Needs admin pass"
-        : "Hold for normalization";
+        : "Hold for profile review";
 
   const readinessTone: "emerald" | "amber" | "rose" =
     riskLevel === "low" ? "emerald" : riskLevel === "medium" ? "amber" : "rose";
@@ -349,7 +349,7 @@ export function getCandidateDecisionGuidance(input: CandidateIntelligenceInput) 
 
   if (input.parseReviewRequired || confidence < 70 || !snapshot.experienceReady) {
     return {
-      label: "Short cleanup needed before approval",
+      label: "Review needed before approval",
       tone: "amber" as const,
       body: "There is enough signal to work with, but the experience timeline and a few profile fields should be tightened before broader sharing.",
     };
@@ -400,7 +400,7 @@ export function getCandidateExecutiveBrief(input: CandidateIntelligenceInput): C
     !input.parsedEducation?.length ? "Education details remain limited" : null,
     !input.parsedSkills?.length ? "Technical skills should be extracted more specifically" : null,
     !englishLevel ? "English proficiency is not explicitly confirmed" : null,
-    input.parseReviewRequired ? "A short admin cleanup pass would help" : null,
+    input.parseReviewRequired ? "A short internal review would improve confidence" : null,
     confidence > 0 && confidence < 70 ? `Profile confidence is currently ${confidence}%` : null,
   ]);
 
@@ -451,7 +451,7 @@ export function getCandidateExecutiveBrief(input: CandidateIntelligenceInput): C
         ? "Strong review candidate"
         : fitScore >= 55
           ? "Clear profile with open points"
-          : "Profile cleanup required";
+          : "Profile requires review";
 
   return {
     fitScore,
@@ -461,7 +461,7 @@ export function getCandidateExecutiveBrief(input: CandidateIntelligenceInput): C
         ? "The profile reads strongly for recruiters and supports fast decision-making."
         : fitScore >= 65
           ? "There is useful signal in the profile; closing a few open points would make it much stronger."
-          : "The profile is shareable, but it still needs cleanup to become truly convincing.",
+          : "The profile has usable signal, but it needs a stronger review pass before it becomes client-ready.",
     headline,
     summary,
     professionalSnapshot,

@@ -202,6 +202,12 @@ export type InterviewRequestDispatchInput = InterviewProposalInput & {
   adminNote?: string | null;
 };
 
+export type InterviewActionCounts = {
+  interviewRequests: number;
+  interviewProcesses: number;
+  total: number;
+};
+
 function getAuthHeaders(extraHeaders?: HeadersInit) {
   const token = typeof localStorage !== "undefined" ? localStorage.getItem("ats_token") : null;
   const headers = new Headers(extraHeaders);
@@ -487,6 +493,15 @@ export async function fetchInterviewInbox(view: InterviewInboxView = "needs_acti
 
 export async function fetchInterviewRequestInbox(view: InterviewRequestInboxView = "needs_action") {
   return normalizeInterviewRequestPayload(await requestJson(`/api/interview-requests?view=${encodeURIComponent(view)}`));
+}
+
+export async function fetchInterviewActionCounts(): Promise<InterviewActionCounts> {
+  const payload = await requestJson<Partial<InterviewActionCounts>>("/api/interviews/action-counts");
+  return {
+    interviewRequests: Number(payload.interviewRequests ?? 0),
+    interviewProcesses: Number(payload.interviewProcesses ?? 0),
+    total: Number(payload.total ?? 0),
+  };
 }
 
 export async function createInterviewRequestBatch(data: InterviewRequestInput) {

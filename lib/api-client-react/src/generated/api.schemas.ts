@@ -475,25 +475,6 @@ export interface CreateContractRequest {
   dailyRate: number;
 }
 
-export interface Timesheet {
-  id: number;
-  contractId: number;
-  candidateName: string;
-  roleTitle: string;
-  month: number;
-  year: number;
-  totalDays: number;
-  totalAmount: number;
-  submittedAt: string;
-}
-
-export interface SubmitTimesheetRequest {
-  contractId: number;
-  month: number;
-  year: number;
-  totalDays: number;
-}
-
 export interface CandidateNote {
   id: number;
   candidateId: number;

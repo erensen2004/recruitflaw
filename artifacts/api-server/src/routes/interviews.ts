@@ -15,7 +15,7 @@ import {
   interviewRequestCandidatesTable,
   interviewRequestsTable,
 } from "../../../../lib/db/src/schema/interviews.js";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole, resolveCandidateAccess, resolveRoleAccess } from "../lib/authz.js";
 import { Errors } from "../lib/errors.js";
@@ -332,6 +332,58 @@ async function listInterviewRequestItems(input: {
       return true;
     });
 }
+
+router.get("/interviews/action-counts", requireAuth, async (req, res) => {
+  try {
+    const actorRole = req.user!.role as "admin" | "client" | "vendor";
+    if (!["admin", "client", "vendor"].includes(actorRole)) {
+      Errors.forbidden(res);
+      return;
+    }
+
+    const requestItems = await listInterviewRequestItems({
+      actorRole,
+      companyId: req.user!.companyId,
+      view: "needs_action",
+    });
+
+    let processActionCount = 0;
+    if (actorRole === "admin" || actorRole === "vendor") {
+      if (actorRole === "vendor" && req.user!.companyId == null) {
+        Errors.forbidden(res);
+        return;
+      }
+
+      const pendingProposalConditions = [
+        eq(interviewProposalsTable.responseStatus, "pending"),
+        actorRole === "admin"
+          ? eq(interviewProposalsTable.proposedByRole, "vendor")
+          : inArray(interviewProposalsTable.proposedByRole, ["admin", "client"]),
+      ];
+      if (actorRole === "vendor") {
+        pendingProposalConditions.push(eq(interviewProcessesTable.vendorCompanyId, req.user!.companyId!));
+      }
+
+      const [processActions] = await db
+        .select({ count: count(interviewProposalsTable.id) })
+        .from(interviewProposalsTable)
+        .innerJoin(interviewMeetingsTable, eq(interviewProposalsTable.meetingId, interviewMeetingsTable.id))
+        .innerJoin(interviewProcessesTable, eq(interviewMeetingsTable.processId, interviewProcessesTable.id))
+        .where(and(...pendingProposalConditions));
+
+      processActionCount = Number(processActions.count);
+    }
+
+    res.json({
+      interviewRequests: requestItems.length,
+      interviewProcesses: processActionCount,
+      total: requestItems.length + processActionCount,
+    });
+  } catch (error) {
+    console.error(error);
+    Errors.internal(res);
+  }
+});
 
 router.get("/candidates/:id/interviews", requireAuth, async (req, res) => {
   try {

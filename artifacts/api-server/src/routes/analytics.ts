@@ -9,8 +9,10 @@ import {
   candidateStatusHistoryTable,
   reviewThreadsTable,
   reviewThreadMessagesTable,
+  interviewRequestsTable,
+  interviewRequestCandidatesTable,
 } from "@workspace/db";
-import { eq, count, sql, desc, or, lt, and } from "drizzle-orm";
+import { eq, count, sql, desc, or, lt, and, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole } from "../lib/authz.js";
 import { Errors } from "../lib/errors.js";
@@ -25,6 +27,271 @@ function isUndefinedRelationError(error: unknown): boolean {
       (error as { code?: string }).code === "42P01",
   );
 }
+
+router.get("/workbench", requireAuth, requireRole("admin"), async (_req, res) => {
+  try {
+    const staleThreshold = sql`now() - interval '72 hours'`;
+
+    const [
+      [roleTotals],
+      [candidateTotals],
+      [pendingRoleReviews],
+      [pendingCandidateReviews],
+      [reviewRequiredCandidates],
+      [interviewAdminReview],
+      [interviewVendorReplied],
+      [interviewAwaitingVendor],
+      [scheduledInterviewRequests],
+      staleRoles,
+      staleCandidates,
+      roleQueue,
+      candidateQueue,
+      parseReviewQueue,
+      interviewQueue,
+      recentScheduled,
+    ] = await Promise.all([
+      db.select({ count: count(jobRolesTable.id) }).from(jobRolesTable),
+      db.select({ count: count(candidatesTable.id) }).from(candidatesTable),
+      db
+        .select({ count: count(jobRolesTable.id) })
+        .from(jobRolesTable)
+        .where(or(eq(jobRolesTable.status, "draft"), eq(jobRolesTable.status, "pending_approval"))),
+      db
+        .select({ count: count(candidatesTable.id) })
+        .from(candidatesTable)
+        .where(eq(candidatesTable.status, "pending_approval")),
+      db
+        .select({ count: count(candidatesTable.id) })
+        .from(candidatesTable)
+        .where(or(eq(candidatesTable.parseReviewRequired, true), eq(candidatesTable.parseStatus, "partial"))),
+      db
+        .select({ count: count(interviewRequestsTable.id) })
+        .from(interviewRequestsTable)
+        .where(eq(interviewRequestsTable.status, "admin_review")),
+      db
+        .select({ count: count(interviewRequestsTable.id) })
+        .from(interviewRequestsTable)
+        .where(eq(interviewRequestsTable.status, "vendor_replied")),
+      db
+        .select({ count: count(interviewRequestsTable.id) })
+        .from(interviewRequestsTable)
+        .where(eq(interviewRequestsTable.status, "sent_to_vendor")),
+      db
+        .select({ count: count(interviewRequestsTable.id) })
+        .from(interviewRequestsTable)
+        .where(eq(interviewRequestsTable.status, "scheduled")),
+      db
+        .select({
+          id: jobRolesTable.id,
+          title: jobRolesTable.title,
+          companyName: companiesTable.name,
+          status: jobRolesTable.status,
+          createdAt: jobRolesTable.createdAt,
+        })
+        .from(jobRolesTable)
+        .leftJoin(companiesTable, eq(jobRolesTable.companyId, companiesTable.id))
+        .where(
+          and(
+            or(eq(jobRolesTable.status, "draft"), eq(jobRolesTable.status, "pending_approval")),
+            lt(jobRolesTable.createdAt, staleThreshold),
+          ),
+        )
+        .orderBy(jobRolesTable.createdAt)
+        .limit(6),
+      db
+        .select({
+          id: candidatesTable.id,
+          name: sql<string>`${candidatesTable.firstName} || ' ' || ${candidatesTable.lastName}`,
+          roleTitle: jobRolesTable.title,
+          companyName: companiesTable.name,
+          status: candidatesTable.status,
+          submittedAt: candidatesTable.submittedAt,
+        })
+        .from(candidatesTable)
+        .leftJoin(jobRolesTable, eq(candidatesTable.roleId, jobRolesTable.id))
+        .leftJoin(companiesTable, eq(jobRolesTable.companyId, companiesTable.id))
+        .where(and(eq(candidatesTable.status, "pending_approval"), lt(candidatesTable.submittedAt, staleThreshold)))
+        .orderBy(candidatesTable.submittedAt)
+        .limit(6),
+      db
+        .select({
+          id: jobRolesTable.id,
+          title: jobRolesTable.title,
+          companyName: companiesTable.name,
+          status: jobRolesTable.status,
+          updatedAt: jobRolesTable.updatedAt,
+        })
+        .from(jobRolesTable)
+        .leftJoin(companiesTable, eq(jobRolesTable.companyId, companiesTable.id))
+        .where(or(eq(jobRolesTable.status, "draft"), eq(jobRolesTable.status, "pending_approval")))
+        .orderBy(desc(jobRolesTable.updatedAt))
+        .limit(6),
+      db
+        .select({
+          id: candidatesTable.id,
+          name: sql<string>`${candidatesTable.firstName} || ' ' || ${candidatesTable.lastName}`,
+          roleTitle: jobRolesTable.title,
+          vendorCompanyName: companiesTable.name,
+          status: candidatesTable.status,
+          updatedAt: candidatesTable.updatedAt,
+        })
+        .from(candidatesTable)
+        .leftJoin(jobRolesTable, eq(candidatesTable.roleId, jobRolesTable.id))
+        .leftJoin(companiesTable, eq(candidatesTable.vendorCompanyId, companiesTable.id))
+        .where(eq(candidatesTable.status, "pending_approval"))
+        .orderBy(desc(candidatesTable.updatedAt))
+        .limit(6),
+      db
+        .select({
+          id: candidatesTable.id,
+          name: sql<string>`${candidatesTable.firstName} || ' ' || ${candidatesTable.lastName}`,
+          roleTitle: jobRolesTable.title,
+          parseStatus: candidatesTable.parseStatus,
+          parseConfidence: candidatesTable.parseConfidence,
+          updatedAt: candidatesTable.updatedAt,
+        })
+        .from(candidatesTable)
+        .leftJoin(jobRolesTable, eq(candidatesTable.roleId, jobRolesTable.id))
+        .where(or(eq(candidatesTable.parseReviewRequired, true), eq(candidatesTable.parseStatus, "partial")))
+        .orderBy(desc(candidatesTable.updatedAt))
+        .limit(6),
+      db
+        .select({
+          id: interviewRequestsTable.id,
+          roleTitle: jobRolesTable.title,
+          clientCompanyName: companiesTable.name,
+          status: interviewRequestsTable.status,
+          preferredDate: interviewRequestsTable.preferredDate,
+          preferredWindow: interviewRequestsTable.preferredWindow,
+          updatedAt: interviewRequestsTable.updatedAt,
+        })
+        .from(interviewRequestsTable)
+        .leftJoin(jobRolesTable, eq(interviewRequestsTable.roleId, jobRolesTable.id))
+        .leftJoin(companiesTable, eq(interviewRequestsTable.clientCompanyId, companiesTable.id))
+        .where(inArray(interviewRequestsTable.status, ["admin_review", "vendor_replied", "sent_to_vendor"]))
+        .orderBy(desc(interviewRequestsTable.updatedAt))
+        .limit(8),
+      db
+        .select({
+          id: interviewRequestsTable.id,
+          roleTitle: jobRolesTable.title,
+          clientCompanyName: companiesTable.name,
+          status: interviewRequestsTable.status,
+          resolvedAt: interviewRequestsTable.resolvedAt,
+          updatedAt: interviewRequestsTable.updatedAt,
+        })
+        .from(interviewRequestsTable)
+        .leftJoin(jobRolesTable, eq(interviewRequestsTable.roleId, jobRolesTable.id))
+        .leftJoin(companiesTable, eq(interviewRequestsTable.clientCompanyId, companiesTable.id))
+        .where(eq(interviewRequestsTable.status, "scheduled"))
+        .orderBy(desc(interviewRequestsTable.updatedAt))
+        .limit(6),
+    ]);
+
+    const interviewCandidateRows = interviewQueue.length
+      ? await db
+          .select({
+            requestId: interviewRequestCandidatesTable.requestId,
+            status: interviewRequestCandidatesTable.status,
+            candidateName: sql<string>`${candidatesTable.firstName} || ' ' || ${candidatesTable.lastName}`,
+            vendorCompanyName: companiesTable.name,
+          })
+          .from(interviewRequestCandidatesTable)
+          .leftJoin(candidatesTable, eq(interviewRequestCandidatesTable.candidateId, candidatesTable.id))
+          .leftJoin(companiesTable, eq(interviewRequestCandidatesTable.vendorCompanyId, companiesTable.id))
+          .where(inArray(interviewRequestCandidatesTable.requestId, interviewQueue.map((item) => item.id)))
+      : [];
+
+    const candidatesByInterviewRequest = new Map<number, typeof interviewCandidateRows>();
+    for (const row of interviewCandidateRows) {
+      const current = candidatesByInterviewRequest.get(row.requestId) ?? [];
+      current.push(row);
+      candidatesByInterviewRequest.set(row.requestId, current);
+    }
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      totals: {
+        roles: Number(roleTotals.count),
+        candidates: Number(candidateTotals.count),
+      },
+      queues: {
+        roleApprovals: Number(pendingRoleReviews.count),
+        candidateApprovals: Number(pendingCandidateReviews.count),
+        parseReviews: Number(reviewRequiredCandidates.count),
+        interviewAdminReview: Number(interviewAdminReview.count),
+        interviewVendorReplied: Number(interviewVendorReplied.count),
+        interviewAwaitingVendor: Number(interviewAwaitingVendor.count),
+        scheduledInterviewRequests: Number(scheduledInterviewRequests.count),
+      },
+      roleQueue: roleQueue.map((role) => ({
+        id: role.id,
+        title: role.title,
+        companyName: role.companyName ?? null,
+        status: role.status,
+        updatedAt: role.updatedAt.toISOString(),
+      })),
+      candidateQueue: candidateQueue.map((candidate) => ({
+        id: candidate.id,
+        name: candidate.name,
+        roleTitle: candidate.roleTitle ?? null,
+        vendorCompanyName: candidate.vendorCompanyName ?? null,
+        status: candidate.status,
+        updatedAt: candidate.updatedAt.toISOString(),
+      })),
+      parseReviewQueue: parseReviewQueue.map((candidate) => ({
+        id: candidate.id,
+        name: candidate.name,
+        roleTitle: candidate.roleTitle ?? null,
+        parseStatus: candidate.parseStatus,
+        parseConfidence: candidate.parseConfidence,
+        updatedAt: candidate.updatedAt.toISOString(),
+      })),
+      interviewQueue: interviewQueue.map((request) => ({
+        id: request.id,
+        roleTitle: request.roleTitle ?? null,
+        clientCompanyName: request.clientCompanyName ?? null,
+        status: request.status,
+        preferredDate: request.preferredDate ?? null,
+        preferredWindow: request.preferredWindow ?? null,
+        updatedAt: request.updatedAt.toISOString(),
+        candidates: (candidatesByInterviewRequest.get(request.id) ?? []).map((candidate) => ({
+          name: candidate.candidateName,
+          vendorCompanyName: candidate.vendorCompanyName ?? null,
+          status: candidate.status,
+        })),
+      })),
+      recentScheduled: recentScheduled.map((request) => ({
+        id: request.id,
+        roleTitle: request.roleTitle ?? null,
+        clientCompanyName: request.clientCompanyName ?? null,
+        status: request.status,
+        resolvedAt: request.resolvedAt ? request.resolvedAt.toISOString() : null,
+        updatedAt: request.updatedAt.toISOString(),
+      })),
+      stuckItems: {
+        roles: staleRoles.map((role) => ({
+          id: role.id,
+          title: role.title,
+          companyName: role.companyName ?? null,
+          status: role.status,
+          createdAt: role.createdAt.toISOString(),
+        })),
+        candidates: staleCandidates.map((candidate) => ({
+          id: candidate.id,
+          name: candidate.name,
+          roleTitle: candidate.roleTitle ?? null,
+          companyName: candidate.companyName ?? null,
+          status: candidate.status,
+          submittedAt: candidate.submittedAt.toISOString(),
+        })),
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    Errors.internal(res);
+  }
+});
 
 router.get("/", requireAuth, requireRole("admin"), async (_req, res) => {
   try {

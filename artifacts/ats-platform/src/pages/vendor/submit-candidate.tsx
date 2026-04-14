@@ -120,7 +120,7 @@ export default function VendorSubmitCandidate() {
       });
       applyParsedProfile(parsed);
       toast({
-        title: parsed.parseReviewRequired ? "Resume parsed with review suggested" : "Resume parsed successfully",
+        title: parsed.parseReviewRequired ? "Resume parsed; admin review recommended" : "Resume parsed successfully",
         description:
           parsed.warnings?.[0] ||
           "We auto-filled the candidate fields from the uploaded resume.",
@@ -329,7 +329,7 @@ export default function VendorSubmitCandidate() {
               </div>
             ) : null}
             <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-slate-600">
-              Parse quality {parsedProfile.parseConfidence ?? 0}% • {parsedProfile.parseReviewRequired ? "Review suggested" : "Ready"}
+              Profile quality {parsedProfile.parseConfidence ?? 0}% • {parsedProfile.parseReviewRequired ? "Admin review" : "Ready"}
             </div>
             <div className="mt-4 rounded-xl border border-white/60 bg-white/70 p-3 text-sm text-emerald-900">
               Review the contact details, salary, English level, and tags below before submitting the candidate.

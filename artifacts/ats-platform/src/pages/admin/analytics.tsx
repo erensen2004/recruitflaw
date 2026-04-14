@@ -1,366 +1,233 @@
 import { useMemo } from "react";
 import { Link } from "wouter";
-import { useGetAnalytics, useListCandidates, useListRoles } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import {
-  Activity,
-  AlertTriangle,
-  Briefcase,
-  Clock3,
-  Loader2,
-  Sparkles,
-  TrendingUp,
-  Users,
-} from "lucide-react";
-import { buildAdminWorkloadSnapshot, type AdminReviewActivity, type AdminReviewCandidate, type AdminReviewRole } from "@/lib/admin-review";
+import { AlertTriangle, Briefcase, CalendarClock, CheckCircle2, Clock3, Loader2, ShieldCheck, UserCircle } from "lucide-react";
 
-const STATUS_COLORS: Record<string, string> = {
-  submitted: "bg-blue-100 text-blue-700",
-  screening: "bg-yellow-100 text-yellow-700",
-  interview: "bg-violet-100 text-violet-700",
-  offer: "bg-orange-100 text-orange-700",
-  hired: "bg-green-100 text-green-700",
-  rejected: "bg-red-100 text-red-700",
-  draft: "bg-slate-100 text-slate-600",
-  pending_approval: "bg-yellow-100 text-yellow-700",
-  published: "bg-green-100 text-green-700",
-  on_hold: "bg-orange-100 text-orange-700",
-  closed: "bg-slate-100 text-slate-600",
+// This endpoint is intentionally small: the admin landing page should be a control tower,
+// not a reason to fetch every role and candidate record on load.
+type WorkbenchItem = {
+  id: number;
+  title?: string | null;
+  name?: string | null;
+  roleTitle?: string | null;
+  companyName?: string | null;
+  clientCompanyName?: string | null;
+  vendorCompanyName?: string | null;
+  status?: string | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+  submittedAt?: string | null;
+  parseStatus?: string | null;
+  parseConfidence?: number | null;
+  preferredDate?: string | null;
+  preferredWindow?: string | null;
+  candidates?: Array<{ name: string | null; vendorCompanyName: string | null; status: string }>;
 };
 
-const STATUS_LABELS: Record<string, string> = {
-  submitted: "Submitted",
-  screening: "Screening",
-  interview: "Interview",
-  offer: "Offer",
-  hired: "Hired",
-  rejected: "Rejected",
-  draft: "Draft",
-  pending_approval: "Pending Approval",
-  published: "Published",
-  on_hold: "On Hold",
-  closed: "Closed",
+type AdminWorkbench = {
+  generatedAt: string;
+  totals: { roles: number; candidates: number };
+  queues: {
+    roleApprovals: number;
+    candidateApprovals: number;
+    parseReviews: number;
+    interviewAdminReview: number;
+    interviewVendorReplied: number;
+    interviewAwaitingVendor: number;
+    scheduledInterviewRequests: number;
+  };
+  roleQueue: WorkbenchItem[];
+  candidateQueue: WorkbenchItem[];
+  parseReviewQueue: WorkbenchItem[];
+  interviewQueue: WorkbenchItem[];
+  recentScheduled: WorkbenchItem[];
+  stuckItems: { roles: WorkbenchItem[]; candidates: WorkbenchItem[] };
 };
+
+async function fetchAdminWorkbench(): Promise<AdminWorkbench> {
+  const token = localStorage.getItem("ats_token");
+  const response = await fetch("/api/analytics/workbench", {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.error || "Admin control tower could not be loaded.");
+  }
+  return response.json();
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "Time pending";
+  return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function formatStatus(value?: string | null) {
+  if (!value) return "Pending";
+  return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function QueueList({
+  title,
+  description,
+  items,
+  empty,
+  hrefForItem,
+}: {
+  title: string;
+  description: string;
+  items: WorkbenchItem[];
+  empty: string;
+  hrefForItem: (item: WorkbenchItem) => string;
+}) {
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-100 px-5 py-4">
+        <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+        <p className="mt-1 text-xs text-slate-500">{description}</p>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {items.length ? (
+          items.map((item) => (
+            <Link key={`${title}-${item.id}`} href={hrefForItem(item)} className="block px-5 py-3 transition hover:bg-slate-50">
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{item.title || item.name || item.roleTitle || "Review item"}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">
+                    {[item.roleTitle, item.companyName || item.clientCompanyName || item.vendorCompanyName].filter(Boolean).join(" • ") || "Admin-owned workflow"}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-xs font-semibold text-slate-600">{formatStatus(item.status)}</p>
+                  <p className="mt-0.5 text-[11px] text-slate-400">{formatDate(item.updatedAt || item.createdAt || item.submittedAt)}</p>
+                </div>
+              </div>
+            </Link>
+          ))
+        ) : (
+          <p className="px-5 py-6 text-sm text-slate-400">{empty}</p>
+        )}
+      </div>
+    </section>
+  );
+}
 
 export default function AdminAnalytics() {
-  const { data, isLoading } = useGetAnalytics();
-  const { data: roles } = useListRoles();
-  const { data: candidates } = useListCandidates();
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["admin-workbench"],
+    queryFn: fetchAdminWorkbench,
+    staleTime: 20_000,
+  });
 
-  const reviewSnapshot = useMemo(
-    () =>
-      buildAdminWorkloadSnapshot(
-        (roles ?? []) as AdminReviewRole[],
-        (candidates ?? []) as AdminReviewCandidate[],
-        (data?.recentActivity ?? []) as AdminReviewActivity[],
-      ),
-    [candidates, data?.recentActivity, roles],
-  );
-
-  const headlineStats = useMemo(
-    () =>
-      data
-        ? [
-            { label: "Total Candidates", value: data.totalCandidates, icon: Users, color: "text-blue-500", bg: "bg-blue-50" },
-            {
-              label: "Review workload today",
-              value: reviewSnapshot.todayWorkload.total,
-              icon: Sparkles,
-              color: "text-fuchsia-500",
-              bg: "bg-fuchsia-50",
-            },
-            {
-              label: "Awaiting approvals",
-              value: reviewSnapshot.roleQueue.pendingApproval + reviewSnapshot.pendingCandidates,
-              icon: Clock3,
-              color: "text-amber-500",
-              bg: "bg-amber-50",
-            },
-            {
-              label: "Stuck items",
-              value: reviewSnapshot.stuckItems.length,
-              icon: AlertTriangle,
-              color: "text-rose-500",
-              bg: "bg-rose-50",
-            },
-          ]
-        : [],
-    [data, reviewSnapshot],
-  );
-
-  const stuckRoles = reviewSnapshot.stuckItems.filter((item) => item.type === "role").slice(0, 4);
-  const stuckCandidates = reviewSnapshot.stuckItems.filter((item) => item.type === "candidate").slice(0, 4);
+  const metrics = useMemo(() => {
+    if (!data) return [];
+    const interviewNeedsAction = data.queues.interviewAdminReview + data.queues.interviewVendorReplied;
+    return [
+      { label: "Admin review", value: data.queues.roleApprovals + data.queues.candidateApprovals, icon: ShieldCheck, href: "/admin/candidates" },
+      { label: "Interview desk", value: interviewNeedsAction, icon: CalendarClock, href: "/admin/interviews" },
+      { label: "Parse review", value: data.queues.parseReviews, icon: AlertTriangle, href: "/admin/candidates" },
+      { label: "Scheduled", value: data.queues.scheduledInterviewRequests, icon: CheckCircle2, href: "/admin/interviews" },
+    ];
+  }, [data]);
 
   return (
     <DashboardLayout allowedRoles={["admin"]}>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900">Analytics</h1>
-        <p className="text-slate-500 mt-1">Platform-wide overview, review workload, and stuck-item visibility</p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {[
-            { href: "/admin/roles", label: "Open review hub" },
-            { href: "/admin/candidates", label: "Open candidate queue" },
-            { href: "/admin/compare", label: "Open compare view" },
-          ].map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-primary hover:bg-primary/5 hover:text-primary hover:shadow-md active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            >
-              {item.label}
+      <div className="space-y-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Admin control tower</p>
+            <h1 className="mt-2 text-3xl font-bold text-slate-950">Review Desk</h1>
+            <p className="mt-1 max-w-2xl text-sm text-slate-500">
+              Prioritized approvals, interview handoffs, parse checks, and stuck items in one admin-owned workspace.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:border-primary hover:text-primary" href="/admin/roles">
+              Role queue
             </Link>
-          ))}
+            <Link className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:border-primary hover:text-primary" href="/admin/interviews">
+              Interview requests
+            </Link>
+          </div>
         </div>
+
+        {isLoading ? (
+          <div className="flex justify-center rounded-2xl border border-slate-200 bg-white p-16 shadow-sm">
+            <Loader2 className="h-7 w-7 animate-spin text-primary" />
+          </div>
+        ) : error || !data ? (
+          <div className="rounded-2xl border border-rose-100 bg-rose-50 px-5 py-4 text-sm text-rose-700">
+            {error instanceof Error ? error.message : "Admin control tower could not be loaded."}
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {metrics.map((metric) => (
+                <Link key={metric.label} href={metric.href} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-3xl font-bold text-slate-950">{metric.value}</p>
+                      <p className="mt-1 text-sm text-slate-500">{metric.label}</p>
+                    </div>
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+                      <metric.icon className="h-5 w-5" />
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-[1.1fr,0.9fr]">
+              <QueueList
+                title="Interview scheduling desk"
+                description="Requests that need admin review, vendor follow-up, or a scheduling decision."
+                items={data.interviewQueue}
+                empty="No interview requests need admin action right now."
+                hrefForItem={() => "/admin/interviews"}
+              />
+              <QueueList
+                title="Approval queue"
+                description="Roles and candidates waiting for admin release."
+                items={[...data.roleQueue, ...data.candidateQueue].slice(0, 8)}
+                empty="No approvals are waiting."
+                hrefForItem={(item) => (item.title ? "/admin/roles" : `/admin/candidates/${item.id}`)}
+              />
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-3">
+              <QueueList
+                title="Parse quality checks"
+                description="Profiles that need admin confidence before client handoff."
+                items={data.parseReviewQueue}
+                empty="No parse reviews are currently flagged."
+                hrefForItem={(item) => `/admin/candidates/${item.id}`}
+              />
+              <QueueList
+                title="Stuck items"
+                description="Items older than the current review SLA."
+                items={[...data.stuckItems.roles, ...data.stuckItems.candidates].slice(0, 8)}
+                empty="No stale review items right now."
+                hrefForItem={(item) => (item.title ? "/admin/roles" : `/admin/candidates/${item.id}`)}
+              />
+              <QueueList
+                title="Recently scheduled"
+                description="Confirmed interview requests for quick operational visibility."
+                items={data.recentScheduled}
+                empty="No scheduled interviews yet."
+                hrefForItem={() => "/admin/interviews"}
+              />
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-slate-500">
+                <span className="inline-flex items-center gap-2"><Briefcase className="h-4 w-4" /> {data.totals.roles} roles</span>
+                <span className="inline-flex items-center gap-2"><UserCircle className="h-4 w-4" /> {data.totals.candidates} candidates</span>
+                <span className="inline-flex items-center gap-2"><Clock3 className="h-4 w-4" /> Refreshed {formatDate(data.generatedAt)}</span>
+              </div>
+            </div>
+          </>
+        )}
       </div>
-
-      {isLoading ? (
-        <div className="flex justify-center p-16">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        </div>
-      ) : !data ? (
-        <div className="text-center text-slate-500 p-12">Failed to load analytics.</div>
-      ) : (
-        <div className="space-y-8">
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
-            {headlineStats.map((stat) => (
-              <div key={stat.label} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-                <div className={`w-10 h-10 rounded-xl ${stat.bg} flex items-center justify-center mb-4`}>
-                  <stat.icon className={`w-5 h-5 ${stat.color}`} />
-                </div>
-                <p className="text-3xl font-bold text-slate-900">{stat.value}</p>
-                <p className="text-sm text-slate-500 mt-1">{stat.label}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr,0.8fr]">
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-              <div className="flex items-center justify-between gap-4">
-                <h2 className="font-bold text-slate-900 flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-primary" /> Today&apos;s review workload
-                </h2>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-                  {reviewSnapshot.todayWorkload.total} touched today
-                </span>
-              </div>
-              <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                {[
-                  { label: "Submissions", value: reviewSnapshot.todayWorkload.submissionsToday, tone: "bg-blue-50 text-blue-700" },
-                  { label: "Status changes", value: reviewSnapshot.todayWorkload.statusChangesToday, tone: "bg-violet-50 text-violet-700" },
-                  { label: "Notes", value: reviewSnapshot.todayWorkload.notesToday, tone: "bg-emerald-50 text-emerald-700" },
-                  { label: "Role updates", value: reviewSnapshot.todayWorkload.roleUpdatesToday, tone: "bg-slate-50 text-slate-700" },
-                ].map((item) => (
-                  <div key={item.label} className={`rounded-2xl px-4 py-4 ${item.tone}`}>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">{item.label}</p>
-                    <p className="mt-2 text-2xl font-bold">{item.value}</p>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                {[
-                  { label: "Pending candidate approvals", value: reviewSnapshot.pendingCandidates },
-                  { label: "Needs normalization", value: reviewSnapshot.reviewSuggestedCandidates },
-                  { label: "Stuck roles", value: reviewSnapshot.roleQueue.stuckRoles },
-                  { label: "Ready candidates", value: reviewSnapshot.readyCandidates },
-                ].map((item) => (
-                  <div key={item.label} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
-                    <p className="text-sm text-slate-500">{item.label}</p>
-                    <p className="mt-1 text-xl font-bold text-slate-900">{item.value}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-              <h2 className="font-bold text-slate-900 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-primary" /> Stuck items
-              </h2>
-              <p className="mt-1 text-sm text-slate-500">Items that have been waiting long enough to deserve an admin pass.</p>
-              <div className="mt-4 space-y-5">
-                {reviewSnapshot.stuckItems.length === 0 ? (
-                  <p className="text-sm text-slate-400">No stuck items right now.</p>
-                ) : (
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Roles</p>
-                      <div className="mt-3 space-y-3">
-                        {stuckRoles.length === 0 ? (
-                          <p className="text-sm text-slate-400">No stuck roles right now.</p>
-                        ) : (
-                          stuckRoles.map((item) => (
-                            <Link
-                              key={`${item.type}-${item.route}-${item.label}`}
-                              href={item.route}
-                              className="block rounded-2xl border border-white bg-white px-4 py-3 shadow-sm transition-colors hover:border-primary hover:bg-primary/5"
-                            >
-                              <div className="flex items-start justify-between gap-4">
-                                <div>
-                                  <p className="text-sm font-semibold text-slate-900">{item.label}</p>
-                                  <p className="mt-1 text-xs text-slate-500">{item.detail}</p>
-                                  <p className="mt-1 text-xs font-medium text-slate-400">{item.reason}</p>
-                                </div>
-                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">
-                                  {item.ageDays}d
-                                </span>
-                              </div>
-                            </Link>
-                          ))
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Candidates</p>
-                      <div className="mt-3 space-y-3">
-                        {stuckCandidates.length === 0 ? (
-                          <p className="text-sm text-slate-400">No stuck candidates right now.</p>
-                        ) : (
-                          stuckCandidates.map((item) => (
-                            <Link
-                              key={`${item.type}-${item.route}-${item.label}`}
-                              href={item.route}
-                              className="block rounded-2xl border border-white bg-white px-4 py-3 shadow-sm transition-colors hover:border-primary hover:bg-primary/5"
-                            >
-                              <div className="flex items-start justify-between gap-4">
-                                <div>
-                                  <p className="text-sm font-semibold text-slate-900">{item.label}</p>
-                                  <p className="mt-1 text-xs text-slate-500">{item.detail}</p>
-                                  <p className="mt-1 text-xs font-medium text-slate-400">{item.reason}</p>
-                                </div>
-                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">
-                                  {item.ageDays}d
-                                </span>
-                              </div>
-                            </Link>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              { label: "Total Roles", value: data.totalRoles },
-              { label: "Companies", value: data.totalCompanies },
-              { label: "Users", value: data.totalUsers },
-            ].map((item) => (
-              <div key={item.label} className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
-                <p className="text-sm text-slate-500">{item.label}</p>
-                <p className="mt-2 text-2xl font-bold text-slate-900">{item.value}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-              <h2 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-                <Users className="w-4 h-4 text-primary" /> Candidates by Status
-              </h2>
-              <div className="space-y-3">
-                {data.candidatesByStatus.length === 0 ? (
-                  <p className="text-slate-400 text-sm">No data yet.</p>
-                ) : data.candidatesByStatus.map((s) => (
-                  <div key={s.status} className="flex items-center justify-between">
-                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full capitalize ${STATUS_COLORS[s.status] || "bg-slate-100 text-slate-600"}`}>
-                      {STATUS_LABELS[s.status] || s.status}
-                    </span>
-                    <div className="flex items-center gap-3 flex-1 ml-4">
-                      <div className="flex-1 bg-slate-100 rounded-full h-2">
-                        <div
-                          className="bg-primary h-2 rounded-full"
-                          style={{ width: `${data.totalCandidates ? (s.count / data.totalCandidates) * 100 : 0}%` }}
-                        />
-                      </div>
-                      <span className="text-sm font-bold text-slate-700 w-6 text-right">{s.count}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-              <h2 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-                <Briefcase className="w-4 h-4 text-primary" /> Roles by Status
-              </h2>
-              <div className="space-y-3">
-                {data.rolesByStatus.length === 0 ? (
-                  <p className="text-slate-400 text-sm">No data yet.</p>
-                ) : data.rolesByStatus.map((s) => (
-                  <div key={s.status} className="flex items-center justify-between">
-                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full capitalize ${STATUS_COLORS[s.status] || "bg-slate-100 text-slate-600"}`}>
-                      {STATUS_LABELS[s.status] || s.status}
-                    </span>
-                    <div className="flex items-center gap-3 flex-1 ml-4">
-                      <div className="flex-1 bg-slate-100 rounded-full h-2">
-                        <div
-                          className="bg-violet-500 h-2 rounded-full"
-                          style={{ width: `${data.totalRoles ? (s.count / data.totalRoles) * 100 : 0}%` }}
-                        />
-                      </div>
-                      <span className="text-sm font-bold text-slate-700 w-6 text-right">{s.count}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-            <h2 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-primary" /> Top Roles by Candidate Count
-            </h2>
-            {data.topRoles.length === 0 ? (
-              <p className="text-slate-400 text-sm">No candidates yet.</p>
-            ) : (
-              <div className="space-y-3">
-                {data.topRoles.map((r, idx) => (
-                  <div key={r.roleId} className="flex items-center gap-4">
-                    <span className="text-2xl font-black text-slate-200 w-6">#{idx + 1}</span>
-                    <div className="flex-1">
-                      <div className="flex justify-between mb-1">
-                        <span className="text-sm font-semibold text-slate-800">{r.roleTitle}</span>
-                        <span className="text-sm font-bold text-primary">{r.count}</span>
-                      </div>
-                      <div className="bg-slate-100 rounded-full h-1.5">
-                        <div
-                          className="bg-primary h-1.5 rounded-full"
-                          style={{ width: `${data.topRoles[0].count ? (r.count / data.topRoles[0].count) * 100 : 0}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-            <h2 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-              <Activity className="w-4 h-4 text-primary" /> Recent Activity
-            </h2>
-            {data.recentActivity.length === 0 ? (
-              <p className="text-slate-400 text-sm">No recent platform activity yet.</p>
-            ) : (
-              <div className="space-y-3">
-                {data.recentActivity.map((item, index) => (
-                  <div key={`${item.type}-${item.createdAt}-${index}`} className="rounded-xl bg-slate-50 p-4">
-                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="text-sm font-semibold text-slate-800">{item.candidateName || item.type}</p>
-                      <span className="text-xs text-slate-400">{new Date(item.createdAt).toLocaleString()}</span>
-                    </div>
-                    <p className="mt-1 text-sm text-slate-600">{item.message}</p>
-                    {item.actorName ? <p className="mt-1 text-xs text-slate-400">by {item.actorName}</p> : null}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </DashboardLayout>
   );
 }

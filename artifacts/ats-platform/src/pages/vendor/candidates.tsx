@@ -117,7 +117,7 @@ export default function VendorCandidates() {
         setTags(parsed.skills);
       }
       toast({
-        title: parsed.parseReviewRequired ? "Resume parsed with review suggested" : "Resume parsed successfully",
+        title: parsed.parseReviewRequired ? "Resume parsed; admin review recommended" : "Resume parsed successfully",
         description:
           parsed.warnings?.[0] ||
           "Candidate fields were auto-filled and normalized from the uploaded resume.",
@@ -442,7 +442,7 @@ export default function VendorCandidates() {
                   Resume analyzed successfully
                 </div>
                 <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-slate-600">
-                  Parse quality {parsedProfile.parseConfidence ?? 0}% • {parsedProfile.parseReviewRequired ? "Review suggested" : "Ready"}
+                  Profile quality {parsedProfile.parseConfidence ?? 0}% • {parsedProfile.parseReviewRequired ? "Admin review" : "Ready"}
                 </div>
                 <div className="mt-3 rounded-xl border border-white/60 bg-white/70 p-3 text-sm text-emerald-900">
                   Candidate fields were pre-filled from the resume. The admin and client teams will handle the final standardized review output.
