@@ -12,6 +12,7 @@ import analyticsRouter from "./analytics.js";
 import cvParseRouter from "./cv-parse.js";
 import reviewThreadsRouter from "./review-threads.js";
 import interviewsRouter from "./interviews.js";
+import cronRouter from "./cron.js";
 
 const router = Router();
 
@@ -25,6 +26,7 @@ router.use("/candidates/:id/notes", notesRouter);
 router.use("/contracts", contracts);
 router.use("/analytics", analyticsRouter);
 router.use("/review-threads", reviewThreadsRouter);
+router.use(cronRouter);
 router.use("/", interviewsRouter);
 router.use("/cv-parse", cvParseRouter);
 router.use(storageRouter);
