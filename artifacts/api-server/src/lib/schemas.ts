@@ -241,10 +241,20 @@ export const CreateInterviewRequestBatchSchema = z.object({
 });
 
 export const DispatchInterviewRequestSchema = z.object({
-  items: z.array(InterviewScheduleInputBaseSchema.extend({
+  items: z.array(z.object({
     requestCandidateId: z.number().int().positive(),
+    messageText: z.string().trim().min(1).max(5000),
     adminNote: z.string().trim().max(2000).nullable().optional(),
-  }).superRefine(refineInterviewScheduleInput)).min(1).max(20),
+  })).min(1).max(20),
+});
+
+export const ReplyInterviewRequestCandidateSchema = z.object({
+  replyType: z.enum(["can_work", "suggest_alternative", "not_available"]).default("suggest_alternative"),
+  messageText: z.string().trim().min(1).max(5000),
+});
+
+export const ScheduleInterviewRequestCandidateSchema = z.object({
+  finalDetails: z.string().trim().min(1).max(5000),
 });
 
 export const AcceptInterviewProposalSchema = z.object({

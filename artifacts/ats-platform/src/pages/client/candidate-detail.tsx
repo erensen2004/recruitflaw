@@ -405,13 +405,14 @@ export default function ClientCandidateDetail() {
     Boolean(backHrefParam?.startsWith("/")) &&
     Boolean(backHrefParam?.includes("/roles/")) &&
     Boolean(backHrefParam?.includes("/candidates"));
+  const isInterviewBack = Boolean(backHrefParam?.startsWith("/")) && Boolean(backHrefParam?.includes("/interviews"));
   const backHref =
     backHrefParam && backHrefParam.startsWith("/")
       ? backHrefParam
       : isAdminRoute || me?.role === "admin"
         ? "/admin/candidates"
         : "/client/candidates";
-  const backLabel = isRoleCandidatesBack ? "Back to Role" : "Back to Candidates";
+  const backLabel = isInterviewBack ? "Back to Interview Requests" : isRoleCandidatesBack ? "Back to Role" : "Back to Candidates";
   const interviewInboxHref = isAdminRoute || me?.role === "admin" ? "/admin/interviews" : "/client/interviews";
   const normalizedProfileCards = buildNormalizedProfileCards(candidate, isAdminRoute);
   const adminReviewSignals = buildAdminReviewSignals(candidate);

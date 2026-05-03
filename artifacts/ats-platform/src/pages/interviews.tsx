@@ -3,9 +3,7 @@ import { useRoute } from "wouter";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { InterviewInboxPage } from "@/components/interview-workflow";
 import {
-  fetchInterviewInbox,
   fetchInterviewRequestInbox,
-  type InterviewInboxItem,
   type InterviewRequestInboxView,
   type InterviewRequestItem,
 } from "@/lib/interviews";
@@ -32,7 +30,6 @@ export default function InterviewsPage() {
   const roleBase = active.base;
   const allowedRoles = active.roles as unknown as Array<"admin" | "client" | "vendor">;
 
-  const [items, setItems] = useState<InterviewInboxItem[]>([]);
   const [requestItems, setRequestItems] = useState<InterviewRequestItem[]>([]);
   const [loading, setLoading] = useState(true);
   const readViewFromUrl = () => {
@@ -41,16 +38,32 @@ export default function InterviewsPage() {
     return (["needs_action", "admin_review", "awaiting_vendor", "scheduled", "history", "all"].includes(raw) ? raw : "needs_action") as InterviewRequestInboxView;
   };
   const [view, setView] = useState<InterviewRequestInboxView>(readViewFromUrl);
+  const pageCopy = (() => {
+    if (roleBase === "/admin") {
+      return {
+        title: "Scheduling desk",
+        description: "Turn client requests into clean vendor coordination, track ownership, and confirm interviews from one control surface.",
+        metric: "Admin actions",
+      };
+    }
+    if (roleBase === "/vendor") {
+      return {
+        title: "Interview requests",
+        description: "Reply to admin-managed scheduling requests with availability, alternatives, or a short note when the candidate is not available.",
+        metric: "Vendor actions",
+      };
+    }
+    return {
+      title: "Interview requests",
+      description: "Track interview requests after they are sent to the admin desk. The admin team coordinates vendors and confirmations.",
+      metric: "Active updates",
+    };
+  })();
 
   const load = async () => {
     setLoading(true);
     try {
-      const processView = (["needs_action", "scheduled", "history", "all"].includes(view) ? view : "all") as "needs_action" | "scheduled" | "history" | "all";
-      const [nextItems, nextRequestItems] = await Promise.all([
-        fetchInterviewInbox(processView),
-        fetchInterviewRequestInbox(view),
-      ]);
-      setItems(nextItems);
+      const nextRequestItems = await fetchInterviewRequestInbox(view);
       setRequestItems(nextRequestItems);
     } catch (error) {
       toast({
@@ -92,14 +105,14 @@ export default function InterviewsPage() {
               <CalendarClock className="h-3.5 w-3.5" />
               Interview Requests
             </div>
-            <h1 className="mt-3 text-3xl font-bold text-slate-900">Scheduling inbox</h1>
+            <h1 className="mt-3 text-3xl font-bold text-slate-900">{pageCopy.title}</h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              Keep the interview thread structured, compact, and easy to act on. Every negotiation stays on one timeline until a slot is confirmed.
+              {pageCopy.description}
             </p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Actionable threads</p>
-            <p className="mt-1 text-2xl font-bold text-slate-900">{items.length + requestItems.length}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{pageCopy.metric}</p>
+            <p className="mt-1 text-2xl font-bold text-slate-900">{requestItems.filter((item) => item.needsAction).length}</p>
           </div>
         </div>
 
@@ -110,7 +123,7 @@ export default function InterviewsPage() {
         ) : (
           <InterviewInboxPage
             view={view}
-            items={items}
+            items={[]}
             requestItems={requestItems}
             loading={loading}
             onRefresh={load}

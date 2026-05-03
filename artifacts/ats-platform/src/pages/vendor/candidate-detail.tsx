@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useGetCandidate, useListCandidateHistory, useListCandidateNotes } from "@workspace/api-client-react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { Link, useRoute } from "wouter";
+import { Link, useLocation, useRoute } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,7 @@ const EDITABLE_STATUSES = new Set(["submitted", "screening", "pending_approval"]
 
 export default function VendorCandidateDetail() {
   const [, params] = useRoute("/vendor/candidates/:id");
+  const [location] = useLocation();
   const candidateId = Number(params?.id);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -70,6 +71,11 @@ export default function VendorCandidateDetail() {
   const { visibleTags, englishLevel } = useMemo(() => parseCandidateTags(candidate?.tags), [candidate?.tags]);
   const parsedSkills = candidate?.parsedSkills?.length ? candidate.parsedSkills : visibleTags;
   const expectedSalaryLabel = formatTurkishLira(candidate?.expectedSalary);
+  const queryParams = new URLSearchParams(location.split("?")[1] ?? "");
+  const backHrefParam = queryParams.get("back");
+  const backHref = backHrefParam?.startsWith("/") ? backHrefParam : "/vendor/candidates";
+  const isInterviewFocus = queryParams.get("focus") === "interview";
+  const backLabel = backHref.includes("/interviews") ? "Back to Interview Requests" : "Back to My Candidates";
 
   const handleResumeSelection = async (file: File | null) => {
     if (!file) {
@@ -308,12 +314,38 @@ export default function VendorCandidateDetail() {
     <DashboardLayout allowedRoles={["vendor"]}>
       <div className="mx-auto max-w-6xl space-y-6">
         <Link
-          href="/vendor/candidates"
+          href={backHref}
           className="inline-flex items-center text-sm font-medium text-slate-500 transition-colors hover:text-primary"
         >
-          <ArrowLeft className="mr-1 h-4 w-4" /> Back to My Candidates
+          <ArrowLeft className="mr-1 h-4 w-4" /> {backLabel}
         </Link>
 
+        {isInterviewFocus ? (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Interview coordination</p>
+                  <h1 className="mt-1 text-2xl font-bold text-slate-900">
+                    {candidate.firstName} {candidate.lastName}
+                  </h1>
+                  <p className="mt-1 text-sm text-slate-500">{candidate.roleTitle ?? "Role"} • {candidate.email}</p>
+                </div>
+                <StatusBadge status={candidate.status} />
+              </div>
+            </div>
+            <InterviewWorkflowPanel
+              candidateId={candidate.id}
+              candidateName={`${candidate.firstName} ${candidate.lastName}`}
+              candidateStatus={candidate.status}
+              roleTitle={candidate.roleTitle ?? "Role"}
+              roleId={candidate.roleId}
+              vendorCompanyName={candidate.vendorCompanyName}
+              compact
+              inboxHref="/vendor/interviews"
+            />
+          </div>
+        ) : (
         <div className="grid gap-6 xl:grid-cols-[1.4fr,1fr]">
           <div className="space-y-6">
             <div className="rounded-2xl border border-slate-100 bg-white p-8 shadow-lg shadow-black/5">
@@ -578,6 +610,7 @@ export default function VendorCandidateDetail() {
             />
           </div>
         </div>
+        )}
 
         <ConfirmActionDialog
           open={withdrawDialogOpen}

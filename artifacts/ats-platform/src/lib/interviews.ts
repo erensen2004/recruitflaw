@@ -197,10 +197,13 @@ export type InterviewRequestInput = {
   durationMinutes?: number | null;
 };
 
-export type InterviewRequestDispatchInput = InterviewProposalInput & {
+export type InterviewRequestDispatchInput = {
   requestCandidateId: number;
+  messageText: string;
   adminNote?: string | null;
 };
+
+export type InterviewRequestReplyType = "can_work" | "suggest_alternative" | "not_available";
 
 export type InterviewActionCounts = {
   interviewRequests: number;
@@ -504,12 +507,19 @@ export async function fetchInterviewActionCounts(): Promise<InterviewActionCount
   };
 }
 
+function notifyInterviewStateChanged() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("recruitflow:interviews-updated"));
+  }
+}
+
 export async function createInterviewRequestBatch(data: InterviewRequestInput) {
   const payload = await requestJson<{ request: unknown }>(`/api/interview-requests`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
+  notifyInterviewStateChanged();
   return payload.request ? normalizeInterviewRequest(payload.request) : null;
 }
 
@@ -519,6 +529,35 @@ export async function dispatchInterviewRequest(requestId: number, items: Intervi
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ items }),
   });
+  notifyInterviewStateChanged();
+  return payload.request ? normalizeInterviewRequest(payload.request) : null;
+}
+
+export async function replyToInterviewRequestCandidate(
+  requestId: number,
+  requestCandidateId: number,
+  data: { replyType: InterviewRequestReplyType; messageText: string },
+) {
+  const payload = await requestJson<{ request: unknown }>(`/api/interview-requests/${requestId}/candidates/${requestCandidateId}/reply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  notifyInterviewStateChanged();
+  return payload.request ? normalizeInterviewRequest(payload.request) : null;
+}
+
+export async function scheduleInterviewRequestCandidate(
+  requestId: number,
+  requestCandidateId: number,
+  finalDetails: string,
+) {
+  const payload = await requestJson<{ request: unknown }>(`/api/interview-requests/${requestId}/candidates/${requestCandidateId}/schedule`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ finalDetails }),
+  });
+  notifyInterviewStateChanged();
   return payload.request ? normalizeInterviewRequest(payload.request) : null;
 }
 
@@ -528,6 +567,7 @@ export async function cancelInterviewRequest(requestId: number, reason?: string 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ reason: reason ?? null }),
   });
+  notifyInterviewStateChanged();
   return payload.request ? normalizeInterviewRequest(payload.request) : null;
 }
 

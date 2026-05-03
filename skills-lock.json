@@ -15,6 +15,11 @@
       "source": "anthropics/skills",
       "sourceType": "github",
       "computedHash": "cfbc539377088ca7e44a813b30c306327385bbd973cd7a721e1743f60837dd62"
+    },
+    "humanizer": {
+      "source": "blader/humanizer",
+      "sourceType": "github",
+      "computedHash": "85618b50f189c0ff49858e5e2ed6aea04fef992a88b072d0980f78a7da3b18e8"
     }
   }
 }

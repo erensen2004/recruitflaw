@@ -115,11 +115,23 @@ export default function ClientRoleCandidates() {
   };
 
   const openInterviewDialog = (candidateId?: number) => {
-    if (candidateId != null) setSelectedInterviewCandidateIds([candidateId]);
+    if (candidateId != null) {
+      const candidate = candidates?.find((item) => item.id === candidateId);
+      if (!candidate || !["submitted", "screening"].includes(candidate.status)) {
+        toast({
+          title: "Interview request already active",
+          description: "Use Interview Requests to continue this scheduling thread.",
+        });
+        return;
+      }
+      setSelectedInterviewCandidateIds([candidateId]);
+    }
     setInterviewDialogOpen(true);
   };
 
   const toggleInterviewCandidate = (candidateId: number, checked: boolean) => {
+    const candidate = candidates?.find((item) => item.id === candidateId);
+    if (!candidate || !["submitted", "screening"].includes(candidate.status)) return;
     setSelectedInterviewCandidateIds((current) => {
       if (checked) return Array.from(new Set([...current, candidateId]));
       return current.filter((id) => id !== candidateId);
@@ -223,6 +235,7 @@ export default function ClientRoleCandidates() {
           ) : (
             <div className="divide-y divide-slate-100">
               {(candidates ?? []).map((candidate) => {
+                const canRequestInterview = ["submitted", "screening"].includes(candidate.status);
                 return (
                   <div
                     key={candidate.id}
@@ -233,6 +246,7 @@ export default function ClientRoleCandidates() {
                         {!isAdminRoute ? (
                           <Checkbox
                             checked={selectedInterviewCandidateIds.includes(candidate.id)}
+                            disabled={!canRequestInterview}
                             onCheckedChange={(checked) => toggleInterviewCandidate(candidate.id, checked === true)}
                             aria-label={`Select ${candidate.firstName} ${candidate.lastName}`}
                           />
@@ -286,6 +300,7 @@ export default function ClientRoleCandidates() {
                             variant="outline"
                             size="sm"
                             className="h-[30px] rounded-lg border-slate-200 bg-white px-2.5 text-[11px] text-slate-700 hover:border-primary hover:text-primary"
+                            disabled={!canRequestInterview}
                             onClick={() => openInterviewDialog(candidate.id)}
                           >
                             <CalendarClock className="h-3.5 w-3.5" />
@@ -381,6 +396,10 @@ export default function ClientRoleCandidates() {
             name: `${selectedInterviewCandidate.firstName} ${selectedInterviewCandidate.lastName}`.trim(),
             email: selectedInterviewCandidate.email ?? null,
           }] : []}
+          onSubmitted={() => {
+            setSelectedInterviewCandidateIds([]);
+            void queryClient.invalidateQueries();
+          }}
         />
       </div>
     </DashboardLayout>

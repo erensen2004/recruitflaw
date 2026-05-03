@@ -189,7 +189,7 @@ export default function ClientCandidates() {
                     </td>
                     <td className="px-5 py-3.5 text-slate-500">{c.vendorCompanyName}</td>
                     <td className="px-5 py-3.5">
-                      <StatusBadge status={c.status} className="border-slate-200 bg-slate-50 text-slate-700" />
+                      <StatusBadge status={c.status} />
                     </td>
                     <td className="px-5 py-3.5">
                       {c.cvUrl ? (

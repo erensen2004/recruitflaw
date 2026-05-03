@@ -22,6 +22,8 @@ import {
   dispatchInterviewRequest,
   fetchCandidateInterviewBundle,
   formatInterviewSlot,
+  replyToInterviewRequestCandidate,
+  scheduleInterviewRequestCandidate,
   submitInterviewProposal,
   type CandidateInterviewBundle,
   type InterviewRequestInput,
@@ -34,8 +36,6 @@ import {
   type InterviewMeeting,
   type InterviewProposal,
   type InterviewInboxItem,
-  fetchInterviewInbox,
-  type InterviewInboxView,
 } from "@/lib/interviews";
 import { AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, Loader2, MessageSquare, PartyPopper, Sparkles } from "lucide-react";
 
@@ -85,6 +85,109 @@ function getSchedulingStateLabel(status?: string | null) {
     default:
       return status ? status.replace(/_/g, " ") : "Pending";
   }
+}
+
+function getRequestOwnerLabel(status?: string | null) {
+  switch (status) {
+    case "admin_review":
+    case "vendor_replied":
+      return "Admin";
+    case "sent_to_vendor":
+      return "Vendor";
+    case "scheduled":
+    case "cancelled":
+    case "closed":
+      return "Closed";
+    default:
+      return "Admin";
+  }
+}
+
+function getRequestNextAction(status?: string | null) {
+  switch (status) {
+    case "admin_review":
+      return "Clean the client request and send it to vendors.";
+    case "sent_to_vendor":
+      return "Waiting for vendor availability.";
+    case "vendor_replied":
+      return "Review vendor reply and confirm or send an update.";
+    case "scheduled":
+      return "Interview details are confirmed.";
+    case "cancelled":
+      return "Request was cancelled.";
+    case "closed":
+      return "Request is closed.";
+    default:
+      return "Review scheduling request.";
+  }
+}
+
+function getCandidateNextAction(roleBase: string, status?: string | null) {
+  if (roleBase === "/vendor" && status === "sent_to_vendor") return "Reply to admin";
+  if (roleBase === "/admin" && status === "pending_admin") return "Send vendor message";
+  if (roleBase === "/admin" && status === "vendor_replied") return "Review reply";
+  if (roleBase === "/admin" && status === "sent_to_vendor") return "Await vendor";
+  if (status === "scheduled") return "Scheduled";
+  if (status === "cancelled") return "Cancelled";
+  if (status === "closed") return "Closed";
+  return getSchedulingStateLabel(status);
+}
+
+function formatRelativeAge(value?: string | null) {
+  if (!value) return "New";
+  const diffMs = Date.now() - new Date(value).getTime();
+  if (!Number.isFinite(diffMs) || diffMs < 0) return "New";
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
+
+function formatRelativeTimestamp(value?: string | null) {
+  const age = formatRelativeAge(value);
+  return age === "Just now" || age === "New" ? age : `${age} ago`;
+}
+
+function formatRelativeInline(value?: string | null) {
+  const age = formatRelativeAge(value);
+  return age === "Just now" ? "just now" : age.toLowerCase();
+}
+
+function getAgeToneClass(value?: string | null, isActionable = false) {
+  const diffMs = value ? Date.now() - new Date(value).getTime() : 0;
+  const hours = diffMs / 3_600_000;
+  if (!isActionable) return "bg-slate-100 text-slate-600";
+  if (hours >= 48) return "bg-rose-50 text-rose-700";
+  if (hours >= 24) return "bg-amber-50 text-amber-700";
+  return "bg-blue-50 text-blue-700";
+}
+
+function getLatestRequestActivityMessage(request: InterviewRequestItem) {
+  const latest = [...request.activity]
+    .reverse()
+    .find((activity) => {
+      const payload = activity.payload ?? {};
+      return typeof payload.messageText === "string" || typeof payload.finalDetails === "string";
+    });
+  const payload = latest?.payload ?? {};
+  const message =
+    typeof payload.finalDetails === "string"
+      ? payload.finalDetails
+      : typeof payload.messageText === "string"
+        ? payload.messageText
+        : null;
+  return message?.trim() || null;
+}
+
+function getRequestActionTone(status?: string | null) {
+  if (status === "admin_review" || status === "vendor_replied") return "Admin action";
+  if (status === "sent_to_vendor") return "Vendor action";
+  if (status === "scheduled") return "Scheduled";
+  if (status === "cancelled" || status === "closed") return "Closed";
+  return "Tracking";
 }
 
 function formatActivityLabel(eventType: string) {
@@ -355,24 +458,15 @@ export function InterviewIntakeRequestDialog({
 }) {
   const { toast } = useToast();
   const [requestText, setRequestText] = useState("");
-  const [preferredDate, setPreferredDate] = useState("");
-  const [preferredWindow, setPreferredWindow] = useState("");
-  const [timezone, setTimezone] = useState(DEFAULT_TIMEZONE);
-  const [durationMinutes, setDurationMinutes] = useState("45");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setRequestText("");
-    setPreferredDate("");
-    setPreferredWindow("");
-    setTimezone(DEFAULT_TIMEZONE);
-    setDurationMinutes("45");
   }, [open]);
 
   const submit = async () => {
     const candidateIds = candidates.map((candidate) => candidate.id);
-    const duration = durationMinutes.trim() ? Number(durationMinutes) : null;
     if (!candidateIds.length) {
       toast({ title: "Select candidates", description: "Choose at least one candidate for the interview request.", variant: "destructive" });
       return;
@@ -381,19 +475,11 @@ export function InterviewIntakeRequestDialog({
       toast({ title: "Add request details", description: "Write what the client wants the admin desk to coordinate.", variant: "destructive" });
       return;
     }
-    if (duration != null && (!Number.isFinite(duration) || duration <= 0)) {
-      toast({ title: "Check duration", description: "Duration must be a positive number of minutes.", variant: "destructive" });
-      return;
-    }
 
     const payload: InterviewRequestInput = {
       roleId,
       candidateIds,
       requestText: requestText.trim(),
-      preferredDate: preferredDate.trim() || null,
-      preferredWindow: preferredWindow.trim() || null,
-      timezone: timezone.trim() || DEFAULT_TIMEZONE,
-      durationMinutes: duration,
     };
 
     setSubmitting(true);
@@ -419,7 +505,7 @@ export function InterviewIntakeRequestDialog({
         <DialogHeader>
           <DialogTitle>Request interviews</DialogTitle>
           <DialogDescription>
-            Send a natural-language scheduling request to the admin desk. Exact slots are optional at this stage.
+            Send a simple scheduling request to the admin desk. No exact slot is needed here.
           </DialogDescription>
         </DialogHeader>
 
@@ -443,27 +529,8 @@ export function InterviewIntakeRequestDialog({
               onChange={(event) => setRequestText(event.target.value)}
               rows={5}
               className="resize-none rounded-xl"
-              placeholder="Example: We can meet these three candidates on 17 May in the afternoon. Please coordinate with vendors and confirm workable slots."
+              placeholder="Example: We can meet these three candidates next Wednesday afternoon. Please coordinate with the vendors and confirm workable options."
             />
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Preferred date</label>
-              <Input type="date" value={preferredDate} onChange={(event) => setPreferredDate(event.target.value)} className="h-10 rounded-xl" />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Preferred window</label>
-              <Input value={preferredWindow} onChange={(event) => setPreferredWindow(event.target.value)} className="h-10 rounded-xl" placeholder="Afternoon / morning / flexible" />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Timezone</label>
-              <Input value={timezone} onChange={(event) => setTimezone(event.target.value)} className="h-10 rounded-xl" placeholder="Europe/Istanbul" />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Duration</label>
-              <Input type="number" min={15} step={15} value={durationMinutes} onChange={(event) => setDurationMinutes(event.target.value)} className="h-10 rounded-xl" />
-            </div>
           </div>
         </div>
 
@@ -474,6 +541,90 @@ export function InterviewIntakeRequestDialog({
           <Button type="button" className="rounded-xl gap-2" onClick={submit} disabled={submitting}>
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarClock className="h-4 w-4" />}
             Send to admin desk
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function InterviewMessageDialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  label,
+  placeholder,
+  submitLabel,
+  submitting,
+  onSubmit,
+  showReplyType = false,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description: string;
+  label: string;
+  placeholder: string;
+  submitLabel: string;
+  submitting: boolean;
+  onSubmit: (value: { messageText: string; replyType: "can_work" | "suggest_alternative" | "not_available" }) => Promise<void>;
+  showReplyType?: boolean;
+}) {
+  const [messageText, setMessageText] = useState("");
+  const [replyType, setReplyType] = useState<"can_work" | "suggest_alternative" | "not_available">("suggest_alternative");
+
+  useEffect(() => {
+    if (!open) return;
+    setMessageText("");
+    setReplyType("suggest_alternative");
+  }, [open]);
+
+  const submit = async () => {
+    await onSubmit({ messageText: messageText.trim(), replyType });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-xl rounded-3xl border-slate-200">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          {showReplyType ? (
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Reply type</label>
+              <Select value={replyType} onValueChange={(value) => setReplyType(value as typeof replyType)}>
+                <SelectTrigger className="h-10 rounded-xl">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="can_work">Can work</SelectItem>
+                  <SelectItem value="suggest_alternative">Suggest alternative</SelectItem>
+                  <SelectItem value="not_available">Not available for now</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</label>
+            <Textarea
+              value={messageText}
+              onChange={(event) => setMessageText(event.target.value)}
+              rows={6}
+              className="resize-none rounded-xl"
+              placeholder={placeholder}
+            />
+          </div>
+        </div>
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button type="button" variant="outline" className="rounded-xl" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button type="button" className="rounded-xl gap-2" onClick={submit} disabled={submitting || !messageText.trim()}>
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}
+            {submitLabel}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -527,6 +678,7 @@ export function InterviewWorkflowPanel({
   const bundleProcess = bundle.process;
   const activeMeeting = useMemo(() => getActiveMeeting(bundle.meetings), [bundle.meetings]);
   const pendingProposal = useMemo(() => getLatestPendingProposal(bundle.meetings, bundle.proposals), [bundle.meetings, bundle.proposals]);
+  const recentActivities = useMemo(() => bundle.activities.slice(0, 3), [bundle.activities]);
 
   const loadBundle = async () => {
     setLoading(true);
@@ -640,7 +792,11 @@ export function InterviewWorkflowPanel({
   };
 
   const canInitiate = isAdmin && (!bundleProcess || bundleProcess.status === "closed" || !activeMeeting);
-  const canRequestViaAdmin = isClient && Boolean(onRequestInterview) && (!bundleProcess || bundleProcess.status === "closed" || !activeMeeting);
+  const canRequestViaAdmin =
+    isClient &&
+    Boolean(onRequestInterview) &&
+    ["submitted", "screening"].includes(candidateStatus) &&
+    (!bundleProcess || bundleProcess.status === "closed" || !activeMeeting);
   const canCounter = Boolean((isAdmin || isVendor) && activeMeeting && bundleProcess && bundleProcess.status === "open");
   const canActOnProposal = Boolean((isAdmin || isVendor) && pendingProposal && pendingProposal.responseStatus === "pending" && pendingProposal.proposedByRole !== currentRole);
   const latestSlotLabel =
@@ -652,6 +808,7 @@ export function InterviewWorkflowPanel({
           timezone: bundleProcess?.nextScheduledTimezone ?? activeMeeting?.timezone ?? null,
         })
       : null;
+  const primaryInboxHref = inboxHref ?? (isAdmin ? "/admin/interviews" : isVendor ? "/vendor/interviews" : "/client/interviews");
   const shellClassName = compact
     ? "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
     : "rounded-2xl border border-slate-100 bg-white p-6 shadow-lg shadow-black/5";
@@ -667,7 +824,7 @@ export function InterviewWorkflowPanel({
             {bundleProcess ? <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">{bundle.meetings.length} meeting{bundle.meetings.length === 1 ? "" : "s"}</span> : null}
           </div>
           <p className="mt-1 text-sm text-slate-500">
-            {candidateName} {bundleProcess ? "has an active scheduling thread." : "has no scheduling thread yet."}
+            {candidateName} {bundleProcess ? "has an active scheduling thread." : candidateStatus === "interview" ? "has an active admin scheduling request." : "has no scheduling thread yet."}
           </p>
           <p className="mt-1 text-xs text-slate-400">
             {vendorCompanyName ? `Vendor: ${vendorCompanyName}` : null}
@@ -683,18 +840,6 @@ export function InterviewWorkflowPanel({
           {latestSlotLabel ? <span className="text-right text-xs text-slate-500">{latestSlotLabel}</span> : null}
         </div>
       </div>
-
-      {summaryOnly && inboxHref ? (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3">
-          <p className="text-sm text-slate-600">Use the profile for the next action. Keep the thread here.</p>
-          <Link
-            href={inboxHref}
-            className="inline-flex min-h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-primary hover:text-primary"
-          >
-            Manage scheduling
-          </Link>
-        </div>
-      ) : null}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <div className="rounded-xl bg-slate-50 px-3 py-2.5">
@@ -720,8 +865,14 @@ export function InterviewWorkflowPanel({
           <div className="flex items-start gap-3">
             <Sparkles className="mt-0.5 h-4 w-4 text-primary" />
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-slate-900">No thread yet</p>
-              <p className="mt-1 text-sm leading-6 text-slate-500">Start with a request to open the thread.</p>
+              <p className="text-sm font-semibold text-slate-900">
+                {candidateStatus === "interview" ? "Admin desk is coordinating" : "No thread yet"}
+              </p>
+              <p className="mt-1 text-sm leading-6 text-slate-500">
+                {candidateStatus === "interview"
+                  ? "The interview request is active. Continue from Interview Requests."
+                  : "Start with a request to open the thread."}
+              </p>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
@@ -733,18 +884,43 @@ export function InterviewWorkflowPanel({
             ) : null}
           </div>
         </div>
-      ) : summaryOnly ? (
+      ) : true ? (
         <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Active</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Coordination</p>
               <p className="mt-1 text-sm font-semibold text-slate-900">
-                {activeMeeting ? `Meeting #${activeMeeting.meetingIndex}` : "No active meeting"}
+                {bundleProcess.awaitingResponseFrom
+                  ? `Waiting for ${getRoleLabel(bundleProcess.awaitingResponseFrom).toLowerCase()}`
+                  : activeMeeting?.status === "scheduled"
+                    ? "Interview scheduled"
+                    : "Admin scheduling desk active"}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                {latestSlotLabel && latestSlotLabel !== "Time pending"
+                  ? latestSlotLabel
+                  : "Use Interview Requests for the full coordination thread."}
               </p>
             </div>
             {activeMeeting ? <StatusBadge status={activeMeeting.status} /> : null}
           </div>
+          {recentActivities.length ? (
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              {recentActivities.map((activity) => (
+                <div key={activity.id} className="rounded-xl bg-white px-3 py-2 text-xs">
+                  <p className="truncate font-medium text-slate-700">{formatActivityLabel(activity.eventType)}</p>
+                  <p className="mt-0.5 whitespace-nowrap text-slate-400">{new Date(activity.createdAt).toLocaleDateString()}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div className="mt-3 flex flex-wrap gap-2">
+            <Link
+              href={primaryInboxHref}
+              className="inline-flex min-h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-primary hover:text-primary"
+            >
+              View coordination
+            </Link>
             {canInitiate || canRequestViaAdmin ? (
               <Button type="button" className="rounded-xl gap-2" onClick={() => (canRequestViaAdmin ? onRequestInterview?.() : openRequestDialog("request"))}>
                 <CalendarClock className="h-4 w-4" />
@@ -789,10 +965,10 @@ export function InterviewWorkflowPanel({
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Active</p>
                 <p className="mt-1 text-sm font-semibold text-slate-900">
-                  {activeMeeting ? `Meeting #${activeMeeting.meetingIndex}` : "No active meeting"}
+                  {activeMeeting ? `Meeting #${activeMeeting!.meetingIndex}` : "No active meeting"}
                 </p>
               </div>
-              {activeMeeting ? <StatusBadge status={activeMeeting.status} /> : null}
+              {activeMeeting ? <StatusBadge status={activeMeeting!.status} /> : null}
             </div>
             {activeMeeting ? (
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -800,10 +976,10 @@ export function InterviewWorkflowPanel({
                   <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Scheduled slot</p>
                   <p className="mt-1 text-sm font-semibold text-slate-800">
                     {formatInterviewSlot({
-                      scheduledDate: activeMeeting.scheduledDate,
-                      scheduledStartTime: activeMeeting.scheduledStartTime,
-                      scheduledEndTime: activeMeeting.scheduledEndTime,
-                      timezone: activeMeeting.timezone,
+                      scheduledDate: activeMeeting!.scheduledDate,
+                      scheduledStartTime: activeMeeting!.scheduledStartTime,
+                      scheduledEndTime: activeMeeting!.scheduledEndTime,
+                      timezone: activeMeeting!.timezone,
                     })}
                   </p>
                 </div>
@@ -1053,6 +1229,15 @@ export function InterviewInboxPage({
     request: InterviewRequestItem;
     candidate: InterviewRequestCandidate;
   } | null>(null);
+  const [replyTarget, setReplyTarget] = useState<{
+    request: InterviewRequestItem;
+    candidate: InterviewRequestCandidate;
+  } | null>(null);
+  const [scheduleTarget, setScheduleTarget] = useState<{
+    request: InterviewRequestItem;
+    candidate: InterviewRequestCandidate;
+  } | null>(null);
+  const [actionSubmitting, setActionSubmitting] = useState(false);
 
   const visibleItems = useMemo(() => {
     const filtered = items.filter((item) => {
@@ -1073,13 +1258,18 @@ export function InterviewInboxPage({
     return [...requestItems].sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
   }, [requestItems]);
 
-  const submitDispatch = async (payload: InterviewProposalInput) => {
+  const submitDispatch = async ({ messageText }: { messageText: string }) => {
     if (!dispatchTarget) return;
+    if (!messageText.trim()) {
+      toast({ title: "Add vendor message", description: "Write the scheduling message before sending.", variant: "destructive" });
+      return;
+    }
     const dispatchPayload: InterviewRequestDispatchInput = {
-      ...payload,
       requestCandidateId: dispatchTarget.candidate.id,
-      adminNote: payload.note ?? null,
+      messageText: messageText.trim(),
+      adminNote: messageText.trim(),
     };
+    setActionSubmitting(true);
     try {
       await dispatchInterviewRequest(dispatchTarget.request.id, [dispatchPayload]);
       toast({ title: "Sent to vendor", description: `${dispatchTarget.candidate.candidateName} is now in the scheduling flow.` });
@@ -1091,6 +1281,57 @@ export function InterviewInboxPage({
         description: error instanceof Error ? error.message : "Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setActionSubmitting(false);
+    }
+  };
+
+  const submitVendorReply = async ({ messageText, replyType }: { messageText: string; replyType: "can_work" | "suggest_alternative" | "not_available" }) => {
+    if (!replyTarget) return;
+    if (!messageText.trim()) {
+      toast({ title: "Add reply", description: "Write a short availability reply for the admin desk.", variant: "destructive" });
+      return;
+    }
+    setActionSubmitting(true);
+    try {
+      await replyToInterviewRequestCandidate(replyTarget.request.id, replyTarget.candidate.id, {
+        replyType,
+        messageText: messageText.trim(),
+      });
+      toast({ title: "Reply sent", description: "The admin desk can now coordinate the next step." });
+      setReplyTarget(null);
+      await onRefresh();
+    } catch (error) {
+      toast({
+        title: "Could not send reply",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setActionSubmitting(false);
+    }
+  };
+
+  const submitScheduledDetails = async ({ messageText }: { messageText: string }) => {
+    if (!scheduleTarget) return;
+    if (!messageText.trim()) {
+      toast({ title: "Add confirmed details", description: "Write the agreed interview details before scheduling.", variant: "destructive" });
+      return;
+    }
+    setActionSubmitting(true);
+    try {
+      await scheduleInterviewRequestCandidate(scheduleTarget.request.id, scheduleTarget.candidate.id, messageText.trim());
+      toast({ title: "Interview marked scheduled", description: `${scheduleTarget.candidate.candidateName} now has confirmed interview details.` });
+      setScheduleTarget(null);
+      await onRefresh();
+    } catch (error) {
+      toast({
+        title: "Could not mark scheduled",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setActionSubmitting(false);
     }
   };
 
@@ -1124,8 +1365,8 @@ export function InterviewInboxPage({
           <div className="border-b border-slate-200 bg-slate-50/70 px-4 py-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <p className="text-sm font-semibold text-slate-900">Admin scheduling desk</p>
-                <p className="text-xs text-slate-500">Review client requests, send clean slots to vendors, and keep confirmations on one timeline.</p>
+                <p className="text-sm font-semibold text-slate-900">Coordination desk</p>
+                <p className="text-xs text-slate-500">Client request, current owner, and next action in one place.</p>
               </div>
               <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
                 {visibleRequests.length} request{visibleRequests.length === 1 ? "" : "s"}
@@ -1133,49 +1374,82 @@ export function InterviewInboxPage({
             </div>
           </div>
           <div className="divide-y divide-slate-100">
-            {visibleRequests.map((request) => (
+            {visibleRequests.map((request) => {
+              const latestMessage = getLatestRequestActivityMessage(request);
+              const ownerLabel = getRequestOwnerLabel(request.status);
+              const nextAction = getRequestNextAction(request.status);
+              return (
               <div key={request.id} className="px-4 py-3">
-                <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,2fr)_minmax(0,1fr)] lg:items-start">
+                <div className="grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,2fr)_minmax(170px,0.75fr)_minmax(280px,1.35fr)] xl:items-start">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-slate-900">{request.roleTitle}</p>
-                    <p className="mt-1 text-xs text-slate-500">{request.clientCompanyName ?? "Client"} • {request.candidates.length} candidate{request.candidates.length === 1 ? "" : "s"}</p>
+                    <p className="mt-1 text-xs text-slate-500">{request.clientCompanyName ?? "Client"} • {request.candidates.length} candidate{request.candidates.length === 1 ? "" : "s"} • updated {formatRelativeTimestamp(request.updatedAt)}</p>
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       <StatusBadge status={request.status} />
                       {request.needsAction ? <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700">Action needed</span> : null}
                     </div>
                   </div>
                   <div className="min-w-0 rounded-xl bg-slate-50 px-3 py-2">
-                    <p className="line-clamp-2 text-sm leading-6 text-slate-700">{request.requestText}</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {[request.preferredDate, request.preferredWindow, request.timezone, request.durationMinutes ? `${request.durationMinutes} min` : null].filter(Boolean).join(" • ") || "No structured preference"}
-                    </p>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Client request</p>
+                    <p className="mt-1 line-clamp-2 text-sm leading-6 text-slate-700">{request.requestText}</p>
+                    {latestMessage ? (
+                      <p className="mt-2 line-clamp-1 border-t border-slate-200 pt-2 text-xs text-slate-500">
+                        Latest: {latestMessage}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="rounded-xl border border-slate-100 bg-white px-3 py-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Owner</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">{ownerLabel}</p>
+                    <span className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-semibold ${getAgeToneClass(request.updatedAt, request.needsAction)}`}>
+                      {request.needsAction ? "Waiting " : "Updated "}{formatRelativeInline(request.updatedAt)}
+                    </span>
                   </div>
                   <div className="space-y-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{nextAction}</p>
                     {request.candidates.map((candidate) => (
-                      <div key={candidate.id} className="flex items-center justify-between gap-2 rounded-xl border border-slate-100 px-3 py-2">
+                      <div key={candidate.id} className="flex items-center justify-between gap-2 rounded-xl border border-slate-100 bg-white px-3 py-2">
                         <div className="min-w-0">
                           <p className="truncate text-xs font-semibold text-slate-900">{candidate.candidateName}</p>
-                          <p className="truncate text-[11px] text-slate-500">{candidate.vendorCompanyName ?? "Vendor"} • {getSchedulingStateLabel(candidate.status)}</p>
+                          <p className="truncate text-[11px] text-slate-500">{candidate.vendorCompanyName ?? "Vendor"} • {getCandidateNextAction(roleBase, candidate.status)}</p>
                         </div>
-                        {roleBase === "/admin" && ["pending_admin", "vendor_replied"].includes(candidate.status) ? (
-                          <Button type="button" size="sm" variant="outline" className="h-8 rounded-lg px-2 text-[11px]" onClick={() => setDispatchTarget({ request, candidate })}>
-                            {candidate.status === "vendor_replied" ? "Review suggestion" : "Send to vendor"}
-                          </Button>
-                        ) : candidate.interviewMeetingId ? (
-                          <Link href={`${roleBase}/candidates/${candidate.candidateId}`} className="text-[11px] font-medium text-primary">
-                            Open
-                          </Link>
-                        ) : null}
+                        <div className="flex flex-shrink-0 items-center gap-1.5">
+                          {roleBase === "/admin" && ["pending_admin", "vendor_replied"].includes(candidate.status) ? (
+                            <Button type="button" size="sm" variant="outline" className="h-8 rounded-lg px-2 text-[11px]" onClick={() => setDispatchTarget({ request, candidate })}>
+                              {candidate.status === "vendor_replied" ? "Send update" : "Send to vendor"}
+                            </Button>
+                          ) : null}
+                          {roleBase === "/admin" && ["sent_to_vendor", "vendor_replied"].includes(candidate.status) ? (
+                            <Button type="button" size="sm" className="h-8 rounded-lg px-2 text-[11px]" onClick={() => setScheduleTarget({ request, candidate })}>
+                              Mark scheduled
+                            </Button>
+                          ) : null}
+                          {roleBase === "/vendor" && candidate.status === "sent_to_vendor" ? (
+                            <Button type="button" size="sm" variant="outline" className="h-8 rounded-lg px-2 text-[11px]" onClick={() => setReplyTarget({ request, candidate })}>
+                              Reply
+                            </Button>
+                          ) : null}
+                          {candidate.interviewMeetingId || roleBase !== "/vendor" ? (
+                            <Link
+                              href={`${roleBase}/candidates/${candidate.candidateId}?back=${encodeURIComponent(`${roleBase}/interviews`)}&focus=interview`}
+                              className="text-[11px] font-medium text-primary"
+                            >
+                              View coordination
+                            </Link>
+                          ) : null}
+                        </div>
                       </div>
                     ))}
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       ) : null}
 
+      {items.length ? (
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="hidden border-b border-slate-200 bg-slate-50/70 px-4 py-2.5 xl:grid xl:grid-cols-[minmax(0,2.2fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.9fr)] xl:gap-3">
           <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Candidate</div>
@@ -1195,7 +1469,7 @@ export function InterviewInboxPage({
             {visibleItems.map((item) => (
               <Link
                 key={item.process.id}
-                href={`${roleBase}/candidates/${item.candidate.id}`}
+                href={`${roleBase}/candidates/${item.candidate.id}?back=${encodeURIComponent(`${roleBase}/interviews`)}&focus=interview`}
                 className="block px-4 py-3 transition-colors hover:bg-slate-50/70"
               >
                 <div className="grid gap-2 xl:grid-cols-[minmax(0,2.2fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.9fr)] xl:items-center xl:gap-3">
@@ -1224,10 +1498,10 @@ export function InterviewInboxPage({
                   </div>
                 <div className="flex items-center justify-end gap-2">
                   <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${item.needsAction ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>
-                      {item.needsAction ? "Action needed" : "Open"}
+                      {item.needsAction ? "Action needed" : "Tracking"}
                     </span>
                     <span className="inline-flex items-center gap-1 text-xs font-medium text-primary">
-                      Open <ArrowRight className="h-3.5 w-3.5" />
+                      View coordination <ArrowRight className="h-3.5 w-3.5" />
                     </span>
                   </div>
                 </div>
@@ -1241,17 +1515,54 @@ export function InterviewInboxPage({
           </div>
         )}
       </div>
+      ) : null}
 
-      <InterviewProposalDialog
+      {!visibleRequests.length && !items.length && !loading ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-500 shadow-sm">
+          <MessageSquare className="mx-auto mb-2 h-10 w-10 text-slate-300" />
+          No interview requests in this view.
+        </div>
+      ) : null}
+
+      <InterviewMessageDialog
         open={Boolean(dispatchTarget)}
         onOpenChange={(open) => {
           if (!open) setDispatchTarget(null);
         }}
-        title={dispatchTarget ? `Send slot for ${dispatchTarget.candidate.candidateName}` : "Send interview slot"}
-        description="Convert the client request into a structured slot or window for the vendor."
+        title={dispatchTarget ? `Message vendor for ${dispatchTarget.candidate.candidateName}` : "Message vendor"}
+        description="Clean up the client request into a concise vendor-facing scheduling message."
+        label="Message to vendor"
+        placeholder="Example: The client would like to meet this candidate next Wednesday afternoon. Could you please confirm availability or suggest workable alternatives?"
         submitLabel="Send to vendor"
-        initialDate={dispatchTarget?.request.preferredDate ?? undefined}
-        onSubmit={submitDispatch}
+        submitting={actionSubmitting}
+        onSubmit={(value) => submitDispatch(value)}
+      />
+      <InterviewMessageDialog
+        open={Boolean(replyTarget)}
+        onOpenChange={(open) => {
+          if (!open) setReplyTarget(null);
+        }}
+        title={replyTarget ? `Reply for ${replyTarget.candidate.candidateName}` : "Reply to admin"}
+        description="Send availability or an alternative back to the admin scheduling desk."
+        label="Reply"
+        placeholder="Example: Wednesday afternoon can work after 15:00, or Thursday between 10:00 and 12:00 is better."
+        submitLabel="Send reply"
+        submitting={actionSubmitting}
+        showReplyType
+        onSubmit={(value) => submitVendorReply(value)}
+      />
+      <InterviewMessageDialog
+        open={Boolean(scheduleTarget)}
+        onOpenChange={(open) => {
+          if (!open) setScheduleTarget(null);
+        }}
+        title={scheduleTarget ? `Mark scheduled for ${scheduleTarget.candidate.candidateName}` : "Mark scheduled"}
+        description="Record the agreed interview details in plain language."
+        label="Confirmed details"
+        placeholder="Example: Confirmed for Wednesday afternoon, 15:30 Istanbul time. Vendor will brief the candidate before the call."
+        submitLabel="Mark scheduled"
+        submitting={actionSubmitting}
+        onSubmit={(value) => submitScheduledDetails(value)}
       />
     </div>
   );

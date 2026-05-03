@@ -50,17 +50,21 @@ export function DashboardLayout({ children, allowedRoles }: { children: React.Re
     }
 
     let ignore = false;
-    void (async () => {
+    const refreshInterviewBadge = async () => {
       try {
         const counts = await fetchInterviewActionCounts();
         if (!ignore) setInterviewBadgeCount(counts.total);
       } catch {
         if (!ignore) setInterviewBadgeCount(null);
       }
-    })();
+    };
+
+    void refreshInterviewBadge();
+    window.addEventListener("recruitflow:interviews-updated", refreshInterviewBadge);
 
     return () => {
       ignore = true;
+      window.removeEventListener("recruitflow:interviews-updated", refreshInterviewBadge);
     };
   }, [user?.role]);
 
