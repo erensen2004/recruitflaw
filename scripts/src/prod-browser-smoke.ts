@@ -51,6 +51,16 @@ type CandidateInterviewApiResponse = {
   }>;
 };
 
+type InterviewRequestApiResponse = {
+  items?: Array<{
+    candidates?: Array<{
+      candidateId?: number;
+      candidate_id?: number;
+      status?: string;
+    }>;
+  }>;
+};
+
 type CandidateNote = {
   id: number;
   content: string;
@@ -189,6 +199,11 @@ async function getInterviewBundle(token: string, candidateId: number) {
   } satisfies CandidateInterviewBundle;
 }
 
+async function getInterviewRequests(token: string) {
+  const payload = await authedJson<InterviewRequestApiResponse>(token, "/api/interview-requests?view=all");
+  return payload.items ?? [];
+}
+
 async function getNotes(token: string, candidateId: number) {
   return authedJson<CandidateNote[]>(token, `/api/candidates/${candidateId}/notes`);
 }
@@ -224,8 +239,22 @@ async function choosePrimaryCandidate(token: string) {
 }
 
 async function chooseInterviewCandidate(token: string, candidates: CandidateListItem[]) {
+  const activeRequestCandidateIds = new Set<number>();
+  const interviewRequests = await getInterviewRequests(token);
+  for (const request of interviewRequests) {
+    for (const candidate of request.candidates ?? []) {
+      const candidateId = Number(candidate.candidateId ?? candidate.candidate_id ?? 0);
+      if (candidateId && ["pending_admin", "sent_to_vendor", "vendor_replied"].includes(candidate.status ?? "")) {
+        activeRequestCandidateIds.add(candidateId);
+      }
+    }
+  }
+
   for (const candidate of candidates) {
     if (!["submitted", "screening"].includes(candidate.status)) {
+      continue;
+    }
+    if (activeRequestCandidateIds.has(candidate.id)) {
       continue;
     }
 
@@ -274,10 +303,6 @@ async function createInterviewRequestCleanup(token: string, candidateId: number,
       roleId: candidate.roleId,
       candidateIds: [candidateId],
       requestText: note,
-      preferredDate: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
-      preferredWindow: "morning",
-      timezone: "Europe/Istanbul",
-      durationMinutes: 45,
     }),
   });
 
@@ -419,7 +444,7 @@ async function verifyRoleCandidates(page: Page, roleId: number) {
 async function verifyInterviewInbox(page: Page) {
   await page.goto(`${baseUrl}/client/interviews`, { waitUntil: "domcontentloaded" });
   await assertVisible(page, "text=Interview Requests", "The interview inbox heading did not render.");
-  await assertVisible(page, "text=Scheduling inbox", "The interview inbox page did not load correctly.");
+  await assertVisible(page, "text=Interview requests", "The interview inbox page did not load correctly.");
   const artifacts = await capturePageArtifacts(page, "08-interview-inbox");
   await addResult({
     name: "Interview Requests page",
