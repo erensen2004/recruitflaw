@@ -187,6 +187,10 @@ export type InterviewRequestItem = {
   activity: InterviewRequestActivity[];
 };
 
+export type InterviewRequestCancelInput = {
+  reason?: string | null;
+};
+
 export type InterviewRequestInput = {
   roleId: number;
   candidateIds: number[];
@@ -565,7 +569,7 @@ export async function cancelInterviewRequest(requestId: number, reason?: string 
   const payload = await requestJson<{ request: unknown }>(`/api/interview-requests/${requestId}/cancel`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ reason: reason ?? null }),
+    body: JSON.stringify({ reason: reason ?? null } satisfies InterviewRequestCancelInput),
   });
   notifyInterviewStateChanged();
   return payload.request ? normalizeInterviewRequest(payload.request) : null;

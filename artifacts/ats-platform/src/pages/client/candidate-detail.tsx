@@ -589,16 +589,18 @@ export default function ClientCandidateDetail() {
                       <FileText className="h-4 w-4" /> View Original CV
                     </PrivateObjectLink>
                   ) : null}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="rounded-xl gap-2"
-                    disabled={exportingPdf}
-                    onClick={handlePreviewStandardizedCv}
-                  >
-                    {exportingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                    View Standardized CV
-                  </Button>
+                  {isAdminRoute ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-xl gap-2"
+                      disabled={exportingPdf}
+                      onClick={handlePreviewStandardizedCv}
+                    >
+                      {exportingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                      View Standardized CV
+                    </Button>
+                  ) : null}
                 </div>
               </div>
 
@@ -805,12 +807,12 @@ export default function ClientCandidateDetail() {
                   <div>
                     <div className="flex items-center gap-2">
                       <Sparkles className="h-5 w-5 text-emerald-600" />
-                      <h2 className="text-lg font-bold text-slate-900">{isAdminRoute ? "Admin review console" : "Candidate brief"}</h2>
+                      <h2 className="text-lg font-bold text-slate-900">{isAdminRoute ? "Admin review console" : "Candidate profile"}</h2>
                     </div>
                     <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
                       {isAdminRoute
                         ? "This is the normalized candidate brief the client sees after the admin team verifies the profile, polishes the summary, and approves the final pipeline record."
-                        : "A concise recruiter-facing profile built for fast review."}
+                        : "Core candidate information for fast review. Open the original CV for the full source document."}
                     </p>
                   </div>
                   {isAdminRoute ? (
@@ -821,7 +823,7 @@ export default function ClientCandidateDetail() {
                   ) : null}
                 </div>
 
-                {executiveBrief?.headline ? (
+                {isAdminRoute && executiveBrief?.headline ? (
                   <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Executive headline</p>
                     <p className="mt-2 text-lg font-semibold text-slate-900">{executiveBrief.headline}</p>
@@ -852,8 +854,9 @@ export default function ClientCandidateDetail() {
                   </div>
                 ) : null}
 
-                <div className="mt-5 grid gap-4 xl:grid-cols-[1.15fr,0.85fr]">
-                  <div className={`rounded-2xl p-5 ${isAdminRoute ? "bg-emerald-50/70" : "border border-slate-100 bg-slate-50/70"}`}>
+                <div className={`mt-5 grid gap-4 ${isAdminRoute ? "xl:grid-cols-[1.15fr,0.85fr]" : ""}`}>
+                  {isAdminRoute ? (
+                  <div className="rounded-2xl bg-emerald-50/70 p-5">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Professional snapshot</p>
                     <p className="mt-3 text-sm leading-7 text-slate-800">
                       {cleanProfessionalSnapshot ||
@@ -875,6 +878,7 @@ export default function ClientCandidateDetail() {
                       </div>
                     ) : null}
                   </div>
+                  ) : null}
 
                   <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-5">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{isAdminRoute ? "Admin-normalized profile" : "Key details"}</p>
@@ -1003,7 +1007,7 @@ export default function ClientCandidateDetail() {
                 </div>
                 </div>
 
-                {executiveBrief?.notableAchievements.length ? (
+                {isAdminRoute && executiveBrief?.notableAchievements.length ? (
                   <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Notable achievements</p>
                     <div className="mt-3 grid gap-2">

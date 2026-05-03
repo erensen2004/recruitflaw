@@ -14,6 +14,7 @@ import { invalidateCandidateQueries } from "@/lib/candidate-query";
 import {
   acceptInterviewProposal,
   addInterviewMeeting,
+  cancelInterviewRequest,
   cancelInterviewMeeting,
   completeInterviewMeeting,
   createInterviewRequest,
@@ -904,7 +905,7 @@ export function InterviewWorkflowPanel({
             </div>
             {activeMeeting ? <StatusBadge status={activeMeeting.status} /> : null}
           </div>
-          {recentActivities.length ? (
+          {!summaryOnly && recentActivities.length ? (
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
               {recentActivities.map((activity) => (
                 <div key={activity.id} className="rounded-xl bg-white px-3 py-2 text-xs">
@@ -921,36 +922,36 @@ export function InterviewWorkflowPanel({
             >
               View coordination
             </Link>
-            {canInitiate || canRequestViaAdmin ? (
+            {(canInitiate || canRequestViaAdmin) && !summaryOnly ? (
               <Button type="button" className="rounded-xl gap-2" onClick={() => (canRequestViaAdmin ? onRequestInterview?.() : openRequestDialog("request"))}>
                 <CalendarClock className="h-4 w-4" />
                 Request interview
               </Button>
             ) : null}
-            {canCounter ? (
+            {canCounter && !summaryOnly ? (
               <Button type="button" variant="outline" className="rounded-xl gap-2" onClick={() => openRequestDialog("counter")}>
                 <ArrowRight className="h-4 w-4" />
                 Suggest another time
               </Button>
             ) : null}
-            {canActOnProposal ? (
+            {canActOnProposal && !summaryOnly ? (
               <Button type="button" variant="outline" className="rounded-xl gap-2" onClick={() => void acceptProposal(pendingProposal!.id)}>
                 <CheckCircle2 className="h-4 w-4" />
                 Accept
               </Button>
             ) : null}
-            {canActOnProposal ? (
+            {canActOnProposal && !summaryOnly ? (
               <Button type="button" variant="outline" className="rounded-xl" onClick={() => void declineProposal(pendingProposal!.id)}>
                 Not available
               </Button>
             ) : null}
-            {activeMeeting?.status === "scheduled" && isAdmin ? (
+            {activeMeeting?.status === "scheduled" && isAdmin && !summaryOnly ? (
               <Button type="button" variant="outline" className="rounded-xl gap-2 border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800" onClick={() => setCompleteDialogOpen(true)}>
                 <PartyPopper className="h-4 w-4" />
                 Complete
               </Button>
             ) : null}
-            {activeMeeting && isAdmin ? (
+            {activeMeeting && isAdmin && !summaryOnly ? (
               <Button type="button" variant="outline" className="rounded-xl gap-2 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" onClick={() => setCancelDialogOpen(true)}>
                 <AlertTriangle className="h-4 w-4" />
                 Cancel
@@ -1237,6 +1238,8 @@ export function InterviewInboxPage({
     request: InterviewRequestItem;
     candidate: InterviewRequestCandidate;
   } | null>(null);
+  const [cancelRequestTarget, setCancelRequestTarget] = useState<InterviewRequestItem | null>(null);
+  const [expandedRequestId, setExpandedRequestId] = useState<number | null>(null);
   const [actionSubmitting, setActionSubmitting] = useState(false);
 
   const visibleItems = useMemo(() => {
@@ -1335,6 +1338,28 @@ export function InterviewInboxPage({
     }
   };
 
+  const cancelRequest = async () => {
+    if (!cancelRequestTarget) return;
+    setActionSubmitting(true);
+    try {
+      await cancelInterviewRequest(cancelRequestTarget.id, "Cancelled from the scheduling desk");
+      toast({
+        title: "Request cancelled",
+        description: "The candidate pipeline status was not changed automatically. Review it if a follow-up decision is needed.",
+      });
+      setCancelRequestTarget(null);
+      await onRefresh();
+    } catch (error) {
+      toast({
+        title: "Could not cancel request",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setActionSubmitting(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -1378,6 +1403,10 @@ export function InterviewInboxPage({
               const latestMessage = getLatestRequestActivityMessage(request);
               const ownerLabel = getRequestOwnerLabel(request.status);
               const nextAction = getRequestNextAction(request.status);
+              const isExpanded = expandedRequestId === request.id;
+              const hasPipelineReminder =
+                ["cancelled", "closed"].includes(request.status) &&
+                request.candidates.some((candidate) => candidate.candidateStatus === "interview");
               return (
               <div key={request.id} className="px-4 py-3">
                 <div className="grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,2fr)_minmax(170px,0.75fr)_minmax(280px,1.35fr)] xl:items-start">
@@ -1429,19 +1458,82 @@ export function InterviewInboxPage({
                               Reply
                             </Button>
                           ) : null}
-                          {candidate.interviewMeetingId || roleBase !== "/vendor" ? (
-                            <Link
-                              href={`${roleBase}/candidates/${candidate.candidateId}?back=${encodeURIComponent(`${roleBase}/interviews`)}&focus=interview`}
-                              className="text-[11px] font-medium text-primary"
-                            >
-                              View coordination
-                            </Link>
-                          ) : null}
+                          <button
+                            type="button"
+                            className="text-[11px] font-medium text-primary hover:text-primary/80"
+                            onClick={() => setExpandedRequestId(isExpanded ? null : request.id)}
+                          >
+                            Interview details
+                          </button>
                         </div>
                       </div>
                     ))}
+                    <div className="flex flex-wrap justify-end gap-2 pt-1">
+                      {roleBase === "/admin" && !["scheduled", "cancelled", "closed"].includes(request.status) ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 rounded-lg border-rose-200 px-2 text-[11px] text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                          onClick={() => setCancelRequestTarget(request)}
+                        >
+                          Cancel request
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
+                {isExpanded ? (
+                  <div className="mt-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-3">
+                    {hasPipelineReminder ? (
+                      <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                        This request is closed, but at least one candidate is still marked Interview. Admin should update the candidate pipeline when the hiring decision is clear.
+                      </div>
+                    ) : null}
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                      <div className="rounded-xl bg-white px-3 py-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Candidate states</p>
+                        <div className="mt-2 space-y-2">
+                          {request.candidates.map((candidate) => (
+                            <div key={candidate.id} className="flex items-center justify-between gap-2 text-xs">
+                              <span className="truncate font-medium text-slate-700">{candidate.candidateName}</span>
+                              <div className="flex flex-shrink-0 items-center gap-2">
+                                <StatusBadge status={candidate.status} />
+                                {candidate.candidateStatus ? <StatusBadge status={candidate.candidateStatus} /> : null}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="rounded-xl bg-white px-3 py-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Recent activity</p>
+                        <div className="mt-2 space-y-2">
+                          {request.activity.slice(-4).reverse().map((activity) => {
+                            const payload = activity.payload ?? {};
+                            const message =
+                              typeof payload.finalDetails === "string"
+                                ? payload.finalDetails
+                                : typeof payload.messageText === "string"
+                                  ? payload.messageText
+                                  : typeof payload.reason === "string"
+                                    ? payload.reason
+                                    : null;
+                            return (
+                              <div key={activity.id} className="rounded-lg bg-slate-50 px-2.5 py-2 text-xs">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-medium text-slate-700">{formatActivityLabel(activity.eventType)}</span>
+                                  <span className="text-slate-400">{formatRelativeTimestamp(activity.createdAt)}</span>
+                                </div>
+                                {message ? <p className="mt-1 line-clamp-2 leading-5 text-slate-500">{message}</p> : null}
+                              </div>
+                            );
+                          })}
+                          {!request.activity.length ? <p className="text-xs text-slate-500">No activity recorded yet.</p> : null}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
               </div>
               );
             })}
@@ -1563,6 +1655,18 @@ export function InterviewInboxPage({
         submitLabel="Mark scheduled"
         submitting={actionSubmitting}
         onSubmit={(value) => submitScheduledDetails(value)}
+      />
+      <ConfirmActionDialog
+        open={Boolean(cancelRequestTarget)}
+        onOpenChange={(open) => {
+          if (!open) setCancelRequestTarget(null);
+        }}
+        title="Cancel interview request?"
+        description="The scheduling request will move to history. Candidate pipeline status will not be changed automatically."
+        confirmLabel={actionSubmitting ? "Cancelling..." : "Cancel request"}
+        onConfirm={() => {
+          void cancelRequest();
+        }}
       />
     </div>
   );

@@ -359,8 +359,15 @@ async function verifyCandidateDetail(page: Page, candidate: CandidateListItem, r
     waitUntil: "domcontentloaded",
   });
   await assertVisible(page, `text=${candidate.firstName} ${candidate.lastName}`, "The client candidate detail page did not render.");
-  await assertVisible(page, "text=View Standardized CV", "The standardized CV action is missing from candidate detail.");
   await assertVisible(page, "text=Interview", "The interview summary card is not visible on candidate detail.");
+  if (candidate.cvUrl) {
+    await assertVisible(page, "text=View Original CV", "The original CV action is missing from candidate detail.");
+  }
+
+  const standardizedCvCtaCount = await page.getByText("View Standardized CV").count();
+  if (standardizedCvCtaCount > 0) {
+    throw new Error("Client candidate detail still exposes the Standardized CV CTA.");
+  }
 
   const skillsHeadingCount = await page.getByText(/^Skills$/).count();
   if (skillsHeadingCount > 0) {
@@ -377,37 +384,9 @@ async function verifyCandidateDetail(page: Page, candidate: CandidateListItem, r
     name: "Client candidate detail",
     status: "passed",
     severity: "none",
-    details: "Candidate detail rendered with the interview summary visible and without client-facing admin copy leaks.",
+    details: "Candidate detail rendered with original CV access, interview summary, and no client-facing Standardized CV CTA.",
     artifact: absoluteToRepoRelative(artifacts.screenshotPath),
   });
-}
-
-async function verifyStandardizedCvPreview(page: Page) {
-  const popupPromise = page.context().waitForEvent("page");
-  await page.getByRole("button", { name: "View Standardized CV" }).click();
-  const popup = await popupPromise;
-  await popup.waitForLoadState("domcontentloaded", { timeout: 15000 });
-  await popup.waitForTimeout(1500);
-  const screenshotPath = path.join(runDir, "05-standardized-cv-preview.png");
-  let artifactPath = screenshotPath;
-  await popup.screenshot({ path: screenshotPath, fullPage: true }).catch(async () => {
-    artifactPath = path.join(runDir, "05-standardized-cv-preview.txt");
-    await fs.writeFile(artifactPath, popup.url(), "utf8");
-  });
-
-  const popupUrl = popup.url();
-  if (!popupUrl.startsWith("blob:") && !popupUrl.startsWith("chrome-extension:")) {
-    throw new Error(`Standardized CV preview opened an unexpected target: ${popupUrl}`);
-  }
-
-  await addResult({
-    name: "Standardized CV preview",
-    status: "passed",
-    severity: "none",
-    details: "The standardized CV preview opened in a new tab without a client-facing error.",
-    artifact: absoluteToRepoRelative(artifactPath),
-  });
-  await popup.close().catch(() => undefined);
 }
 
 async function verifyRoles(page: Page) {
@@ -567,7 +546,6 @@ async function main() {
     await verifyClientLogin(page);
     await verifyCandidateList(page);
     await verifyCandidateDetail(page, primaryCandidate, roleCandidatesHref);
-    await verifyStandardizedCvPreview(page);
     await verifyRoles(page);
     await verifyRoleCandidates(page, primaryCandidate.roleId);
     await verifyInterviewInbox(page);

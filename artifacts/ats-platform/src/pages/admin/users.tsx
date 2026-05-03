@@ -170,6 +170,9 @@ export default function AdminUsers() {
                 Create the account with a random temporary password. RecruitFlow will automatically send a reset email, and only admin-created accounts can receive reset mail later.
               </DialogDescription>
             </DialogHeader>
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800">
+              Email delivery is available for onboarding tests. Production-grade sender trust will be finalized after the RecruitFlow domain is connected and verified.
+            </div>
             <form onSubmit={handleSubmit} className="mt-4 space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Full Name</label>
